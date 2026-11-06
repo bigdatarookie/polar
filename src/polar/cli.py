@@ -36,6 +36,9 @@ def main(argv=None):
     subs.add_parser("dataset").add_argument("dataset_id")
     subs.add_parser("register").add_argument("file",type=Path)
     subs.add_parser("inspect-dataset").add_argument("file",type=Path)
+    asof = subs.add_parser("asof-features")
+    asof.add_argument("file",type=Path)
+    asof.add_argument("--decision-at",required=True)
     submit = subs.add_parser("submit")
     submit.add_argument("file",type=Path)
     submit.add_argument("--key",required=True)
@@ -45,6 +48,18 @@ def main(argv=None):
     compare.add_argument("left",type=uuid.UUID)
     compare.add_argument("right",type=uuid.UUID)
     args = parser.parse_args(argv)
+    if args.command == "asof-features":
+        from .feature_view import MAX_INPUT_BYTES, FeatureViewError, asof_features
+        try:
+            with args.file.open("rb") as source:
+                raw = source.read(MAX_INPUT_BYTES + 1)
+            result = asof_features(raw,args.decision_at)
+        except (OSError, FeatureViewError) as exc:
+            code = exc.code if isinstance(exc, FeatureViewError) else "INPUT_READ_ERROR"
+            print(json.dumps({"status":"ERROR","code":code}),file=sys.stderr)
+            raise SystemExit(1)
+        print(json.dumps(result,sort_keys=True,allow_nan=False))
+        return
     if args.command == "inspect-dataset":
         from .data_quality import MAX_INPUT_BYTES, InspectionError, inspect_dataset
         try:
