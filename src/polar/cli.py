@@ -5,9 +5,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from .config import Settings
 from .models import RunConfig
-from .service import Service
 
 
 def main(argv=None):
@@ -16,6 +14,7 @@ def main(argv=None):
     for name in ["migrate","ready","datasets","runs","worker-once","worker"]:
         subs.add_parser(name)
     subs.add_parser("register").add_argument("file",type=Path)
+    subs.add_parser("inspect-dataset").add_argument("file",type=Path)
     submit = subs.add_parser("submit")
     submit.add_argument("file",type=Path)
     submit.add_argument("--key",required=True)
@@ -25,7 +24,22 @@ def main(argv=None):
     compare.add_argument("left",type=uuid.UUID)
     compare.add_argument("right",type=uuid.UUID)
     args = parser.parse_args(argv)
+    if args.command == "inspect-dataset":
+        from .data_quality import MAX_INPUT_BYTES, InspectionError, inspect_dataset
+        try:
+            # Bounded read, including for streams/files that grow after opening.
+            with args.file.open("rb") as source:
+                raw = source.read(MAX_INPUT_BYTES + 1)
+            result = inspect_dataset(raw)
+        except (OSError, InspectionError) as exc:
+            code = exc.code if isinstance(exc, InspectionError) else "INPUT_READ_ERROR"
+            print(json.dumps({"status":"ERROR","code":code}),file=sys.stderr)
+            raise SystemExit(1)
+        print(json.dumps(result,sort_keys=True,allow_nan=False))
+        return
     try:
+        from .config import Settings
+        from .service import Service
         s = Service(Settings.load())
         match args.command:
             case "migrate":
