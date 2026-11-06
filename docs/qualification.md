@@ -6,7 +6,8 @@ RUN until the actual build/host check. Image digests are registry-resolved, not
 observed running image identities. Exact commit and evidence are returned through
 the native OpenRig handoff, not a product task tracker.
 
-Author checks on the candidate source:
+Historical author checks on rejected candidate `547ba77` (retained evidence;
+these checks did not cover the three later financial-review defects):
 
 | Status | Evidence scope |
 | --- | --- |
@@ -21,6 +22,47 @@ Author checks on the candidate source:
 The test client currently emits Starlette's httpx deprecation warning; the locked
 adapter works in the author tests. A future adapter migration needs a separate
 compatibility check. It is not silently suppressed.
+
+## Bounded financial repair of F1/F2/F3
+
+The independent financial-methodology review of `547ba77` was FAIL; its source
+findings and Lead's executed reproduction remain preserved outside this repository.
+This revision addresses only those findings, without changing protocol v2, the
+base tape, fees or tolerances. New exact-revision independent verdicts are pending.
+
+- F1: dataset validation requires the maximum action publication, availability
+  and replay ingestion time to be at or before its effective open. A later record
+  rejects with `ACTION_NOT_AVAILABLE_AT_EFFECTIVE_TIME` before accounting and
+  before dataset registration writes. Delayed action replay is unsupported;
+  it is never silently applied to prior NAV. Equality is eligible. Action ledger
+  receipts retain the effective open separately from source provenance. Feature
+  decisions and open-price receipt clocks are unchanged.
+- F2: distinct simultaneous actions execute split, transformed prior-close
+  dividend entitlement, then settlement, before pending orders. Source action
+  order cannot change those phases. Multiple same-kind actions at one open remain
+  `INVALID` with `AMBIGUOUS_SIMULTANEOUS_ACTIONS`; no composition rule is invented.
+- F3: NAV rows retain input `price_status` (null for an absent row), mark nulls,
+  and a `MISSING` valuation status where price coverage is missing. Cash-only NAV
+  remains valid, with `MISSING_FLAT_MARK` for missing closes, or
+  `MISSING_PRICE_COVERAGE` for a partial missing-price row with a known close.
+  Coverage separates `present_bars`, actual `observed_bars`, known
+  `settlement_only_bars`, and `missing_price_sessions`. A known settlement covers
+  its session without pretending to be an observed market price. Missing held
+  closes remain `INVALID`.
+
+Thirteen added local regression cases cover all three action types with late
+ingestion, the inclusive action-time boundary, simultaneous action permutations,
+transformed pending orders and entitlement, settlement cancellation, ambiguous
+same-kind actions, absent/explicit missing rows, and JSON/Parquet/original-input
+publication. The full local suite has 28 cases passing and one PostgreSQL case
+skipped (NOT RUN); exact commit, commands, CPU times and evidence hashes belong
+to the author return. These are author checks, not independent acceptance.
+
+Current runtime boundary: Docker connectivity was restored by the operator after
+the historical failure above. This code repair does not inspect or touch owner
+containers, build/start Compose, submit service jobs, or qualify PostgreSQL.
+Independent Software QA remains NOT RUN pending the operator's model decision.
+Validator re-review, Lead E2E, software acceptance and merge remain pending.
 
 Financial scope is the frozen raw USD six-session accounting fixture plus cash
 baseline. Rejected orders retain cash/positions and appear in report diagnostics.

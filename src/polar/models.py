@@ -173,6 +173,11 @@ class Dataset(Strict):
         for a in self.actions:
             if a.effective_time not in opens or a.event_time != a.effective_time or a.available_at > a.effective_time:
                 raise ValueError("UNSUPPORTED_ACTION_TIME")
+            # This bounded replay requires action records at their effective open.
+            # Reject delayed ingestion before any accounting, rather than applying
+            # a backfilled action to already reported holdings or NAV.
+            if max(a.published_at, a.available_at, a.ingested_at) > a.effective_time:
+                raise ValueError("ACTION_NOT_AVAILABLE_AT_EFFECTIVE_TIME")
         return self
 
 

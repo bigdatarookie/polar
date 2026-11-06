@@ -46,16 +46,20 @@ def _calculate(data, config, fee_per_fill=Decimal(1)):
     previous_close = None
     total_fees, dividend_cash, settlement_cash = Decimal(0), Decimal(0), Decimal(0)
     settled = False
+    observed_bars, settlement_only_bars, missing_price_sessions = 0, 0, 0
     for session in data.sessions:
         prior_shares = shares
         actions = [a for a in data.actions if a.effective_time == session.open_at]
-        # Only the frozen ordering is implemented. Ambiguous simultaneous actions
-        # fail rather than silently guessing which share basis is entitled.
-        if len(actions) > 1:
-            raise InvalidInput("SIMULTANEOUS_ACTIONS_UNSUPPORTED")
+        # Distinct phases have a frozen order, independent of source row order.
+        # Multiple actions within a phase have no qualified composition rule.
+        if len({a.kind for a in actions}) != len(actions):
+            raise InvalidInput("AMBIGUOUS_SIMULTANEOUS_ACTIONS")
+        phases = {"split": 0, "dividend": 1, "delisting_cash_settlement": 2}
+        actions.sort(key=lambda a: phases[a.kind])
         for a in actions:
             if a.kind == "split":
                 shares *= a.ratio_numerator/a.ratio_denominator
+                prior_shares *= a.ratio_numerator/a.ratio_denominator
                 if pending:
                     pending = pending.model_copy(update={"quantity":pending.quantity*a.ratio_numerator/a.ratio_denominator})
                 if shares != shares.to_integral_value():
@@ -76,6 +80,7 @@ def _calculate(data, config, fee_per_fill=Decimal(1)):
                 shares = Decimal(0)
                 settled = True
             ledger.append({"at":session.open_at.isoformat(),"kind":a.kind,"action_id":a.action_id,
+                           "receipt_at":max(session.open_at,a.published_at,a.available_at,a.ingested_at).isoformat(),
                            "cash":str(cash),"shares":str(shares)})
         bar = bars.get(session.session_id)
         if pending and pending.quantity:
@@ -102,8 +107,15 @@ def _calculate(data, config, fee_per_fill=Decimal(1)):
             raise InvalidInput("MISSING_DELISTING_SETTLEMENT")
         if shares and (not bar or bar.close is None):
             raise InvalidInput("MISSING_HELD_MARK")
-        if not bar:
-            diagnostics.append({"session_id":session.session_id,"code":"MISSING_FLAT_MARK"})
+        settlement_only = bool(bar and bar.price_status == "SETTLEMENT_ONLY" and settled)
+        observed = bool(bar and bar.price_status == "OBSERVED")
+        missing_price = not observed and not settlement_only
+        observed_bars += int(observed)
+        settlement_only_bars += int(settlement_only)
+        missing_price_sessions += int(missing_price)
+        if missing_price:
+            diagnostics.append({"session_id":session.session_id,
+                                "code":"MISSING_FLAT_MARK" if not bar or bar.close is None else "MISSING_PRICE_COVERAGE"})
         nav = cash + shares*((bar.close if bar else None) or Decimal(0))
         if nav <= 0:
             raise InvalidInput("NONPOSITIVE_NAV")
@@ -113,7 +125,8 @@ def _calculate(data, config, fee_per_fill=Decimal(1)):
                      "cash":str(cash),"shares":str(shares),"mark":str(bar.close) if bar and bar.close is not None else None,
                      "nav":str(nav),"return":str(ret) if ret is not None else None,
                      "available_at":max(bar.available_at,bar.ingested_at).isoformat() if bar else session.close_at.isoformat(),
-                     "status":"SETTLED" if settled else "OBSERVED"})
+                     "price_status":bar.price_status if bar else None,
+                     "status":"MISSING" if missing_price else ("SETTLED" if settled else "OBSERVED")})
         previous_nav,previous_close = nav,session.close_at
         order = orders.get(session.session_id)
         if order:
@@ -147,6 +160,9 @@ def _calculate(data, config, fee_per_fill=Decimal(1)):
         "order_tape":[{"decision_session_id":o.decision_session_id,
                        "decision_at":(next(s.close_at for s in data.sessions if s.session_id==o.decision_session_id)+timedelta(seconds=2)).isoformat(),
                        "quantity":str(o.quantity)} for o in config.orders],
-        "coverage":{"expected_sessions":len(data.sessions),"observed_bars":len(data.bars),"status":"COMPLETE" if len(data.sessions)==len(data.bars) else "INCOMPLETE"},
+        "coverage":{"expected_sessions":len(data.sessions),"present_bars":len(data.bars),
+                    "observed_bars":observed_bars,"settlement_only_bars":settlement_only_bars,
+                    "missing_price_sessions":missing_price_sessions,
+                    "status":"INCOMPLETE" if missing_price_sessions else "COMPLETE"},
         "metrics":computed_metrics,
         "assumptions":["raw unadjusted USD", "long only; no leverage", "next session open", "USD 1 per nonzero fill", "zero spread and slippage", "synthetic replay; not actual historical ingestion", "one instrument; no ticker changes; same-day dividends only"]}
