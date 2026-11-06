@@ -1,0 +1,133 @@
+name: polar
+
+x-app: &app
+  image: polar-local:${POLAR_IMAGE_TAG:-fixture}
+  build:
+    context: .
+    args:
+      CODE_REVISION: ${POLAR_CODE_REVISION:?Set exact commit SHA}
+  init: true
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 100
+  tmpfs: [/tmp:size=64m,mode=1777]
+  networks: [service]
+  logging: &logs
+    driver: json-file
+    options: {max-size: 5m, max-file: "2"}
+
+x-env: &env
+  POLAR_DB_HOST: db
+  POLAR_DB_PASSWORD_FILE: /run/secrets/db_password
+  POLAR_ARTIFACT_ROOT: /data/artifacts
+  POLAR_IMAGE_REF: polar-local:${POLAR_IMAGE_TAG:-fixture}
+
+services:
+  db:
+    image: postgres:17.11-alpine@sha256:3540c0362c809df084ffac0ae69fe794515f9de92692f02178bcdce0ef0302ac
+    cpus: 0.5
+    mem_limit: 768m
+    pids_limit: 100
+    environment:
+      POSTGRES_DB: polar
+      POSTGRES_USER: polar
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets: [db_password]
+    volumes: [db:/var/lib/postgresql/data]
+    networks: [service]
+    logging: *logs
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U polar -d polar"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    <<: *app
+    profiles: [tools]
+    cpus: 0.5
+    mem_limit: 512m
+    environment: *env
+    secrets: [db_password]
+    command: [python, -m, polar.cli, migrate]
+    depends_on: {db: {condition: service_healthy}}
+
+  api:
+    <<: *app
+    cpus: 0.5
+    mem_limit: 512m
+    environment: *env
+    secrets: [db_password]
+    ports: ["127.0.0.1:${POLAR_API_PORT:-18080}:8000"]
+    volumes: [artifacts:/data/artifacts:ro]
+    depends_on: {db: {condition: service_healthy}}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  worker:
+    <<: *app
+    cpus: 1.0
+    mem_limit: 1024m
+    environment: *env
+    secrets: [db_password]
+    volumes: [artifacts:/data/artifacts:rw]
+    command: [python, -m, polar.worker]
+    depends_on: {db: {condition: service_healthy}}
+    healthcheck:
+      test: [CMD, python, -m, polar.cli, ready]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  evaluator:
+    <<: *app
+    profiles: [evaluation]
+    cpus: 1.0
+    mem_limit: 1024m
+    network_mode: none
+    networks: !reset []
+    environment: {}
+    volumes:
+      - ${POLAR_EVALUATOR_INPUT:?Select one immutable artifact directory}:/input:ro
+      - evaluations:/output:rw
+    command: [python, -m, polar.evaluator]
+
+  snapshot:
+    <<: *app
+    profiles: [tools]
+    cpus: 0.5
+    mem_limit: 512m
+    network_mode: none
+    networks: !reset []
+    environment: {}
+    volumes: [artifacts:/data/artifacts:ro]
+    command: [python, -c, "raise SystemExit('Use scripts/ops.py backup')"]
+
+  restore-artifacts:
+    <<: *app
+    profiles: [tools]
+    cpus: 0.5
+    mem_limit: 512m
+    network_mode: none
+    networks: !reset []
+    environment: {}
+    volumes: [artifacts:/data/artifacts:rw]
+    command: [python, -c, "raise SystemExit('Use scripts/ops.py restore')"]
+
+networks:
+  service:
+    name: ${POLAR_NETWORK:-polar_fixture_service}
+    internal: true
+
+volumes:
+  db: {name: "${POLAR_DB_VOLUME:-polar_fixture_db}", labels: {polar.scope: POL.0.4.0.1}}
+  artifacts: {name: "${POLAR_ARTIFACT_VOLUME:-polar_fixture_artifacts}", labels: {polar.scope: POL.0.4.0.1}}
+  evaluations: {name: "${POLAR_EVALUATION_VOLUME:-polar_fixture_evaluations}", labels: {polar.scope: POL.0.4.0.1}}
+
+secrets:
+  db_password:
+    file: ${POLAR_DB_PASSWORD_PATH:?Set task-owned password file path}

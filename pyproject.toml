@@ -1,0 +1,29 @@
+[project]
+name = "polar-fixture"
+version = "0.1.0"
+description = "Bounded local financial infrastructure fixture"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "fastapi==0.162.0",
+  "uvicorn==0.54.0",
+  "psycopg[binary]==3.3.8",
+  "pydantic==2.14.3",
+  "pyarrow==26.0.1",
+]
+
+[dependency-groups]
+dev = ["pytest==9.2.0", "httpx==0.28.1"]
+
+[project.scripts]
+polar = "polar.cli:main"
+
+[build-system]
+requires = ["hatchling==1.29.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/polar"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["postgres: requires an isolated PostgreSQL database"]
