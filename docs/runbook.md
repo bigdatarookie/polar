@@ -16,6 +16,8 @@ export POLAR_CODE_REVISION="$(git rev-parse HEAD)"
 export POLAR_IMAGE_TAG="fixture-$POLAR_CODE_REVISION"
 export POLAR_DB_PASSWORD_PATH=/private/tmp/polar-bootstrap-secrets/db_password
 export POLAR_EVALUATOR_INPUT=/private/tmp/polar-selected-evaluator-input
+export POLAR_NETWORK=polar_fixture_service
+export POLAR_API_NETWORK=polar_fixture_api
 ```
 
 Create the password file outside the repository, mode 0600, using a generated
@@ -27,7 +29,18 @@ an already initialized PostgreSQL volume's password automatically.
 Refuse preexisting `polar_fixture_*` volumes/networks unless labels and provenance
 show they belong to this task. Inspect the rendered configuration before startup.
 `POLAR_DB_VOLUME`, `POLAR_ARTIFACT_VOLUME`, `POLAR_EVALUATION_VOLUME`,
-`POLAR_NETWORK` and `POLAR_API_PORT` allow explicit task-owned resources.
+`POLAR_NETWORK`, `POLAR_API_NETWORK` and `POLAR_API_PORT` allow explicit task-owned
+resources. Choose fresh task-owned names for both networks; preserve existing
+resources and diagnostic networks.
+
+DB, worker and migration use only the private internal service network. API also
+joins its own normal bridge for host port publishing, while its published binding
+remains 127.0.0.1 only. This API bridge permits outbound connectivity; the API is
+not internal-only. Evaluator and artifact helpers retain network_mode:none.
+See Docker's [internal network documentation](https://docs.docker.com/compose/how-tos/networking/#internal-networks)
+and [loopback port publishing](https://docs.docker.com/engine/network/port-publishing/).
+Validate actual host HTTP reachability after startup; successful Compose parsing
+or an in-container health check does not prove the host path.
 
 ```sh
 docker compose -p polar config --quiet
@@ -135,10 +148,13 @@ manifests, environment and native qitem/scope references. Budget includes backup
 
 Restore verifies checksums and **refuses existing restore-volume names**. It stops
 only the named task services, keeps all source volumes, creates separately named
-DB/artifact volumes and network, imports metadata/artifacts, and starts only API
+DB/artifact volumes, internal service network and API bridge, imports
+metadata/artifacts, and starts only API
 on 127.0.0.1:18081. No worker recomputation is allowed to mask a broken restore.
 Normal task containers may be recreated against these explicitly selected fresh
-volumes; source volumes remain intact. Record the generated restore resource map.
+volumes; source volumes remain intact. The generated restore resource map includes
+POLAR_API_NETWORK as polar_restore_SUFFIX_api alongside its separate service
+network, so restored API does not reuse the source bridge. Record that resource map.
 Recheck port 18081 before running. Verify the original report/manifest through
 API/CLI and compare bytes/hash to pre-backup evidence. Import success alone is
 not restore acceptance. Preserve source and backup; no automatic cleanup exists.

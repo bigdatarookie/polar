@@ -55,7 +55,7 @@ services:
 
   api:
     <<: *app
-    networks: [service]
+    networks: [service, api_host]
     cpus: 0.5
     mem_limit: 512m
     environment: *env
@@ -121,6 +121,10 @@ networks:
   service:
     name: ${POLAR_NETWORK:-polar_fixture_service}
     internal: true
+  api_host:
+    name: ${POLAR_API_NETWORK:-polar_fixture_api}
+    driver: bridge
+    internal: false
 
 volumes:
   db: {name: "${POLAR_DB_VOLUME:-polar_fixture_db}", labels: {polar.scope: POL.0.4.0.1}}

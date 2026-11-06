@@ -89,7 +89,8 @@ def restore(source,suffix):
         if sha(source/name) != h: raise SystemExit("Snapshot checksum mismatch")
     prefix = "polar_restore_"+suffix
     env = {**os.environ,"POLAR_DB_VOLUME":prefix+"_db","POLAR_ARTIFACT_VOLUME":prefix+"_artifacts",
-           "POLAR_EVALUATION_VOLUME":prefix+"_evaluations","POLAR_NETWORK":prefix+"_service","POLAR_API_PORT":"18081"}
+           "POLAR_EVALUATION_VOLUME":prefix+"_evaluations","POLAR_NETWORK":prefix+"_service",
+           "POLAR_API_NETWORK":prefix+"_api","POLAR_API_PORT":"18081"}
     # Fresh names are a hard precondition. Never overwrite an existing volume.
     for name in [env["POLAR_DB_VOLUME"],env["POLAR_ARTIFACT_VOLUME"],env["POLAR_EVALUATION_VOLUME"]]:
         found = subprocess.run(["docker","volume","inspect",name],capture_output=True)
@@ -106,7 +107,7 @@ def restore(source,suffix):
         stream_helper(code,input=f,environment=env)
     # Explicit read-only API only: never recompute to conceal a bad restore.
     run(COMPOSE+["up","-d","--no-deps","api"],env=env)
-    (source/("restore-"+suffix+".json")).write_text(json.dumps({k:v for k,v in env.items() if k in ["POLAR_DB_VOLUME","POLAR_ARTIFACT_VOLUME","POLAR_EVALUATION_VOLUME","POLAR_NETWORK","POLAR_API_PORT"]},indent=2)+"\n")
+    (source/("restore-"+suffix+".json")).write_text(json.dumps({k:v for k,v in env.items() if k in ["POLAR_DB_VOLUME","POLAR_ARTIFACT_VOLUME","POLAR_EVALUATION_VOLUME","POLAR_NETWORK","POLAR_API_NETWORK","POLAR_API_PORT"]},indent=2)+"\n")
     print("Fresh restore imported. Verify the original report via 127.0.0.1:18081 without worker. Acceptance NOT RUN.")
 
 
