@@ -115,7 +115,7 @@ def test_unavailable_measurements_are_unknown(runtime):
 
 
 def test_output_boundary_new_external_file_only(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(ops, 'inventory_manifest', lambda *args: {'schema': 'controlled'})
+    monkeypatch.setattr(ops, 'inventory_manifest', lambda *args, **kwargs: {'schema': 'controlled'})
     output = tmp_path/'new.json'
     ops.inventory(output)
     assert json.loads(output.read_text()) == {'schema': 'controlled'}
@@ -197,7 +197,7 @@ def test_backup_binds_existing_format_without_opening_dump(runtime, tmp_path):
 
 
 def test_output_size_bound_and_sanitized_timeout(tmp_path, monkeypatch):
-    monkeypatch.setattr(ops, 'inventory_manifest', lambda *args: {'over_limit': 'x'*65536})
+    monkeypatch.setattr(ops, 'inventory_manifest', lambda *args, **kwargs: {'over_limit': 'x'*65536})
     with pytest.raises(SystemExit, match='OUTPUT_LIMIT'):
         ops.inventory(tmp_path/'too-large.json')
     assert not (tmp_path/'too-large.json').exists()
