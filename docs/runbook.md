@@ -179,3 +179,104 @@ aggregate scheduler. Named volumes have no demonstrated hard disk boundary.
 Admission checks DB+artifact size; SRE accounts for backups/logs/scratch and stops
 before 4 GiB retained + 1 GiB scratch/logs. Report
 `STORAGE_HARD_QUOTA_NOT_ENFORCED` until real enforcement is demonstrated.
+
+## Read-only runtime inventory and custody
+
+Run `python3 scripts/ops.py inventory --help` from the assigned checkout. Inventory
+only reads Compose/Docker metadata and a bounded `BEGIN READ ONLY` PostgreSQL
+projection; it never builds, starts, stops, migrates, restores, submits a job or
+reads a secret file. No Docker or host installation is implied. It requires the
+existing Docker CLI/Compose and selected task runtime. Run serially within the
+Lead's assigned computation and environment-custody window.
+
+Before inspection, obtain the current candidate, app image/revision, environment
+owner and resource/backup handles through the native handoff. The selected host
+tooling commit may differ from the accepted app image; do not rebuild the app to
+make them equal. Preserve owner checkout changes and other QA's environment.
+
+Use the existing configuration variables above and in `.env.example`, especially
+`POLAR_DB_VOLUME`, `POLAR_ARTIFACT_VOLUME`, `POLAR_NETWORK`, `POLAR_API_NETWORK`,
+`POLAR_API_PORT`, `POLAR_DB_PASSWORD_PATH`, `POLAR_EVALUATOR_INPUT`,
+`POLAR_CODE_REVISION` and `POLAR_IMAGE_TAG`. Select the **existing** task resources,
+secret-file path and observed app revision/tag from that handoff. Compose defaults
+are not runtime discovery. For a restored environment, use its retained resource
+map rather than silently selecting `polar_fixture_*`. Never regenerate the DB
+password or print a DSN/environment. Inventory reads the rendered configuration
+but emits only the allowlisted resource names/caps, not service environments.
+
+With those ordinary Compose variables set, invoke directly, without a private
+bootstrap wrapper (replace the uppercase values with the assigned exact hashes):
+
+```sh
+python3 scripts/ops.py inventory \
+  --expected-app-revision APP_COMMIT_40_HEX \
+  --expected-image-id sha256:APP_IMAGE_64_HEX \
+  --output /private/tmp/polar-inventory-UNIQUE.json
+```
+
+The parent directory must exist; the absolute output must be a NEW file outside
+Git, including other repositories. Existing files and symlinks are refused. The
+file is created exclusively with mode0600 and bounded to64KiB; the command prints
+only a fixed receipt/error code. No credential values, raw inspect/env, dataset
+bodies, reports, logs or dumps are written. Commands have an8-second timeout and
+2MiB captured-response limit, at most12 selected containers and exactly the three
+core service projections. Inputs from labels are validated as hashes/revisions;
+unknown labels/environment fields and subprocess error bodies are discarded.
+
+Manifest `polar.runtime-inventory/1` separates:
+
+- `selected_tooling`: actual Git commit/tree, operations-file hash and whether its
+  bytes match that commit. Uncommitted tooling is explicitly distinguishable.
+- `desired`: selected Compose-file hash, resource names and declared caps.
+- `observed`: actual container/image IDs, validated revision labels, per-service
+  Compose config hashes, states, mounts/networks, loopback port and Docker
+  HostConfig caps; database schema version/checksum and bounded aggregate counts.
+- `checks`: equality of declared/observed caps/maps and optional expected app
+  revision/image. These comparisons do not compare the app with the tooling SHA.
+- `limits`: hard storage `NOT_ENFORCED`, `BLINDING_NOT_ENFORCED`, incomplete global
+  accounting and `NOT_RUN` kernel-cap/running-source-byte verification.
+
+Successful collection is not a PASS verdict. Missing services or schema probes
+remain `UNKNOWN`/`NOT_RUN`; do not substitute desired configuration. Failed app
+revision/image/cap equality is retained as false. Wrong project/root/resource
+ownership, duplicate core services or mismatched mounts/networks/loopback refuse
+collection with a sanitized fixed error. A revision label or config hash alone
+is not running-code proof, hard resource enforcement or acceptance. Inspection
+is a timestamped observation, not an atomic snapshot across Docker and DB; a
+candidate-scoped owner must exclude concurrent runtime changes.
+
+To bind an existing backup handle, add `--backup-directory /absolute/backup-dir`.
+Only the existing `backup-manifest.json` format is read: its file hash and
+allowlisted declared dump/tar hashes are recorded. Inventory never opens or
+copies dump/artifact bodies, verifies their content hashes, runs a restore or
+claims that the backup includes later registrations. `file_verification` and
+`restore_effect` stay `NOT_RUN`; `current_state_coverage` stays `UNKNOWN`. Keep
+raw backup files protected outside Git and shared evidence. Backup/restore and
+evaluator commands retain the operations and ownership checks documented above;
+this flag is not authorization to execute them.
+
+Custody handoff: send the manifest path/hash, tooling SHA, observed app image and
+revision, owner/window, resource names and protected backup location through the
+native queue. Explicitly state gaps, allowed operations and remaining manual
+budget; never send secret contents or an environment dump. A receiver can use
+these documented ordinary Compose variables and existing read-only CLI/API
+operations to fetch one retained dataset identity and original report:
+
+```sh
+# Use the manifest's observed loopback port and the assigned retained IDs.
+curl --fail http://127.0.0.1:PORT/v1/datasets/DATASET_ID
+docker compose -p polar exec -T api python -m polar.cli dataset DATASET_ID
+curl --fail http://127.0.0.1:PORT/v1/runs/RUN_UUID/report
+docker compose -p polar exec -T api python -m polar.cli report RUN_UUID
+```
+
+Compare dataset canonical/source hashes and actual registration timestamp, then
+report/manifest hashes and attempt history against the handed-over before-state.
+Fetch report/evidence/status without recomputation; no new logical job is needed.
+Reports contain financial rows: inspect locally, preserve only safe identity/hash
+projections in shared proof. QA System independently records consumer effects;
+author inventory does not accept itself. With one shared stack, serialize
+conflicting restarts, migration, restore and revision changes between QA seats;
+QA2 can prepare or run separately assigned independent work. Do not duplicate
+full stacks or expand quotas automatically. A recreation requires separate Lead
+authorization, original before-state and retained volumes; inventory never does it.
