@@ -3,6 +3,15 @@ import hashlib
 
 from .artifacts import ArtifactStore
 from .registry import Registry, Conflict
+from .codec import digest
+from .data_quality import InspectionError, inspect_dataset
+
+
+class DatasetIntegrityError(Exception):
+    """Retained dataset does not match its immutable registration binding."""
+
+    def __init__(self):
+        super().__init__("DATASET_INTEGRITY_ERROR")
 
 
 class Service:
@@ -15,6 +24,23 @@ class Service:
         self.artifacts.check()
         return {"status":"READY","schema_version":1,"storage_hard_quota":"NOT_ENFORCED",
                 "blinding":"BLINDING_NOT_ENFORCED"}
+
+    def dataset(self, dataset_id):
+        row = self.registry.dataset(dataset_id)
+        try:
+            inspection = inspect_dataset(row["source_bytes"])
+            valid = (
+                row["id"] == dataset_id == inspection["dataset_id"]
+                and row["content_hash"] == inspection["content_hash"] == digest(row["body"])
+                and row["source_hash"] == inspection["source_sha256"]
+            )
+        except (InspectionError, KeyError, TypeError, ValueError, RecursionError):
+            raise DatasetIntegrityError() from None
+        if not valid:
+            raise DatasetIntegrityError()
+        return {"id":row["id"], "content_hash":row["content_hash"],
+                "source_hash":row["source_hash"], "registered_at":row["registered_at"],
+                "inspection":inspection}
 
     def report(self, run_id):
         run = self.registry.get(run_id)

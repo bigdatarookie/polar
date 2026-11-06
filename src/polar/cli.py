@@ -8,11 +8,32 @@ from pathlib import Path
 from .models import RunConfig
 
 
+def page_limit(value):
+    number = int(value)
+    if not 1 <= number <= 10:
+        raise argparse.ArgumentTypeError("limit must be between 1 and 10")
+    return number
+
+
+def page_offset(value):
+    number = int(value)
+    if number < 0:
+        raise argparse.ArgumentTypeError("offset must be nonnegative")
+    return number
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="polar")
     subs = parser.add_subparsers(dest="command",required=True)
-    for name in ["migrate","ready","datasets","runs","worker-once","worker"]:
+    for name in ["migrate","ready","worker-once","worker"]:
         subs.add_parser(name)
+    for name in ["datasets", "runs"]:
+        listing = subs.add_parser(name)
+        listing.add_argument("--limit",type=page_limit,default=10)
+        listing.add_argument("--offset",type=page_offset,default=0)
+        if name == "runs":
+            listing.add_argument("--dataset-id")
+    subs.add_parser("dataset").add_argument("dataset_id")
     subs.add_parser("register").add_argument("file",type=Path)
     subs.add_parser("inspect-dataset").add_argument("file",type=Path)
     submit = subs.add_parser("submit")
@@ -50,12 +71,13 @@ def main(argv=None):
                 if args.file.stat().st_size > 1024**2: raise ValueError("INPUT_TOO_LARGE")
                 raw = args.file.read_bytes()
                 result = s.registry.register_dataset(json.loads(raw),raw)
-            case "datasets": result = s.registry.datasets()
+            case "datasets": result = s.registry.datasets(args.limit,args.offset)
+            case "dataset": result = s.dataset(args.dataset_id)
             case "submit":
                 if args.file.stat().st_size > 1024**2: raise ValueError("INPUT_TOO_LARGE")
                 if not 1 <= len(args.key) <= 128: raise ValueError("INVALID_KEY")
                 result = s.registry.submit(args.key,RunConfig.model_validate_json(args.file.read_bytes()))
-            case "runs": result = s.registry.search()
+            case "runs": result = s.registry.search(args.limit,args.offset,args.dataset_id)
             case "status": result = s.registry.get(args.run_id)
             case "cancel": result = s.registry.cancel(args.run_id)
             case "report": result = s.report(args.run_id)
@@ -76,7 +98,13 @@ def main(argv=None):
         print(json.dumps(result,default=str,sort_keys=True,allow_nan=False))
     except Exception as exc:
         # Exception messages can contain DSNs or payloads. Stable type only.
-        print(json.dumps({"status":"ERROR","code":type(exc).__name__}),file=sys.stderr)
+        from .registry import NotFound
+        from .service import DatasetIntegrityError
+        code = type(exc).__name__
+        if args.command == "dataset":
+            if isinstance(exc, DatasetIntegrityError): code = "DATASET_INTEGRITY_ERROR"
+            elif isinstance(exc, NotFound): code = "DATASET_NOT_FOUND"
+        print(json.dumps({"status":"ERROR","code":code}),file=sys.stderr)
         raise SystemExit(1)
 
 

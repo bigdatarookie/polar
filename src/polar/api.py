@@ -10,7 +10,7 @@ from .artifacts import ArtifactError
 from .config import Settings
 from .models import Dataset, RunConfig
 from .registry import BudgetExceeded, Conflict, NotFound
-from .service import Service
+from .service import DatasetIntegrityError, Service
 
 
 def create_app(service=None):
@@ -34,6 +34,10 @@ def create_app(service=None):
     @app.exception_handler(Conflict)
     def conflict(req,exc):
         return JSONResponse(status_code=409,content={"code":str(exc)})
+
+    @app.exception_handler(DatasetIntegrityError)
+    def dataset_integrity(req,exc):
+        return JSONResponse(status_code=409,content={"code":"DATASET_INTEGRITY_ERROR"})
 
     @app.exception_handler(NotFound)
     def not_found(req,exc):
@@ -80,6 +84,10 @@ def create_app(service=None):
                     "status":"SELECTED" if selected else "NO_ELIGIBLE_REVISION"}
         except ValueError:
             return JSONResponse(status_code=422,content={"code":"INVALID_ASOF_SELECTION"})
+
+    @app.get("/v1/datasets/{dataset_id}")
+    def dataset(dataset_id:str):
+        return svc().dataset(dataset_id)
 
     @app.post("/v1/runs")
     def submit(body:RunConfig,idempotency_key:str=Header(min_length=1,max_length=128)):

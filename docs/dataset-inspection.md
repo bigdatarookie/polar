@@ -47,3 +47,42 @@ Unicode escaping: market metadata comes from bounded input, and collection rows
 are replaced with scalar counts.
 Identical bytes yield identical results. There are no wall-clock fields or mutable
 acceptance decisions. Independent exact-commit review owns acceptance.
+
+## Persisted inspection
+
+After registration, `GET /v1/datasets/ID` and `polar dataset ID` use the same
+`Service.dataset` operation. The detail object contains `id`, `content_hash`,
+`source_hash`, `registered_at` and `inspection` (the complete
+`polar.dataset-quality/1` object described above). `registered_at` is the actual
+PostgreSQL registration timestamp; it is separate from synthetic replay times.
+API timestamps use ISO 8601; CLI timestamps parse as the same instant.
+
+Detail always inspects retained original bytes, then verifies their SHA-256,
+canonical hash and ID against the registered body/hash/ID. It returns no raw
+source bytes or rows. Canonical-equivalent registration preserves the first
+stored bytes, source hash and registration time; resubmission formatting does
+not replace that identity. Inspection is read-only and does not modify the row
+or grant acceptance. Stored quality is recomputed on read using the installed
+inspection version; dataset records and schema version 1 are unchanged.
+
+Missing IDs return HTTP 404 `DATASET_NOT_FOUND`. A binding mismatch or invalid
+retained source returns HTTP 409 `DATASET_INTEGRITY_ERROR`, without partial
+detail, validation messages or source values. The CLI exits 1 with
+`{"status":"ERROR","code":"DATASET_NOT_FOUND"}` or
+`{"status":"ERROR","code":"DATASET_INTEGRITY_ERROR"}` on stderr. Other dependency
+failures keep the existing sanitized API/CLI behavior.
+
+`polar datasets` and `polar runs` retain defaults limit 10/offset 0 and accept
+`--limit` (1..10) and `--offset` (nonnegative), matching the API. `runs` also
+accepts `--dataset-id`, matching the API's `dataset_id` filter. Dataset ordering
+remains ID ascending; run ordering remains creation time then ID ascending.
+Empty pages return `[]`; invalid CLI bounds exit 2 before loading settings,
+while invalid API bounds return 422. There is no unbounded listing mode.
+
+Component tests use controlled retained-row doubles for corruption; they never
+corrupt a live database. The optional zero-job PostgreSQL integration test is
+`tests/test_dataset_detail_postgres.py`. It requires an explicitly provisioned
+empty database named `polar_test_*` through `POLAR_DATASET_TEST_DATABASE_URL`
+and refuses a nonempty database. Running component checks does not establish
+PostgreSQL, container recreation or preserved-report/attempt-history proof;
+independent runtime qualification must record those effects separately.
