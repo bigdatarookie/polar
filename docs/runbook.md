@@ -89,10 +89,11 @@ Additional versioned operations:
 
 | Purpose | API | CLI |
 | --- | --- | --- |
-| Dataset discovery, max 10/page | GET `/v1/datasets?limit=10&offset=0` | `datasets` |
+| Dataset discovery, max 10/page | GET `/v1/datasets?limit=10&offset=0` | `datasets --limit 10 --offset 0` |
 | Register original fixture bytes | POST `/v1/datasets` | `register FILE` (file accessible inside invocation) |
+| Inspect retained dataset and source binding | GET `/v1/datasets/ID` | `dataset ID` |
 | Feature as-of/revision | GET `/v1/datasets/ID/features/marker?decision_at=2024-01-03T21%3A00%3A02Z` | API currently; no separate CLI selector |
-| Search run metadata | GET `/v1/runs?limit=10&offset=0&dataset_id=ID` | `runs` |
+| Search run metadata | GET `/v1/runs?limit=10&offset=0&dataset_id=ID` | `runs --limit 10 --offset 0 --dataset-id ID` |
 | Submit/status | POST `/v1/runs`; GET `/v1/runs/UUID` | `submit FILE --key KEY`; `status UUID` |
 | Cancel | POST `/v1/runs/UUID/cancel` | `cancel UUID` |
 | Report/evidence | GET `/v1/runs/UUID/report` or `/evidence` | `report UUID`; `evidence UUID` |
