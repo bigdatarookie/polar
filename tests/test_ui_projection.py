@@ -46,7 +46,7 @@ def ui_service(tmp_path, raw_fixture, config):
     service = Service(Settings("unused", tmp_path))
     service.registry = ControlledRegistry()
 
-    def add(raw=raw_fixture, state="completed", report_status=None, revision="1"*40, cash_flat=False):
+    def add(raw=raw_fixture, state="completed", report_status=None, revision="1"*40, cash_flat=False, config_change=None, input_change=None, report_change=None, artifact_run_id=None):
         data = Dataset.model_validate_json(raw)
         body = data.model_dump(mode="json")
         service.registry.data[data.dataset_id] = {"id":data.dataset_id,"body":body,
@@ -55,18 +55,27 @@ def ui_service(tmp_path, raw_fixture, config):
         conf = config.model_copy(update={"dataset_id":data.dataset_id})
         if cash_flat or not data.sessions:
             conf = conf.model_copy(update={"strategy_version":"cash-flat-v1","orders":[]})
+        if config_change:
+            conf = RunConfig.model_validate({**conf.model_dump(mode="json"), **config_change})
         rid, aid = uuid.uuid4(), uuid.uuid4()
         row = {"id":rid,"attempt_id":aid,"config":conf.model_dump(mode="json"),
                "dataset_id":data.dataset_id,"state":state,"created_at":datetime(2026,11,6,tzinfo=timezone.utc),
                "artifact_ref":None,"artifact_hash":None,"actor":SENTINEL,"attempts":[{"secret":SENTINEL}]}
         if state == "completed":
             report = calculate(data, conf)
-            report["diagnostics"].append({"internal":SENTINEL})
-            report["units"]["internal"] = SENTINEL
-            report["coverage"]["internal"] = SENTINEL
+            if "diagnostics" in report:
+                report["diagnostics"].append({"internal":SENTINEL})
+            for key in ("units", "coverage"):
+                if key in report:
+                    report[key]["internal"] = SENTINEL
             if report_status:
                 report["status"] = report_status
-            ref = service.artifacts.publish(rid, aid, report, {"secret":SENTINEL},
+            if report_change:
+                report_change(report)
+            inputs = {"dataset":copy.deepcopy(body),"config":conf.model_dump(mode="json"),"secret":SENTINEL}
+            if input_change:
+                input_change(inputs)
+            ref = service.artifacts.publish(artifact_run_id or rid, aid, report, inputs,
                                             {"code_revision":revision,"password":SENTINEL})
             row.update(artifact_ref=ref, artifact_hash=hashlib.sha256((tmp_path/ref/"manifest.json").read_bytes()).hexdigest())
         service.registry.runs[str(rid)] = row
@@ -202,3 +211,96 @@ def test_local_ui_assets_only_and_api_routes_preserved(ui_service):
     app=Path('src/polar/web/app.js').read_text()
     assert "fetch('fixture.json')" not in app and 'innerHTML' not in app
     assert 'Atlas' not in app and '$100,000' not in app
+
+
+@pytest.mark.parametrize("condition,diagnostic", [("no_bars", "NO_DATA"), ("unknown_decision", "UNKNOWN_DECISION_SESSION")])
+def test_genuine_engine_invalid_detail_and_catalog(ui_service, raw_fixture, condition, diagnostic):
+    s, add = ui_service
+    healthy = add(cash_flat=True)
+    if condition == "no_bars":
+        raw = json.loads(raw_fixture)
+        raw["bars"] = []  # legal Dataset with declared sessions; accepted engine INVALID
+        row = add(json.dumps(raw).encode(), cash_flat=True)
+    else:
+        row = add(config_change={"orders":[{"decision_session_id":"2099-01-01","quantity":"1"}]})
+    actual = s.artifacts.report(row["artifact_ref"])
+    assert actual["status"] == actual["financial_verdict"] == "INVALID"
+    assert actual["diagnostic"] == diagnostic
+    assert "config_hash" not in actual and "strategy_version" not in actual
+    assert actual["nav"] == actual["fills"] == []
+    before = copy.deepcopy(s.registry.runs)
+    client = TestClient(create_app(s))
+    detail = client.get(f"/v1/ui/runs/{row['id']}")
+    assert detail.status_code == 200, detail.json()
+    projected = detail.json()["report"]
+    assert projected["status"] == projected["financial_verdict"] == "INVALID"
+    assert projected["diagnostic"] == diagnostic
+    assert projected["metrics"]["performance"] == actual["metrics"]["performance"]
+    assert "config_hash" not in projected and "strategy_version" not in projected
+    assert projected["nav"] == projected["fills"] == []
+    assert "initial_cash" not in projected
+    assert not any(m.get("value") is not None for m in projected["metrics"].values())
+    catalog = client.get(f"/v1/ui/datasets/{row['dataset_id']}/runs")
+    assert catalog.status_code == 200, catalog.json()
+    item = next(i for i in catalog.json()["items"] if i["run"]["id"] == str(row["id"]))
+    assert item["report_status"] == item["financial_verdict"] == "INVALID"
+    assert item["diagnostic"] == diagnostic
+    assert client.get(f"/v1/ui/runs/{healthy['id']}").status_code == 200
+    if condition == "unknown_decision":
+        assert len(catalog.json()["items"]) == 2  # invalid and healthy on SAME dataset/page
+    assert s.registry.runs == before
+
+
+@pytest.mark.parametrize("fault", ["input_config", "input_dataset", "missing_config", "missing_dataset", "null_config", "null_dataset",
+    "row_config", "run", "attempt", "report_dataset", "report_protocol", "supplied_config_hash", "supplied_strategy"])
+def test_genuine_invalid_still_rejects_wrong_identity(ui_service, fault):
+    s, add = ui_service
+    def inputs(body):
+        if fault == "input_config": body["config"]["actor"] = "another-actor"
+        if fault == "input_dataset": body["dataset"]["dataset_name"] = "another-dataset"
+        if fault == "missing_config": body.pop("config")
+        if fault == "missing_dataset": body.pop("dataset")
+        if fault == "null_config": body["config"] = None
+        if fault == "null_dataset": body["dataset"] = None
+    def report(body):
+        if fault == "report_dataset": body["dataset_id"] = "ds-" + "0"*64
+        if fault == "report_protocol": body["protocol_version"] = "other-protocol"
+        if fault == "supplied_config_hash": body["config_hash"] = None
+        if fault == "supplied_strategy": body["strategy_version"] = "other-strategy"
+    row = add(config_change={"orders":[{"decision_session_id":"2099-01-01","quantity":"1"}]}, input_change=inputs, report_change=report,
+              artifact_run_id=uuid.uuid4() if fault == "run" else None)
+    requested_id = row["id"]
+    if fault == "row_config": row["config"]["actor"] = "another-actor"
+    if fault == "attempt": row["attempt_id"] = uuid.uuid4()
+    client = TestClient(create_app(s))
+    for route in (f"/v1/ui/runs/{requested_id}",f"/v1/ui/datasets/{row['dataset_id']}/runs"):
+        response = client.get(route)
+        assert response.status_code == 409
+        assert response.json() == {"code":"REPORT_IDENTITY_MISMATCH"}
+
+
+@pytest.mark.parametrize("filename", ["inputs.json", "manifest.json", "report.json", "environment.json"])
+def test_genuine_invalid_does_not_bypass_artifact_hashes(ui_service, filename):
+    s, add = ui_service
+    row = add(config_change={"orders":[{"decision_session_id":"2099-01-01","quantity":"1"}]})
+    path = s.artifacts.directory(row["artifact_ref"]) / filename
+    path.chmod(0o644)
+    path.write_text(SENTINEL)
+    client = TestClient(create_app(s))
+    for route in (f"/v1/ui/runs/{row['id']}",f"/v1/ui/datasets/{row['dataset_id']}/runs"):
+        response = client.get(route)
+        assert response.status_code == 503
+        assert response.json() == {"code":"DEPENDENCY_UNAVAILABLE"}
+
+
+def test_genuine_invalid_unknown_diagnostic_is_not_echoed(ui_service):
+    s, add = ui_service
+    def change(report):
+        report["diagnostic"] = SENTINEL
+        report["metrics"]["performance"]["reason"] = SENTINEL
+    row = add(config_change={"orders":[{"decision_session_id":"2099-01-01","quantity":"1"}]}, report_change=change)
+    response = TestClient(create_app(s)).get(f"/v1/ui/runs/{row['id']}")
+    assert response.status_code == 200
+    assert SENTINEL not in response.text
+    assert response.json()["report"]["diagnostic"] is None
+    assert response.json()["report"]["metrics"]["performance"]["reason"] is None

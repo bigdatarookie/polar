@@ -107,6 +107,7 @@ function renderRail() {
   panelNote(body,dataset?getAsset().symbol+' · '+getStrategy().name:'Choose an available retained dataset and run.');
   if(!detail?.report) {panelNote(body,detail?'Report unavailable · '+detail.run.state:loading?'Loading retained records…':loadError?'Unavailable · '+loadError:'No retained run selected.');return;}
   const report=detail.report;
+  if(report.status==='INVALID')panelNote(body,'INVALID retained calculation · '+(report.diagnostic||'Diagnostic unavailable')+'. Portfolio values are unavailable.');
   report.fills.forEach((f,index)=>{const article=element('article',undefined,'order-entry');article.append(element('b',(Number(f.quantity)<0?'SELL':'BUY')+' · '+f.quantity+' shares'),element('p',usd(f.price)+' · fee '+f.fee+' '+(f.currency||report.units.fee)),element('small','Fill '+fmtDate(f.fill_at)),element('p','Receipt '+fmtDate(f.receipt_at)),element('p','Decision session '+f.decision_session_id),element('small','Fill row '+(index+1)+' · presentation reference'));body.append(article);});
   if(!report.fills.length)panelNote(body,'No actual fills in this retained report.');
   report.orders.forEach(o=>{const row=element('article',undefined,'order-entry');row.append(element('b','Instruction · '+o.status),element('small','Decision '+o.decision_session_id),element('p',o.reason||'No additional reason'));const tape=report.order_tape.find(t=>t.decision_session_id===o.decision_session_id);if(tape)row.append(element('p',tape.quantity+' shares · '+fmtDate(tape.decision_at)));body.append(row);});
@@ -145,7 +146,11 @@ function renderRecord() {
     addDefinition(dl,'Report',report?.status||detail.report_availability);addDefinition(dl,'Calculation revision',detail.calculation_revision);addDefinition(dl,'API revision (separate)',detail.api_revision);
     addDefinition(dl,'Report hash',detail.evidence?.report_hash||'Unavailable');addDefinition(dl,'Coverage',report?.coverage?.status||'Unavailable');
   }else panelNote(pop,'Select this run to inspect its report identities, values and fills.');
-  pop.append(dl);panelNote(pop,'Synthetic retained report · infrastructure fixture only · financial evaluation NOT_RUN. Availability is not acceptance.');pop.hidden=false;positionInfo();
+  const diagnostic=detail?.run.id===item.run.id?detail.report?.diagnostic:item.diagnostic;
+  if(diagnostic)addDefinition(dl,'Diagnostic',diagnostic);
+  const performance=item.metrics?.performance;if(performance)addDefinition(dl,'Performance',metricValue(performance)+' · '+metricDescription(performance));
+  const verdict=detail?.run.id===item.run.id?detail.report?.financial_verdict:item.financial_verdict;
+  pop.append(dl);panelNote(pop,'Synthetic retained report · infrastructure fixture only · financial verdict '+(verdict||'UNAVAILABLE')+'. Availability is not acceptance.');pop.hidden=false;positionInfo();
 }
 function positionInfo() {if(!state.infoId)return;const button=$$('[data-info]').find(b=>b.dataset.info===state.infoId),pop=$('#record-detail');if(!button){closeInfo();return;}const r=button.getBoundingClientRect(),list=$('#strategy-list').getBoundingClientRect();if(r.bottom<list.top||r.top>list.bottom){closeInfo();return;}const width=pop.offsetWidth,height=pop.offsetHeight,left=Math.max(8,Math.min(innerWidth-width-8,r.right-width));let top=r.top-height-9;if(top<62)top=r.bottom+9;top=Math.max(62,Math.min(innerHeight-38-height,top));Object.assign(pop.style,{left:left+'px',top:top+'px'});pop.style.setProperty('--anchor-x',Math.max(12,Math.min(width-12,r.left+r.width/2-left))+'px');}
 function syncToolbar() {
@@ -166,7 +171,7 @@ function renderChart() {
   if(!chart)return;hideCandleBoundary();const c=palette(),bars=view.bars,h=$('#chart').clientHeight,narrow=innerWidth<701;
   const available=anySource('assetClose')||anySource('strategyEquity');
   const message=$('#view-message');message.hidden=!loading&&!loadError&&available;
-  message.textContent=loading?'Loading retained records…':loadError?'Backend unavailable · '+loadError:!dataset?'No retained datasets':detail?.report?.status==='NO_DATA'?'Retained report: NO_DATA':detail&&!detail.report?'Report unavailable · '+detail.run.state:'No plottable observations; source values are unavailable.';
+  message.textContent=loading?'Loading retained records…':loadError?'Backend unavailable · '+loadError:!dataset?'No retained datasets':['NO_DATA','INVALID'].includes(detail?.report?.status)?'Retained report: '+detail.report.status+(detail.report.diagnostic?' · '+detail.report.diagnostic:''):detail&&!detail.report?'Report unavailable · '+detail.run.state:'No plottable observations; source values are unavailable.';
   const series=[{id:'asset',name:'Retained asset OHLC',type:'candlestick',data:bars.map(b=>['open','close','low','high'].map(k=>indexValue(b[k],view.baseClose))),itemStyle:{color:c.up,color0:c.down,borderColor:c.up,borderColor0:c.down},emphasis:{disabled:true},barMaxWidth:15,z:2},
     {id:'strategy',name:'Retained NAV',type:'line',data:view.equity.map(e=>indexValue(e.value,view.initialCash)),connectNulls:false,showSymbol:true,showAllSymbol:true,symbol:'circle',symbolSize:5.5,lineStyle:{color:c.equity,width:2.5},itemStyle:{color:c.surface,borderColor:c.equity,borderWidth:1.6},emphasis:{disabled:true},smooth:.2,smoothMonotone:'x',z:5}];
   if(state.sma)series.push({id:'sma',name:'SMA20 display',type:'line',data:view.sma.map(x=>indexValue(x.value,view.baseClose)),connectNulls:false,showSymbol:false,smooth:false,lineStyle:{color:c.sma,type:'dotted',width:1.8},z:3});

@@ -11,7 +11,7 @@ function data() {
   return {dataset_id:'ds-actual',name:'<img src=x onerror=evil()>',instrument:{instrument_id:'retained-1',currency:'USD',ticker_history:[{ticker:'<svg onload=evil()>'}]},market:{frequency:'daily'},sessions,
     bars:sessions.map((s,i)=>({session_id:s.session_id,open:String(10+i),high:String(12+i),low:String(9+i),close:String(11+i),price_status:'OBSERVED'}))};
 }
-function report() {return {status:'COMPLETED',units:{nav:'USD',fee:'USD'},metrics:{total_return:{value:'0',unit:'fraction',status:'OK',evidence_status:'INSUFFICIENT_EVIDENCE'},sharpe_252:{value:null,unit:'ratio',status:'INSUFFICIENT_EVIDENCE'},fees:{value:'0',unit:'USD',status:'OK'}},initial_cash:'1000',nav:data().sessions.map((s,i)=>({session_id:s.session_id,at:s.close_at,nav:String(1000+i),cash:'0',shares:'4',status:'OBSERVED'})),fills:[{fill_at:'2024-01-03T14:30:00Z',receipt_at:'2024-01-03T14:30:01Z',quantity:'4',price:'11',fee:'1'}],orders:[],order_tape:[]};}
+function report() {return {status:'COMPLETED',financial_verdict:'NOT_RUN',units:{nav:'USD',fee:'USD'},metrics:{total_return:{value:'0',unit:'fraction',status:'OK',evidence_status:'INSUFFICIENT_EVIDENCE'},sharpe_252:{value:null,unit:'ratio',status:'INSUFFICIENT_EVIDENCE'},fees:{value:'0',unit:'USD',status:'OK'}},initial_cash:'1000',nav:data().sessions.map((s,i)=>({session_id:s.session_id,at:s.close_at,nav:String(1000+i),cash:'0',shares:'4',status:'OBSERVED'})),fills:[{fill_at:'2024-01-03T14:30:00Z',receipt_at:'2024-01-03T14:30:01Z',quantity:'4',price:'11',fee:'1'}],orders:[],order_tape:[]};}
 test('daily and weekly OHLC use actual rows and preserve exact raw strings',()=>{
   const d=data(),r=report(),daily=buildView(d,r,'1D'),weekly=buildView(d,r,'1W');
   assert.equal(daily.bars.length,3);assert.equal(daily.baseClose,'10');assert.equal(daily.initialCash,'1000');
@@ -131,4 +131,18 @@ test('actual DOM renderers show observed zero/unavailable/status and put hostile
   ctx.renderRail();assert(env.node('#rail-body').textContent.includes('<svg onload=evil()>'));assert(env.node('#rail-body').textContent.includes('BUY · 4 shares'));assert(!env.node('#rail-body').textContent.includes('Entry'));
   vm.runInContext("state.infoId='run-1'",ctx);ctx.renderRecord();
   assert(env.node('#record-detail').textContent.includes('INSUFFICIENT_EVIDENCE'));assert(env.node('#record-detail').textContent.includes('NOT_RUN'));assert(env.node('#record-detail').textContent.includes('Ending NAV$1002'));
+});
+
+test('minimal accepted INVALID report keeps unavailable portfolio and actual diagnostic/verdict',()=>{
+  const env=appContext(async()=>{throw Error('no request');}),ctx=env.context;
+  const d=data();d.bars=[];
+  const invalid={schema_version:'polar.report/1',status:'INVALID',diagnostic:'NO_DATA',financial_verdict:'INVALID',qualification:'INFRASTRUCTURE_FIXTURE_ONLY',dataset_id:d.dataset_id,protocol_version:'fixture-protocol-v2',fills:[],nav:[],metrics:{performance:{value:null,status:'INVALID',reason:'NO_DATA'}}};
+  ctx.fixtureDataset=d;ctx.fixtureDetail={...projection(d),report:{...invalid,orders:[],order_tape:[],units:{},coverage:{}}};
+  vm.runInContext("dataset=fixtureDataset;detail=fixtureDetail;view=buildView(dataset,detail.report,'1D');runRows=[{run:detail.run,metrics:detail.report.metrics,report_status:'INVALID',diagnostic:'NO_DATA',financial_verdict:'INVALID'}];state.strategyId=detail.run.id;state.lo=0;state.hi=2;",ctx);
+  assert.equal(vm.runInContext('view.initialCash',ctx),null);assert.equal(vm.runInContext("anySource('strategyEquity')",ctx),false);
+  assert.equal(vm.runInContext('view.equity.every(n=>n.value===null)',ctx),true);
+  ctx.renderRows();assert(env.node('#strategy-list').textContent.includes('INVALID'));assert(env.node('#strategy-list').textContent.includes('Unavailable'));
+  ctx.renderRail();assert(env.node('#rail-body').textContent.includes('NO_DATA'));assert(env.node('#rail-body').textContent.includes('Portfolio values are unavailable'));
+  ctx.document.querySelectorAll=()=>[];vm.runInContext("state.infoId='run-1'",ctx);ctx.renderRecord();
+  assert(env.node('#record-detail').textContent.includes('financial verdict INVALID'));assert(!env.node('#record-detail').textContent.includes('financial evaluation NOT_RUN'));
 });

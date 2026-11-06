@@ -6,7 +6,22 @@ import re
 
 from .artifacts import ArtifactError, verify
 from .codec import digest
-from .models import Dataset
+from .models import Dataset, RunConfig
+
+
+_SAFE_DIAGNOSTICS = {
+    "DATASET_HASH_MISMATCH", "NO_DATA", "UNKNOWN_DECISION_SESSION",
+    "AMBIGUOUS_SIMULTANEOUS_ACTIONS", "FRACTIONAL_SPLIT_UNSUPPORTED",
+    "DIVIDEND_ENTITLEMENT_TIME", "OPEN_RECEIPT_AFTER_CLOSE_UNSUPPORTED",
+    "MISSING_DELISTING_SETTLEMENT", "MISSING_HELD_MARK", "NONPOSITIVE_NAV", "NAV_TIME_ORDER",
+    "ORDER_AFTER_DELISTING", "MULTIPLE_PENDING_ORDERS_UNSUPPORTED", "FUTURE_OR_MISSING_FEATURE",
+}
+
+
+def _diagnostic(value):
+    # Error strings outside the accepted engine's stable codes may contain input
+    # validation payloads. They are never reflected into the UI projection.
+    return value if isinstance(value, str) and value in _SAFE_DIAGNOSTICS else None
 
 
 class UIError(Exception):
@@ -26,6 +41,23 @@ def _page(limit, offset):
 
 def _revision(value):
     return value if isinstance(value, str) and re.fullmatch(r"[a-f0-9]{40}", value) else "UNKNOWN"
+
+
+def _verify_input_association(directory, manifest, config, dataset):
+    raw = (directory / "inputs.json").read_bytes()
+    if hashlib.sha256(raw).hexdigest() != manifest["files"]["inputs.json"]:
+        raise ArtifactError("ARTIFACT_HASH_MISMATCH")
+    try:
+        inputs = json.loads(raw)
+        retained_dataset = Dataset.model_validate(inputs["dataset"])
+        retained_config = RunConfig.model_validate(inputs["config"])
+        if (retained_dataset.dataset_id != dataset["dataset_id"]
+                or digest(retained_dataset.model_dump(mode="json")) != dataset["content_hash"]
+                or retained_config.dataset_id != dataset["dataset_id"]
+                or digest(inputs["config"]) != digest(config)):
+            raise UIError("REPORT_IDENTITY_MISMATCH")
+    except (KeyError, ValueError, TypeError):
+        raise UIError("REPORT_IDENTITY_MISMATCH") from None
 
 
 class UIProjection:
@@ -88,10 +120,18 @@ class UIProjection:
                 or manifest.get("attempt_id") != str(row["attempt_id"])
                 or manifest.get("report_hash") != digest(report)
                 or report.get("dataset_id") != row["dataset_id"]
-                or report.get("config_hash") != digest(config)
-                or report.get("strategy_version") != config.get("strategy_version")
                 or report.get("protocol_version") != config.get("protocol_version")):
             raise UIError("REPORT_IDENTITY_MISMATCH")
+        invalid = report.get("status") == "INVALID"
+        for field, expected in (("config_hash", digest(config)), ("strategy_version", config.get("strategy_version"))):
+            if (not invalid or field in report) and report.get(field) != expected:
+                raise UIError("REPORT_IDENTITY_MISMATCH")
+        if invalid:
+            # The accepted engine omits success-only identity fields on INVALID.
+            # The worker's hash-bound inputs still must match the immutable DB
+            # dataset/config. Never invent the omitted report fields or skip a
+            # mismatching field that the report actually supplied.
+            _verify_input_association(directory, manifest, config, dataset)
         try:
             environment_bytes = (directory / "environment.json").read_bytes()
             if hashlib.sha256(environment_bytes).hexdigest() != manifest["files"]["environment.json"]:
@@ -118,8 +158,14 @@ class UIProjection:
                            for o in report.get("order_tape", [])],
             "metrics": {key: _fields(report.get("metrics", {}).get(key, {}),
                         ("value", "unit", "status", "evidence_status", "reason"))
-                        for key in ("total_return", "sharpe_252", "max_drawdown", "fees")},
+                        for key in ("total_return", "sharpe_252", "max_drawdown", "fees", "performance")
+                        if key in report.get("metrics", {})},
         }
+        if "diagnostic" in report:
+            result["report"]["diagnostic"] = _diagnostic(report["diagnostic"])
+        if "performance" in result["report"]["metrics"]:
+            result["report"]["metrics"]["performance"]["reason"] = _diagnostic(
+                report["metrics"]["performance"].get("reason"))
         return result
 
     def runs(self, dataset_id, limit=10, offset=0):
@@ -131,5 +177,7 @@ class UIProjection:
             report = view["report"]
             items.append({"run": view["run"], "report_availability": view["report_availability"],
                           "report_status": report["status"] if report else None,
+                          "financial_verdict": report.get("financial_verdict") if report else None,
+                          "diagnostic": report.get("diagnostic") if report else None,
                           "metrics": report["metrics"] if report else None})
         return {"items": items, "limit": limit, "offset": offset}

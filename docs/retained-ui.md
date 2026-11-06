@@ -45,7 +45,17 @@ availability, report fields and evidence hashes. Non-complete jobs have no repor
 or invented portfolio values. Completed `NO_DATA`/`INVALID` remain explicit report
 statuses, not financial success. Completed detail verifies DB-bound manifest,
 all artifact hashes, report/config/dataset/run/attempt correspondence, and report
-identity. The original calculation revision comes only from hash-verified retained
+identity. The accepted engine's genuine `INVALID` shape omits success-only
+`config_hash`/`strategy_version`; those missing fields are never fabricated.
+For INVALID reports, hash-verified `inputs.json` must contain a valid Dataset
+matching registered canonical identity and a valid RunConfig matching the entire
+stored config (including provenance refs). Any supplied report identity fields
+still must match; successful/NO_DATA reports keep their required-field checks.
+Known stable engine diagnostic codes and the actual `metrics.performance`
+invalid status/null are exposed; unknown diagnostic payloads are unavailable,
+never echoed. Catalogs retain INVALID alongside healthy runs. This differs from
+genuine `NO_DATA` (empty sessions), which retains its accepted success-shape
+identity fields and null accounting metrics. The original calculation revision comes only from hash-verified retained
 `environment.json`; missing/non-SHA revisions are `UNKNOWN`. Current API revision
 is a separate reported field. No raw environment, credentials, file paths,
 actor/queue/team internals or mutable acceptance flag is returned.
