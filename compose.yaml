@@ -12,7 +12,6 @@ x-app: &app
   security_opt: [no-new-privileges:true]
   pids_limit: 100
   tmpfs: ["/tmp:size=64m,mode=1777"]
-  networks: [service]
   logging: &logs
     driver: json-file
     options: {max-size: 5m, max-file: "2"}
@@ -45,6 +44,7 @@ services:
 
   migrate:
     <<: *app
+    networks: [service]
     profiles: [tools]
     cpus: 0.5
     mem_limit: 512m
@@ -55,6 +55,7 @@ services:
 
   api:
     <<: *app
+    networks: [service]
     cpus: 0.5
     mem_limit: 512m
     environment: *env
@@ -70,6 +71,7 @@ services:
 
   worker:
     <<: *app
+    networks: [service]
     cpus: 1.0
     mem_limit: 1024m
     environment: *env
@@ -89,7 +91,6 @@ services:
     cpus: 1.0
     mem_limit: 1024m
     network_mode: none
-    networks: !reset []
     environment: {}
     volumes:
       - ${POLAR_EVALUATOR_INPUT:?Select one immutable artifact directory}:/input:ro
@@ -102,7 +103,6 @@ services:
     cpus: 0.5
     mem_limit: 512m
     network_mode: none
-    networks: !reset []
     environment: {}
     volumes: [artifacts:/data/artifacts:ro]
     command: [python, -c, "raise SystemExit('Use scripts/ops.py backup')"]
@@ -113,7 +113,6 @@ services:
     cpus: 0.5
     mem_limit: 512m
     network_mode: none
-    networks: !reset []
     environment: {}
     volumes: [artifacts:/data/artifacts:rw]
     command: [python, -c, "raise SystemExit('Use scripts/ops.py restore')"]
