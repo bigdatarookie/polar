@@ -280,3 +280,10 @@ conflicting restarts, migration, restore and revision changes between QA seats;
 QA2 can prepare or run separately assigned independent work. Do not duplicate
 full stacks or expand quotas automatically. A recreation requires separate Lead
 authorization, original before-state and retained volumes; inventory never does it.
+
+## Retained workspace UI
+
+Open `/ui/` on the existing API origin for the selected read-only workspace. See
+[retained-ui.md](retained-ui.md) for projection, status, controls and qualification
+limits. GET-only selection/refresh creates no datasets or jobs. Image/browser
+qualification requires a separately authorized candidate-scoped runtime slot.
