@@ -49,9 +49,9 @@ def metrics(navs, fills, initial_cash, fees, dividends, settlement):
             event = datetime.fromisoformat(fill["fill_at"])
             prior = [Decimal(n["nav"]) for n in navs if datetime.fromisoformat(n["at"]) < event]
             turnover += abs(Decimal(fill["quantity"])*Decimal(fill["price"]))/ (prior[-1] if prior else initial_cash)
-        put("turnover",turnover)
+        put("turnover",turnover if values else None)
         for name,value in [("fees",fees),("dividends",dividends),("settlement",settlement)]:
-            put(name,value,"USD")
+            put(name,value if values else None,"USD")
         if returns:
             tail_count = max(1,(len(returns)+19)//20)
             put("historical_es95",-sum(sorted(returns)[:tail_count])/tail_count)
