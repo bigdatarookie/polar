@@ -213,3 +213,63 @@ def test_future_and_malformed_envelopes_never_retrofit_legacy(runtime,tmp_path,s
     m['schema_version']=2;m.pop('snapshot_content')
     (tmp_path/'backup-manifest.json').write_text(json.dumps(m))
     assert ops.inventory_manifest(backup_directory=tmp_path,read=read)['backup_handle']['reason']=='SNAPSHOT_INVALID'
+
+
+@pytest.mark.parametrize('future_snapshot,future_current', [(True,False),(False,True),(True,True)])
+def test_future_windows_rejected_with_explicit_fixed_clock(stable,future_snapshot,future_current):
+    from datetime import datetime,timezone
+    now=datetime(2030,1,1,tzinfo=timezone.utc)
+    snapshot=stable
+    current=later(stable)
+    if future_snapshot:
+        snapshot=ops.seal_content(ops.content_identity(stable),'2099-01-01T00:00:00+00:00','2099-01-01T00:01:00+00:00')
+        assert ops.valid_content(snapshot,now=now) is None
+    if future_current:
+        current=ops.seal_content(ops.content_identity(stable),'2099-01-01T00:02:00+00:00','2099-01-01T00:03:00+00:00')
+        assert ops.valid_content(current,now=now) is None
+    result=ops.compare_content(snapshot,current,now=now)
+    assert result['current_state_coverage']=='UNKNOWN'
+    assert result['restore_effect']=='NOT_RUN'
+
+
+def test_current_time_boundary_and_offset_instants(stable):
+    from datetime import datetime,timezone
+    now=datetime(2030,1,1,0,3,tzinfo=timezone.utc)
+    value=ops.content_identity(stable)
+    snapshot=ops.seal_content(value,'2030-01-01T00:00:00+00:00','2030-01-01T00:03:00+00:00')
+    current=ops.seal_content(value,now.isoformat(),now.isoformat())
+    assert ops.valid_content(snapshot,now=now) is not None
+    assert ops.compare_content(snapshot,current,now=now)['current_state_coverage']=='CURRENT'
+    future=ops.seal_content(value,now.isoformat(),'2030-01-01T00:03:00.000001+00:00')
+    assert ops.compare_content(snapshot,future,now=now)['current_state_coverage']=='UNKNOWN'
+    offset=ops.seal_content(value,'2030-01-01T01:03:00+01:00','2030-01-01T01:03:00+01:00')
+    assert ops.compare_content(snapshot,offset,now=now)['current_state_coverage']=='CURRENT'
+
+
+@pytest.mark.parametrize('start,end',[
+    ('not-a-time','2030-01-01T00:03:00+00:00'),
+    ('2030-01-01T00:00:00','2030-01-01T00:03:00'),
+    ('2030-01-01T00:03:00+00:00','2030-01-01T00:00:00+00:00'),
+])
+def test_fixed_clock_rejects_malformed_unzoned_and_reversed_windows(stable,start,end):
+    from datetime import datetime,timezone
+    block=ops.seal_content(ops.content_identity(stable),start,end)
+    now=datetime(2030,1,1,0,3,tzinfo=timezone.utc)
+    assert ops.valid_content(block,now=now) is None
+    assert ops.compare_content(stable,block,now=now)['current_state_coverage']=='UNKNOWN'
+
+
+def test_default_comparison_captures_one_shared_clock(stable,monkeypatch):
+    from datetime import datetime,timezone
+    calls=[]
+    class Clock(datetime):
+        @classmethod
+        def now(cls,tz=None):
+            calls.append(tz)
+            return datetime(2030,1,1,tzinfo=timezone.utc)
+    monkeypatch.setattr(ops,'datetime',Clock)
+    assert ops.compare_content(stable,later(stable))['current_state_coverage']=='CURRENT'
+    assert len(calls)==1
+    future=ops.seal_content(ops.content_identity(stable),'2099-01-01T00:00:00+00:00','2099-01-01T00:01:00+00:00')
+    assert ops.compare_content(future,future)['current_state_coverage']=='UNKNOWN'
+    assert len(calls)==2

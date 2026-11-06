@@ -262,7 +262,7 @@ def seal_content(value, started, finished):
     return {**block, "checksum": content_digest(block)}
 
 
-def valid_content(block):
+def valid_content(block, *, now=None):
     """Return an allowlisted block or None; never echo untrusted manifest values."""
     try:
         if block["schema"] != CONTENT_SCHEMA or block["status"] != "STABLE":
@@ -278,7 +278,8 @@ def valid_content(block):
         if any(type(value["counts"][k]) is not int or not 0 <= value["counts"][k] <= METADATA_LIMIT or identity(value["fingerprints"][k], HEX) == "UNKNOWN" for k in keys):
             return None
         start, end = (datetime.fromisoformat(block[k]) for k in ("window_started_at", "window_finished_at"))
-        if start.tzinfo is None or end.tzinfo is None or start > end:
+        cutoff = datetime.now(timezone.utc) if now is None else now
+        if start.tzinfo is None or end.tzinfo is None or cutoff.tzinfo is None or start > end or end > cutoff:
             return None
         result = seal_content(value, block["window_started_at"], block["window_finished_at"])
         return result if result["checksum"] == block["checksum"] else None
@@ -329,11 +330,13 @@ def backup_probe_read(args):
     return inventory_read(args)
 
 
-def compare_content(snapshot, current, file_verification="NOT_RUN"):
+def compare_content(snapshot, current, file_verification="NOT_RUN", *, now=None):
     result = {"current_state_coverage": "UNKNOWN", "reason": "SNAPSHOT_INVALID",
               "restore_effect": "NOT_RUN", "snapshot_observation": "UNKNOWN", "current_observation": "UNKNOWN"}
-    old = valid_content(snapshot)
-    new = valid_content(current)
+    # One credibility boundary for both blocks; tests can inject an aware clock.
+    cutoff = datetime.now(timezone.utc) if now is None else now
+    old = valid_content(snapshot, now=cutoff)
+    new = valid_content(current, now=cutoff)
     if file_verification == "FAIL":
         result["reason"] = "FILE_INTEGRITY_FAILED"
         return result

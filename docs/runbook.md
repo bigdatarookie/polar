@@ -333,7 +333,15 @@ also give `UNKNOWN`. Do not retry indefinitely or change the exam to get a match
 
 Inventory compares only validated protocol1 blocks with the same PostgreSQL
 major and schema identity; unsupported versions, malformed checksums, unzoned or
-reversed windows, or a current observation predating the snapshot yield `UNKNOWN`.
+reversed windows, future snapshot/current windows, or a current observation
+predating the snapshot yield `UNKNOWN`. One cutoff is captured from the host UTC
+clock for both blocks; a window ending exactly at that cutoff is allowed, a
+window ending later is rejected (no implicit skew tolerance). Generated windows
+use UTC. Readers also accept timezone-aware offsets and compare their actual
+instants; offset spelling does not establish time credibility. The validator
+and comparison accept an explicit aware `now` for fixed-clock component tests;
+normal inventory/backup callers use the host clock. This checks consistency with
+that clock, not an authenticated external time source.
 For compatible, stable recorded observations:
 
 - `CURRENT` means the four named identity/count sets match at those timestamps.
