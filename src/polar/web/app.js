@@ -285,7 +285,7 @@ function renderRows() {
   sorted.forEach(item=>{
     const r=item.run,row=element('div',undefined,'strategy-row');row.tabIndex=0;row.role='option';row.dataset.strategy=r.id;row.setAttribute('aria-selected',String(r.id===detail?.run.id));
     const name=element('span',r.strategy_version,'row-name');name.append(element('small',r.id));
-    const status=element('span',r.id===detail?.run.id?'Active':r.state,'row-state');status.append(element('small',item.report_status||item.report_availability||r.state));
+    const reportState=item.report_status||item.report_availability||r.state,status=element('span',r.id===detail?.run.id?'Active':r.state,'row-state');status.title='Job: '+r.state+' · Report: '+reportState;status.setAttribute('aria-label','Job state '+r.state+'; report state '+reportState);status.append(element('small',reportState));
     row.append(status,name,element('span',fmtDate(r.created_at),'row-created'),element('span',metricValue(item.metrics?.total_return,true),'row-number row-return '+cn(item.metrics?.total_return?.value)),element('span',sharpeText(item.metrics?.sharpe_252),'row-number row-sharpe'));
     const info=element('button',undefined,'row-info');info.dataset.info=r.id;info.title='Record details';info.setAttribute('aria-label','Information about '+r.strategy_version);const icon=element('i',undefined,'ti ti-info-circle');icon.setAttribute('aria-hidden','true');info.append(icon);info.onclick=e=>{e.stopPropagation();state.infoId=state.infoId===r.id?null:r.id;renderRecord();};row.append(info);
     row.onclick=e=>{if(!e.target.closest('button'))selectStrategy(r.id);};row.onkeydown=e=>{if(e.target===row&&['Enter',' '].includes(e.key)){e.preventDefault();selectStrategy(r.id);}};list.append(row);

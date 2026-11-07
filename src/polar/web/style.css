@@ -71,3 +71,6 @@
 
 /* Keep the three-pane plot usable; narrow chart content scrolls inside its frame. */
 @media(max-width:700px){.workspace[data-rsi=true] .chart-stage{flex:0 0 300px;min-height:300px}}
+
+/* QA narrow retained statuses: preserve two readable vocabularies and full detail. */
+@media(max-width:700px){.table-head,.strategy-row{grid-template-columns:74px minmax(0,1.5fr) .9fr .8fr 25px}.row-state,.row-state small{white-space:nowrap;overflow-wrap:normal;overflow:hidden;text-overflow:ellipsis;max-width:100%}}
