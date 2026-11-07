@@ -34,8 +34,12 @@ all six timestamps and cutoff are explicit `YYYY-MM-DDTHH:MM:SS[.ffffff]Z` or
 `+00:00` strings with up to six fractional digits (Python datetime precision).
 Finer precision rejects rather than silently truncating into a cutoff boundary.
 Enforce decision<=target start<target end and
-publication<=availability<=ingestion. Decimal values use the existing finite,
-bounded string validation; null, nonnumeric or float values are invalid.
+publication<=availability<=ingestion. Decimal values require strings <=40
+characters, finite magnitude <=1e12 (inclusive) and exponent >=-12; null,
+nonnumeric or float values are invalid. Local exact conversion uses a fresh
+explicit context and context-free absolute magnitude, preserving exact values
+and caller Decimal precision, rounding, traps and flags on success or failure.
+This local admission does not modify or qualify other shared numeric interfaces.
 `limit` is mandatory, strict integer 1..1000; excess records reject, never truncate.
 Source input is <=1 MiB before parsing; no extra fields or implicit repairs.
 

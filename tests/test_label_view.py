@@ -8,6 +8,7 @@ import builtins
 import hashlib
 import json
 import socket
+from decimal import Inexact, ROUND_DOWN, ROUND_HALF_EVEN, ROUND_UP, localcontext
 
 import pytest
 
@@ -194,3 +195,38 @@ def test_microsecond_endpoint_does_not_round_into_maturity():
     supplied = row(target_end_at="2024-01-10T14:30:00.000001Z")
     assert view([supplied])["status"] == "NO_MATURE_LABELS"
     assert view([supplied], "2024-01-10T14:30:00.000001+00:00")["status"] == "SELECTED"
+
+
+@pytest.mark.parametrize("precision", [1, 28])
+@pytest.mark.parametrize("rounding", [ROUND_DOWN, ROUND_HALF_EVEN, ROUND_UP])
+@pytest.mark.parametrize("trap_all", [False, True])
+@pytest.mark.parametrize("existing_flags", [False, True])
+def test_decimal_admission_is_exact_and_preserves_caller_context(
+        precision, rounding, trap_all, existing_flags):
+    # Inclusive signed cap, just inside it, fractional values and scale equality.
+    valid = {value: value for value in [
+        "1000000000000", "-1000000000000", "999999999999.999999999999",
+        "-999999999999.999999999999", "1.234567890123", "2.50"]}
+    valid.update({"1e-12": "1E-12", "-0.000000000000": "-0E-12"})
+    expected = {value: view([row(value=value)]) for value in valid}
+    invalid = ["1000000000000.1", "-1000000000000.1", "1e13", "-1e13",
+               "1e-13", "0e-13", "NaN", "sNaN", "Infinity", "-Infinity",
+               "not-a-number", "", "1" * 41, None, True, 1, 1.5]
+    with localcontext() as caller:
+        caller.prec, caller.rounding = precision, rounding
+        caller.Emax, caller.Emin, caller.clamp = 2, -2, 1
+        for signal in caller.traps:
+            caller.traps[signal] = trap_all
+        caller.clear_flags()
+        caller.flags[Inexact] = existing_flags
+        before = repr(caller)
+        for value in valid:
+            result = view([row(value=value)])
+            assert result == expected[value]  # Includes exact value and all hashes.
+            assert result["selected"][0]["value"] == valid[value]
+            assert repr(caller) == before
+        for value in invalid:
+            with pytest.raises(LabelViewError) as error:
+                view([row(value=value)])
+            assert str(error.value) == error.value.code == "INVALID_LABEL_INPUT"
+            assert repr(caller) == before

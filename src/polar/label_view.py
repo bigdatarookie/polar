@@ -2,12 +2,13 @@
 import hashlib
 import re
 from datetime import datetime, timedelta
+from decimal import Context, Decimal, InvalidOperation
 from typing import Annotated, Literal
 
 from pydantic import BeforeValidator, Field, ValidationError, model_validator
 
 from .codec import canonical, digest
-from .models import Number, Strict
+from .models import Strict
 
 MAX_INPUT_BYTES = 1024**2
 MAX_RECORDS = 1000
@@ -38,6 +39,20 @@ UTC = Annotated[datetime, BeforeValidator(_utc)]
 Identifier = Annotated[str, Field(min_length=1, max_length=64)]
 
 
+def _label_decimal(value):
+    """Exact admission without caller-context arithmetic or conversion flags."""
+    if not isinstance(value, str) or len(value) > 40:
+        raise ValueError("DECIMAL_STRING_REQUIRED")
+    number = Decimal(value, context=Context(traps=[InvalidOperation]))
+    if (not number.is_finite() or number.copy_abs() > Decimal("1e12")
+            or number.as_tuple().exponent < -12):
+        raise ValueError("DECIMAL_OUT_OF_BOUNDS")
+    return number
+
+
+LabelNumber = Annotated[Decimal, BeforeValidator(_label_decimal)]
+
+
 class LabelRecord(Strict):
     instrument_id: Identifier
     label_id: Identifier
@@ -50,7 +65,7 @@ class LabelRecord(Strict):
     available_at: UTC
     ingested_at: UTC
     value_unit: Identifier
-    value: Number
+    value: LabelNumber
 
     @model_validator(mode="after")
     def clocks(self):
