@@ -36,6 +36,16 @@ def main(argv=None):
     subs.add_parser("dataset").add_argument("dataset_id")
     subs.add_parser("register").add_argument("file",type=Path)
     subs.add_parser("inspect-dataset").add_argument("file",type=Path)
+    subs.add_parser("history-migrate")
+    historical = subs.add_parser("history-register")
+    historical.add_argument("directory", type=Path)
+    historical.add_argument("--manifest-sha256", required=True)
+    historical = subs.add_parser("history-catalog")
+    historical.add_argument("--limit", type=int, default=50)
+    historical.add_argument("--cursor")
+    historical = subs.add_parser("history-revision")
+    historical.add_argument("dataset_id")
+    historical.add_argument("revision")
     asof = subs.add_parser("asof-features")
     asof.add_argument("file",type=Path)
     asof.add_argument("--decision-at",required=True)
@@ -48,6 +58,23 @@ def main(argv=None):
     compare.add_argument("left",type=uuid.UUID)
     compare.add_argument("right",type=uuid.UUID)
     args = parser.parse_args(argv)
+    if args.command.startswith("history-"):
+        from .history_bundle import HistoryError
+        try:
+            from .config import Settings
+            from .history_registry import HistoryRegistry
+            registry = HistoryRegistry(Settings.load())
+            match args.command:
+                case "history-migrate": result = registry.migrate()
+                case "history-register": result = registry.register(args.directory, args.manifest_sha256)
+                case "history-catalog": result = registry.catalog(args.limit, args.cursor)
+                case "history-revision": result = registry.revision(args.dataset_id, args.revision)
+            print(json.dumps(result, default=str, sort_keys=True, allow_nan=False))
+        except Exception as exc:
+            code = exc.code if isinstance(exc, HistoryError) else "HISTORY_DEPENDENCY_UNAVAILABLE"
+            print(json.dumps({"status":"ERROR", "code":code}), file=sys.stderr)
+            raise SystemExit(1)
+        return
     if args.command == "asof-features":
         from .feature_view import MAX_INPUT_BYTES, FeatureViewError, asof_features
         try:
