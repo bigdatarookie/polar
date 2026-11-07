@@ -11,6 +11,9 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import inspect
+import stat
+import time
 from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -62,14 +65,22 @@ def backup(target):
     running = run(COMPOSE+["ps","--status","running","--services"],capture_output=True,text=True).stdout.split()
     if "evaluator" in running:
         raise SystemExit("Evaluator must finish before backup")
+    before = backup_content_observation()
+    if before.get("status") != "STABLE":
+        raise SystemExit("BACKUP_CONTENT_UNAVAILABLE; services remain stopped")
     with (target/"metadata.dump").open("xb") as f:
         run(COMPOSE+["exec","-T","db","pg_dump","-U","polar","-d","polar","-Fc"],stdout=f)
     code = "import tarfile,sys; t=tarfile.open(fileobj=sys.stdout.buffer,mode='w|'); t.add('/data/artifacts',arcname='artifacts'); t.close()"
     with (target/"artifacts.tar").open("xb") as f:
         stream_helper(code,output=f)
-    manifest = {"schema_version":1,"scope":"POL.0.4.0.1","code_revision":os.environ.get("POLAR_CODE_REVISION","UNRECORDED"),
+    after = backup_content_observation()
+    if compare_content(before, after)["current_state_coverage"] != "CURRENT":
+        raise SystemExit("BACKUP_CONTENT_CHANGED; files retained, services remain stopped")
+    # The fingerprint covers the whole copy window, not only the last probe.
+    snapshot = seal_content(content_identity(after), before["window_started_at"], after["window_finished_at"])
+    manifest = {"schema_version":2,"scope":"POL.0.4.0.1","code_revision":identity(os.environ.get("POLAR_CODE_REVISION"),REVISION),
                 "files":{name:sha(target/name) for name in ["metadata.dump","artifacts.tar"]},
-                "consistency":"QUIESCENT","restore_effect":"NOT_RUN"}
+                "consistency":"QUIESCENT_TWO_PASS","snapshot_content":snapshot,"restore_effect":"NOT_RUN"}
     (target/"backup-manifest.json").write_text(json.dumps(manifest,sort_keys=True,indent=2)+"\n")
     print("Snapshot created; API/worker remain stopped. Restore effect NOT RUN.")
 
@@ -149,7 +160,236 @@ RESOURCE = r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}"
 SERVICES = ("db", "api", "worker")
 
 
-def inventory_manifest(expected_revision=None, expected_image=None, backup_directory=None, read=inventory_read):
+CONTENT_SCHEMA = "polar.snapshot-content/1"
+METADATA_LIMIT = 1024
+FILE_VERIFY_LIMIT = 512 * 1024**2
+
+
+def content_digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def artifact_content(root):
+    """Self-contained read-only probe, also shipped on stdin to existing images."""
+    import hashlib
+    import json
+    import os
+    from pathlib import Path
+    import stat
+    import uuid
+    root = Path(root)
+    entries = 0
+    identities = []
+    def bounded_entries(path):
+        nonlocal entries
+        with os.scandir(path) as scan:
+            for item in scan:
+                entries += 1
+                if entries > 8192 or item.is_symlink():
+                    raise ValueError("UNAVAILABLE")
+                yield item
+    try:
+        if root.is_symlink() or not root.is_dir():
+            raise ValueError("UNAVAILABLE")
+        for run in bounded_entries(root):
+            if not run.is_dir(follow_symlinks=False):
+                continue
+            try:
+                if str(uuid.UUID(run.name)) != run.name:
+                    continue
+            except ValueError:
+                continue
+            for attempt in bounded_entries(run.path):
+                if not attempt.is_dir(follow_symlinks=False):
+                    continue
+                try:
+                    if str(uuid.UUID(attempt.name)) != attempt.name:
+                        continue
+                except ValueError:
+                    continue
+                manifest = Path(attempt.path)/"manifest.json"
+                if not manifest.exists() and not manifest.is_symlink():
+                    continue
+                fd = os.open(manifest, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                with os.fdopen(fd, "rb") as f:
+                    before = os.fstat(f.fileno())
+                    if not stat.S_ISREG(before.st_mode) or before.st_size > 65536:
+                        raise ValueError("UNAVAILABLE")
+                    raw = f.read(65537)
+                    after = os.fstat(f.fileno())
+                if len(raw) > 65536 or (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+                    raise ValueError("UNAVAILABLE")
+                body = json.loads(raw)
+                if body.get("schema_version") != "polar.manifest/1" or body.get("run_id") != run.name or body.get("attempt_id") != attempt.name:
+                    raise ValueError("UNAVAILABLE")
+                identities.append([run.name+"/"+attempt.name, hashlib.sha256(raw).hexdigest()])
+                if len(identities) > 1024:
+                    raise ValueError("UNAVAILABLE")
+        digest = hashlib.sha256(json.dumps(sorted(identities), separators=(",", ":")).encode()).hexdigest()
+        return {"status": "OBSERVED", "count": len(identities), "sha256": digest}
+    except (OSError, ValueError, TypeError, AttributeError):
+        return {"status": "UNKNOWN"}
+
+
+def content_metadata_sql():
+    # Fingerprints are of ordered, named identities, not raw source/config bodies.
+    fields = {
+        "datasets": ("id,content_hash,source_hash,registered_at", "id"),
+        "runs": ("id,dataset_id,state,payload_hash,artifact_ref,artifact_hash,attempt,attempt_id,created_at,updated_at,cancel_requested,lease_until", "id"),
+        "attempts": ("id,run_id,number,state,started_at,finished_at,cpu_seconds,error_code", "run_id,number"),
+    }
+    ctes, pairs = [], []
+    for table, (columns, order) in fields.items():
+        ctes.append(f"{table}_ids AS (SELECT {columns} FROM {table} ORDER BY {order} LIMIT {METADATA_LIMIT+1})")
+        pairs += [f"'{table}_count',(SELECT count(*) FROM {table}_ids)",
+                  f"'{table}',(SELECT encode(sha256(convert_to(coalesce(jsonb_agg(to_jsonb(t) ORDER BY {order}),'[]'::jsonb)::text,'UTF8')),'hex') FROM {table}_ids t)"]
+    return """BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
+      SET LOCAL statement_timeout='5000ms'; SET LOCAL lock_timeout='1000ms';
+      SET LOCAL TIME ZONE 'UTC'; SET LOCAL DateStyle='ISO,YMD'; WITH """ + ",".join(ctes) + " SELECT json_build_object(" + ",".join(pairs) + """,
+      'database_major',current_setting('server_version_num')::integer/10000,
+      'schema_version',version,'schema_sha256',checksum,
+      'active',(SELECT count(*) FROM runs WHERE state IN ('running','queued')))
+      FROM schema_version; ROLLBACK;"""
+
+
+def content_identity(observation):
+    return {k:observation[k] for k in ("database_major", "schema_version", "schema_sha256", "counts", "fingerprints")}
+
+
+def seal_content(value, started, finished):
+    block = {"schema": CONTENT_SCHEMA, "status": "STABLE", **value,
+             "window_started_at": started, "window_finished_at": finished}
+    return {**block, "checksum": content_digest(block)}
+
+
+def valid_content(block, *, now=None):
+    """Return an allowlisted block or None; never echo untrusted manifest values."""
+    try:
+        if block["schema"] != CONTENT_SCHEMA or block["status"] != "STABLE":
+            return None
+        value = content_identity(block)
+        if type(value["database_major"]) is not int or not 10 <= value["database_major"] <= 99 or value["schema_version"] != 1 or type(value["schema_version"]) is not int:
+            return None
+        if identity(value["schema_sha256"], HEX) == "UNKNOWN":
+            return None
+        keys = ("datasets", "runs", "attempts", "artifact_manifests")
+        if set(value["counts"]) != set(keys) or set(value["fingerprints"]) != set(keys):
+            return None
+        if any(type(value["counts"][k]) is not int or not 0 <= value["counts"][k] <= METADATA_LIMIT or identity(value["fingerprints"][k], HEX) == "UNKNOWN" for k in keys):
+            return None
+        start, end = (datetime.fromisoformat(block[k]) for k in ("window_started_at", "window_finished_at"))
+        cutoff = datetime.now(timezone.utc) if now is None else now
+        if start.tzinfo is None or end.tzinfo is None or cutoff.tzinfo is None or start > end or end > cutoff:
+            return None
+        result = seal_content(value, block["window_started_at"], block["window_finished_at"])
+        return result if result["checksum"] == block["checksum"] else None
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None
+
+
+def observe_content(db_prefix, artifact_prefix, read=inventory_read):
+    started = datetime.now(timezone.utc).isoformat()
+    try:
+        values = []
+        for _ in range(2):
+            lines = read(db_prefix+["psql", "-X", "-qAt", "-U", "polar", "-d", "polar", "-c", content_metadata_sql()]).splitlines()
+            if len(lines) != 1:
+                raise ValueError("UNAVAILABLE")
+            db = json.loads(lines[0])
+            if type(db.get("active")) is not int or db["active"] != 0:
+                return {"status": "UNKNOWN", "reason": "NOT_QUIESCENT"}
+            # Existing image need not contain the new host operations source.
+            script = inspect.getsource(artifact_content)+"\nimport json; print(json.dumps(artifact_content('/data/artifacts')))"
+            artifact = json.loads(read(artifact_prefix+["python", "-c", script]))
+            if artifact.get("status") != "OBSERVED":
+                raise ValueError("UNAVAILABLE")
+            value = {"database_major": db["database_major"], "schema_version": db["schema_version"], "schema_sha256": db["schema_sha256"],
+                     "counts": {**{k:db[k+"_count"] for k in ("datasets", "runs", "attempts")}, "artifact_manifests": artifact["count"]},
+                     "fingerprints": {**{k:db[k] for k in ("datasets", "runs", "attempts")}, "artifact_manifests": artifact["sha256"]}}
+            values.append(value)
+        finished = datetime.now(timezone.utc).isoformat()
+        block = seal_content(values[1], started, finished)
+        if valid_content(block) is None:
+            raise ValueError("UNAVAILABLE")
+        if values[0] != values[1]:
+            return {"status": "UNKNOWN", "reason": "CONCURRENT_CHANGE"}
+        return block
+    except (InventoryError, OSError, ValueError, KeyError, TypeError, AttributeError):
+        return {"status": "UNKNOWN", "reason": "OBSERVATION_UNAVAILABLE"}
+
+
+def backup_content_observation():
+    return observe_content(COMPOSE+["exec", "-T", "db"], COMPOSE+["run", "--rm", "--no-deps", "-T", "--entrypoint", "python", "snapshot"], read=backup_probe_read)
+
+
+def backup_probe_read(args):
+    # Snapshot service's entrypoint already supplies python; strip the duplicate.
+    if "snapshot" in args:
+        i = args.index("snapshot")
+        args = args[:i+1]+args[i+2:]
+    return inventory_read(args)
+
+
+def compare_content(snapshot, current, file_verification="NOT_RUN", *, now=None):
+    result = {"current_state_coverage": "UNKNOWN", "reason": "SNAPSHOT_INVALID",
+              "restore_effect": "NOT_RUN", "snapshot_observation": "UNKNOWN", "current_observation": "UNKNOWN"}
+    # One credibility boundary for both blocks; tests can inject an aware clock.
+    cutoff = datetime.now(timezone.utc) if now is None else now
+    old = valid_content(snapshot, now=cutoff)
+    new = valid_content(current, now=cutoff)
+    if file_verification == "FAIL":
+        result["reason"] = "FILE_INTEGRITY_FAILED"
+        return result
+    if old is None:
+        return result
+    result["snapshot_observation"] = old
+    if new is None:
+        result["reason"] = current.get("reason", "OBSERVATION_UNAVAILABLE") if isinstance(current, dict) and current.get("reason") in ("CONCURRENT_CHANGE", "NOT_QUIESCENT", "OBSERVATION_UNAVAILABLE") else "OBSERVATION_UNAVAILABLE"
+        return result
+    result["current_observation"] = new
+    if any(old[k] != new[k] for k in ("database_major", "schema_version", "schema_sha256")):
+        result["reason"] = "INCOMPATIBLE_VERSION"
+    elif datetime.fromisoformat(old["window_finished_at"]) > datetime.fromisoformat(new["window_started_at"]):
+        result["reason"] = "INCOMPATIBLE_TIME"
+    else:
+        match = content_identity(old) == content_identity(new)
+        result.update(current_state_coverage="CURRENT" if match else "STALE", reason="SCOPED_IDENTITIES_MATCH" if match else "SCOPED_IDENTITIES_DIFFER")
+    return result
+
+
+def verify_backup_content_files(directory, manifest):
+    """Optional bounded byte hashing, separate from state coverage and restore."""
+    started = time.monotonic()
+    total = 0
+    try:
+        for name in ("metadata.dump", "artifacts.tar"):
+            expected = manifest["files"][name]
+            if identity(expected, HEX) == "UNKNOWN":
+                return "UNKNOWN"
+            fd = os.open(directory/name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            with os.fdopen(fd, "rb") as f:
+                before = os.fstat(f.fileno())
+                total += before.st_size
+                if not stat.S_ISREG(before.st_mode) or total > FILE_VERIFY_LIMIT:
+                    return "UNKNOWN"
+                digest = hashlib.sha256()
+                consumed = total-before.st_size
+                while chunk := f.read(1024**2):
+                    consumed += len(chunk)
+                    if time.monotonic()-started > 8 or consumed > FILE_VERIFY_LIMIT:
+                        return "UNKNOWN"
+                    digest.update(chunk)
+                after = os.fstat(f.fileno())
+            if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+                return "UNKNOWN"
+            if digest.hexdigest() != expected:
+                return "FAIL"
+        return "PASS"
+    except (OSError, KeyError, TypeError):
+        return "UNKNOWN"
+
+
+def inventory_manifest(expected_revision=None, expected_image=None, backup_directory=None, read=inventory_read, verify_files=False):
     """Read only fixed projections. Unknown fields and subprocess errors never escape."""
     now = lambda: datetime.now(timezone.utc).isoformat()
     if expected_revision is not None and identity(expected_revision, REVISION) == "UNKNOWN":
@@ -295,11 +535,13 @@ def inventory_manifest(expected_revision=None, expected_image=None, backup_direc
     database["selected_schema_version"] = 1
     database["schema_equal_selected"] = (database["schema_version"] == 1 and database["schema_sha256"] == database["selected_schema_sha256"]) if database["status"] == "OBSERVED" and database["schema_sha256"] != "UNKNOWN" else "UNKNOWN"
     backup = {"status": "NOT_RUN", "restore_effect": "NOT_RUN"}
+    if verify_files and backup_directory is None:
+        raise InventoryError("INVENTORY_BACKUP_REQUIRED")
     if backup_directory is not None:
         # Bind existing format metadata only; never open a dump, secret or dataset body.
         directory = backup_directory.resolve(strict=True)
         path = directory/"backup-manifest.json"
-        if path.stat().st_size > 16384:
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > 16384:
             raise InventoryError("INVENTORY_BACKUP_MANIFEST_LIMIT")
         m = json.loads(path.read_bytes())
         if m.get("scope") != "POL.0.4.0.1" or set(m.get("files", {})) != {"metadata.dump", "artifacts.tar"}:
@@ -308,13 +550,24 @@ def inventory_manifest(expected_revision=None, expected_image=None, backup_direc
                   "code_revision": identity(m.get("code_revision"), REVISION),
                   "files": {k:identity(v, HEX) for k,v in m["files"].items()}, "file_verification": "NOT_RUN", "restore_effect": "NOT_RUN",
                   "current_state_coverage": "UNKNOWN"}
+        if verify_files:
+            backup["file_verification"] = verify_backup_content_files(directory, m)
+        if m.get("schema_version") == 2 and "snapshot_content" in m:
+            current = {"status": "UNKNOWN", "reason": "OBSERVATION_UNAVAILABLE"}
+            if valid_content(m["snapshot_content"]) is not None and backup["file_verification"] != "FAIL" and all(k in chosen and observed[k]["state"] == "running" for k in ("db", "api")):
+                current = observe_content(["docker", "exec", chosen["db"]["Id"]], ["docker", "exec", chosen["api"]["Id"]], read=read)
+            backup.update(compare_content(m["snapshot_content"], current, backup["file_verification"]))
+        else:
+            backup["reason"] = ("SNAPSHOT_INVALID" if m.get("schema_version") == 2 else
+                                "LEGACY_NO_SNAPSHOT" if m.get("schema_version") in (None, 1) else
+                                "INCOMPATIBLE_BACKUP_VERSION")
     return {"schema": "polar.runtime-inventory/1", "checked_at": now(), "selected_tooling": selected,
             "desired": {"project": "polar", "compose_file_sha256": sha(ROOT/"compose.yaml"), "resources": names, "services": desired},
             "observed": {"services": observed, "database": database}, "checks": checks, "backup_handle": backup,
             "limits": {"hard_storage_quota": "NOT_ENFORCED", "blinding": "BLINDING_NOT_ENFORCED", "global_cpu_storage_accounting": "INCOMPLETE", "kernel_caps_verification": "NOT_RUN", "running_source_bytes_verification": "NOT_RUN"}}
 
 
-def inventory(output, expected_revision=None, expected_image=None, backup_directory=None):
+def inventory(output, expected_revision=None, expected_image=None, backup_directory=None, verify_files=False):
     try:
         # Resolve parents first, reject symlinks/existing files and any Git working tree.
         if not output.is_absolute() or output.exists() or output.is_symlink():
@@ -327,7 +580,7 @@ def inventory(output, expected_revision=None, expected_image=None, backup_direct
             raise InventoryError("INVENTORY_EXTERNAL_FILE_REQUIRED")
         if "not a git repository" not in probe.stderr.lower():
             raise InventoryError("INVENTORY_EXTERNAL_PATH_UNVERIFIED")
-        manifest = inventory_manifest(expected_revision, expected_image, backup_directory)
+        manifest = inventory_manifest(expected_revision, expected_image, backup_directory, verify_files=verify_files)
         body = (json.dumps(manifest, sort_keys=True, indent=2)+"\n").encode()
         if len(body) > 65536:
             raise InventoryError("INVENTORY_OUTPUT_LIMIT")
@@ -354,8 +607,9 @@ if __name__ == "__main__":
     p.add_argument("--expected-app-revision")
     p.add_argument("--expected-image-id")
     p.add_argument("--backup-directory", type=Path)
+    p.add_argument("--verify-backup-files", action="store_true", help="Hash only the two backup files, <=512MiB/8s; never restore")
     args = parser.parse_args()
     if args.operation == "backup": backup(args.directory)
     elif args.operation == "restore": restore(args.directory,args.suffix)
     elif args.operation == "evaluate": evaluate()
-    else: inventory(args.output, args.expected_app_revision, args.expected_image_id, args.backup_directory)
+    else: inventory(args.output, args.expected_app_revision, args.expected_image_id, args.backup_directory, args.verify_backup_files)

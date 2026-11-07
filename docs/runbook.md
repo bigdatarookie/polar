@@ -183,8 +183,8 @@ before 4 GiB retained + 1 GiB scratch/logs. Report
 ## Read-only runtime inventory and custody
 
 Run `python3 scripts/ops.py inventory --help` from the assigned checkout. Inventory
-only reads Compose/Docker metadata and a bounded `BEGIN READ ONLY` PostgreSQL
-projection; it never builds, starts, stops, migrates, restores, submits a job or
+only reads Compose/Docker metadata, bounded read-only PostgreSQL projections
+and (for version2 backup coverage) retained artifact-manifest identities; it never builds, starts, stops, migrates, restores, submits a job or
 reads a secret file. No Docker or host installation is implied. It requires the
 existing Docker CLI/Compose and selected task runtime. Run serially within the
 Lead's assigned computation and environment-custody window.
@@ -246,14 +246,20 @@ is a timestamped observation, not an atomic snapshot across Docker and DB; a
 candidate-scoped owner must exclude concurrent runtime changes.
 
 To bind an existing backup handle, add `--backup-directory /absolute/backup-dir`.
-Only the existing `backup-manifest.json` format is read: its file hash and
-allowlisted declared dump/tar hashes are recorded. Inventory never opens or
-copies dump/artifact bodies, verifies their content hashes, runs a restore or
-claims that the backup includes later registrations. `file_verification` and
-`restore_effect` stay `NOT_RUN`; `current_state_coverage` stays `UNKNOWN`. Keep
-raw backup files protected outside Git and shared evidence. Backup/restore and
-evaluator commands retain the operations and ownership checks documented above;
-this flag is not authorization to execute them.
+Legacy envelope1 remains readable, without modification: file hashes alone never
+establish current state coverage. Its `current_state_coverage` stays `UNKNOWN`,
+reason `LEGACY_NO_SNAPSHOT`. Version2 adds the scoped content observations below;
+this is an additive manifest version, with the same dump/tar names and unchanged
+restore ownership/fresh-volume safeguards. Restore is always `NOT_RUN` here.
+
+By default, `file_verification` stays `NOT_RUN`. The explicit optional
+`--verify-backup-files` hashes only existing regular `metadata.dump` and
+`artifacts.tar` bytes (no symlinks, extraction or deserialization), at most512MiB
+combined and8seconds. It reports `PASS`, `FAIL` or `UNKNOWN` separately from
+coverage. Missing/over-limit/concurrently changing files give `UNKNOWN`; a
+checksum mismatch gives `FAIL`. It never restores or creates a backup. Keep
+raw backup files protected outside Git and shared evidence. A supplied backup
+handle does not authorize backup/restore/evaluator actions.
 
 Custody handoff: send the manifest path/hash, tooling SHA, observed app image and
 revision, owner/window, resource names and protected backup location through the
@@ -280,6 +286,93 @@ conflicting restarts, migration, restore and revision changes between QA seats;
 QA2 can prepare or run separately assigned independent work. Do not duplicate
 full stacks or expand quotas automatically. A recreation requires separate Lead
 authorization, original before-state and retained volumes; inventory never does it.
+
+## Scoped backup-content coverage
+
+A newly authorized `ops.py backup` still stops API admission, refuses queued or
+running jobs, stops the worker and requires no evaluator. It now captures stable
+content observations before and after the existing dump/tar copy. Both intervals
+must be quiescent and match; otherwise files are retained, no completed manifest
+is issued, and API/worker stay stopped for the custodian to decide the next step.
+There is no automatic retry, restart, prune or restore. Source volumes and older
+backups are never modified. Only an explicitly selected NEW backup directory is
+written. Backup remains a separately authorized operation, not an inventory side
+effect. Record finite CPU/wall/disk limits and exclusive shared-state custody
+before selecting it; no new resource allowance is implied by this command.
+
+New envelope2 adds `snapshot_content` with `polar.snapshot-content/1`, UTC-aware
+window start/end, PostgreSQL major and schema version/checksum, bounded counts,
+four identity fingerprints and a canonical block checksum. Existing file hashes
+remain separate. Its scope is precisely:
+
+- Dataset id, canonical/source hashes and actual registration timestamp.
+- Run id, dataset id, state, payload hash, artifact reference/hash, attempt
+  number/id, creation/update timestamps, cancellation and lease identity.
+- Attempt id, run/number/state, start/end timestamps, CPU and error identity.
+- Relative run/attempt UUID paths and SHA256 of their retained `manifest.json`
+  bytes. This does not hash arbitrary report, source, dataset or payload bytes.
+
+Metadata hashes are computed in one PostgreSQL `REPEATABLE READ READ ONLY`
+transaction, with UTC/ISO rendering, ordered JSONB row identities, fixed fields
+and SHA256. Each table is limited to1024 rows plus one overflow witness. An
+overflow refuses usable coverage rather than truncating it into a success.
+The artifact probe examines at most8192 directory entries and1024 regular
+manifests of at most64KiB each; symlinks, malformed identities or unavailable
+observations yield `UNKNOWN`. Partial/unpublished payloads without a retained
+UUID manifest are outside this identity scope. No raw row/body/env/error or
+arbitrary manifest property is returned; only hashes/counts/schema are emitted.
+
+Each stable observation uses DB/artifacts/DB/artifacts and requires matching
+passes and zero active jobs. Backup repeats that around its copy and binds the
+entire window. Inventory uses read-only exec in the **existing running** DB/API;
+it never starts a helper or quiesces the stack. Backup reuses its existing
+read-only snapshot helper while API/worker are stopped, shipping fixed stdlib
+probe code so the running app image need not contain the new operations source.
+Changed passes yield `UNKNOWN/CONCURRENT_CHANGE`; nonquiescent/unavailable probes
+also give `UNKNOWN`. Do not retry indefinitely or change the exam to get a match.
+
+Inventory compares only validated protocol1 blocks with the same PostgreSQL
+major and schema identity; unsupported versions, malformed checksums, unzoned or
+reversed windows, future snapshot/current windows, or a current observation
+predating the snapshot yield `UNKNOWN`. One cutoff is captured from the host UTC
+clock for both blocks; a window ending exactly at that cutoff is allowed, a
+window ending later is rejected (no implicit skew tolerance). Generated windows
+use UTC. Readers also accept timezone-aware offsets and compare their actual
+instants; offset spelling does not establish time credibility. The validator
+and comparison accept an explicit aware `now` for fixed-clock component tests;
+normal inventory/backup callers use the host clock. This checks consistency with
+that clock, not an authenticated external time source.
+For compatible, stable recorded observations:
+
+- `CURRENT` means the four named identity/count sets match at those timestamps.
+- `STALE` means those scoped retained identities differ, even if dump/tar file
+  checksums pass. Later registrations are a legitimate example.
+- `UNKNOWN` means legacy, incomplete/incompatible/changing evidence or an explicit
+  backup-file verification failure; the latter is `FILE_INTEGRITY_FAILED`, not
+  ordinary staleness. File verification can remain `NOT_RUN`/`UNKNOWN` while a
+  separate scoped identity comparison is available; inspect both fields.
+
+The manifest records snapshot and current windows and keeps `restore_effect`
+`NOT_RUN` for every outcome. A `CURRENT` scoped comparison is neither an atomic
+cross-system snapshot assertion nor proof of successful restore, payload
+integrity or complete recovery. Two-pass detection assumes exclusive custodian
+control of writes and immutable retained records; it cannot prove absence of
+privileged change-and-revert between probes. JSONB digest compatibility is scoped
+to the recorded major/schema/protocol. The block checksum detects accidental
+metadata edits, not an authenticated adversary rewriting both manifest and
+archives. Trust the native custody handoff and independently recorded manifest
+hash; do not fabricate missing snapshot fingerprints for accepted old backups.
+
+A later assembled drill must first rebind current app/tool code, image, schema,
+config, maps/caps, counters and capacity; older observations are historical.
+One named QA System independently compares an allowed new snapshot/current
+observation and a preserved legacy backup, checks file integrity separately and
+reads a retained report/history without jobs. Component staleness, tamper and
+concurrent-change fixtures must not corrupt the accepted owner DB. Keep backup,
+source volumes and immutable witnesses; any return to the prior service state
+must be explicitly included in that operation's custody. Restore remains outside
+the drill unless separately selected. No hard storage/global CPU enforcement is
+claimed; `NOT_ENFORCED`, `BLINDING_NOT_ENFORCED` and incomplete accounting remain.
 
 ## Retained workspace UI
 
