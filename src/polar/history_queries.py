@@ -201,6 +201,22 @@ class HistoryQueries:
         return page_rows(rows, [r["session_date"]+":"+r["row_role"] for r in rows],
                          count, cursor, "bars/1", identity, make, codec)
 
+    def _descriptive(self):
+        from .descriptive_service import DescriptiveService
+        return DescriptiveService(self.registry, self.calendar_dir)
+
+    def experiment(self, experiment_id):
+        return self._descriptive().experiment(experiment_id)
+
+    def experiment_view(self, view_id):
+        return self._descriptive().view(view_id)
+
+    def experiment_rows(self, view_id, limit="1000", cursor=None):
+        return self._descriptive().rows(view_id, self.codec, limit, cursor)
+
+    def experiment_attempt(self, attempt_id):
+        return self._descriptive().store.attempt(attempt_id)
+
     def series(self, **kwargs):
         from .history_series import series
         return series(self, **kwargs)
