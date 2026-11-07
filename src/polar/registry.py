@@ -92,9 +92,6 @@ class Registry:
                 return old
             if not db.execute("SELECT id FROM datasets WHERE id=%s", (config.dataset_id,)).fetchone():
                 raise NotFound("DATASET_NOT_FOUND")
-            used = db.execute("SELECT count(*) AS n FROM runs").fetchone()["n"]
-            if used >= self.settings.max_jobs:
-                raise BudgetExceeded("FIXTURE_JOB_LIMIT")
             from .artifacts import storage_used
             db_bytes = db.execute("SELECT pg_database_size(current_database()) AS n").fetchone()["n"]
             if db_bytes + storage_used(self.settings.artifacts) + 1024**2 > self.settings.storage_bytes:
@@ -146,10 +143,6 @@ class Registry:
                     error_code='LEASE_EXPIRED' WHERE id=%s""", (state, row["id"]))
             # Claiming is globally serialized; concurrent workers cannot execute jobs.
             if db.execute("SELECT id FROM runs WHERE state='running' LIMIT 1").fetchone():
-                return None
-            used = db.execute("SELECT coalesce(sum(cpu_seconds),0) AS n FROM attempts").fetchone()["n"]
-            if used + self.settings.job_seconds > self.settings.cpu_seconds:
-                db.execute("UPDATE runs SET state='failed',error_code='CPU_BUDGET' WHERE state='queued'")
                 return None
             row = db.execute("SELECT * FROM runs WHERE state='queued' ORDER BY created_at,id LIMIT 1 FOR UPDATE").fetchone()
             if not row:
