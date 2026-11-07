@@ -49,3 +49,18 @@ def install_history_routes(app, service):
         return call(request, {"instrument_id", "start", "end", "limit", "warmup_sessions", "cursor"}, "bars",
                     dataset_id=dataset_id, revision=revision, instrument_id=instrument_id, start=start, end=end,
                     limit=limit, warmup_sessions=warmup_sessions, cursor=cursor)
+
+    @app.get(prefix + "/series")
+    def series(request: Request, dataset_id: str, revision: str, instrument_id: str, start: str, end: str,
+               limit: str = "1000", warmup_sessions: str = "0", cursor: str | None = None,
+               sma_period: str | None = None, ema_period: str | None = None, bb_period: str | None = None,
+               bb_deviation: str | None = None, rsi_period: str | None = None,
+               benchmark_instrument_id: str = "hist-us-0004", reference_family: str = "RAW_PRICE_RELATIVE",
+               basis: str = "RAW_CLOSE"):
+        return call(request, {"instrument_id", "start", "end", "limit", "warmup_sessions", "cursor",
+                    "sma_period", "ema_period", "bb_period", "bb_deviation", "rsi_period",
+                    "benchmark_instrument_id", "reference_family", "basis"}, "series",
+                    dataset_id=dataset_id, revision=revision, instrument_id=instrument_id, start=start, end=end,
+                    limit=limit, warmup_sessions=warmup_sessions, cursor=cursor, sma_period=sma_period,
+                    ema_period=ema_period, bb_period=bb_period, bb_deviation=bb_deviation, rsi_period=rsi_period,
+                    benchmark_instrument_id=benchmark_instrument_id, reference_family=reference_family, basis=basis)

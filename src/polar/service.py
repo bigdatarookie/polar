@@ -21,6 +21,7 @@ class Service:
         from .history_registry import HistoryRegistry
         self.history_registry = HistoryRegistry(settings)
         self.history_cursor_key_file = settings.history_cursor_key_file
+        self.history_calendar_dir = settings.history_calendar_dir or settings.artifacts/"history-calendar"
 
     def history_read(self, operation, **kwargs):
         import psycopg
@@ -28,7 +29,7 @@ class Service:
         from .history_cursor import HistoryCursorError
         from .history_queries import HistoryQueries, HistoryReadError
         try:
-            return getattr(HistoryQueries(self.history_registry, self.history_cursor_key_file), operation)(**kwargs)
+            return getattr(HistoryQueries(self.history_registry, self.history_cursor_key_file, self.history_calendar_dir), operation)(**kwargs)
         except HistoryCursorError as exc:
             raise HistoryReadError(exc.code, exc.status) from None
         except HistoryError as exc:

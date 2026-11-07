@@ -12,6 +12,8 @@ class Settings:
     storage_bytes: int = 64 * 1024**3
     history_cursor_key_file: Path = Path("/run/secrets/history_cursor_key")
 
+    history_calendar_dir: Path | None = None
+
     @classmethod
     def load(cls):
         # Credentials are read from a mounted secret. Never log the DSN.
@@ -28,4 +30,5 @@ class Settings:
                 not 1 <= int(allocation) <= 64 * 1024**3):
             raise ValueError("INVALID_STORAGE_ALLOCATION")
         return cls(dsn, Path(os.environ.get("POLAR_ARTIFACT_ROOT", "/data/artifacts")), storage_bytes=int(allocation),
+                   history_calendar_dir=Path(os.environ["POLAR_HISTORY_CALENDAR_DIR"]) if "POLAR_HISTORY_CALENDAR_DIR" in os.environ else None,
                    history_cursor_key_file=Path(os.environ.get("POLAR_HISTORY_CURSOR_KEY_FILE", "/run/secrets/history_cursor_key")))
