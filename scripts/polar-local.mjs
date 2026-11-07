@@ -9,7 +9,7 @@ import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
 
-export const VERSION='polar-local/1.1.0';
+export const VERSION='polar-local/1.2.0';
 const PW=process.env.POLAR_PLAYWRIGHT_MODULE||'/Users/garry/.npm/_npx/31e32ef8478fbf80/node_modules/playwright/index.js';
 const CHROME=process.env.POLAR_BROWSER_EXECUTABLE||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
@@ -102,7 +102,8 @@ export async function withPage(out,url,actions,{actionTimeoutMs=120000}={}) {
   assert(Number.isInteger(actionTimeoutMs)&&actionTimeoutMs>=1000&&actionTimeoutMs<=600000);
   assert(actions===undefined||typeof actions==='function');
   if(url){const u=new URL(url);assert(u.protocol==='file:'||(['http:','https:'].includes(u.protocol)&&['127.0.0.1','localhost','[::1]'].includes(u.hostname)),'LOCAL_PAGE_ONLY');}
-  privateDir(out);const start=Date.now(),cpuStart=process.cpuUsage();let context,peak=process.memoryUsage().rss,seen=new Map(),timer,result={version:VERSION,start:new Date().toISOString(),host:host(),status:'FAIL'};
+  privateDir(out);const start=Date.now(),cpuStart=process.cpuUsage();let context,peak=process.memoryUsage().rss,seen=new Map(),timer,closePromise,result={version:VERSION,start:new Date().toISOString(),host:host(),status:'FAIL'};
+  const closeContext=()=>closePromise||(closePromise=context.close());
   const profile=path.join(out,'owned-profile');fs.mkdirSync(profile,{mode:0o700});
   const fixture=path.join(out,'smoke.html');
   fs.writeFileSync(fixture,'<!doctype html><title>Polar launcher smoke</title><button onclick="document.documentElement.dataset.verified=\'true\'">Check launcher</button>',{mode:0o600});
@@ -116,9 +117,25 @@ export async function withPage(out,url,actions,{actionTimeoutMs=120000}={}) {
     await page.goto(target,{waitUntil:'domcontentloaded',timeout:15000});
     if(!url&&!actions){await page.getByRole('button',{name:'Check launcher'}).click({timeout:5000});await page.waitForFunction(()=>document.documentElement.dataset.verified==='true',null,{timeout:5000});}
     if(actions){
-      let deadline;
-      try{await Promise.race([Promise.resolve().then(()=>actions(page,{out,context})),new Promise((_,reject)=>{deadline=setTimeout(()=>reject(new Error('ACTION_DEADLINE')),actionTimeoutMs);})]);}
-      finally{clearTimeout(deadline);}
+      const cancellation=new AbortController();let deadline;
+      const stateFile=path.join(out,'action-state.json');
+      const actionState=state=>fs.writeFileSync(stateFile,JSON.stringify({state,utc:new Date().toISOString(),contract:'COOPERATIVE_JOINED',hardTermination:false}),{mode:0o600});
+      result.actionContract='COOPERATIVE_JOINED';result.callbackHardTermination=false;
+      result.actionDeadlineExceeded=false;result.actionSettled=false;
+      actionState('RUNNING');
+      deadline=setTimeout(()=>{
+        result.actionDeadlineExceeded=true;
+        actionState('CANCELLATION_REQUESTED_WAITING_FOR_CALLBACK');
+        cancellation.abort(new Error('ACTION_DEADLINE'));
+        // Close the browser to interrupt Playwright work, but join the callback.
+        // A timer race cannot terminate arbitrary JavaScript or its side effects.
+        void closeContext().catch(()=>{});
+      },actionTimeoutMs);
+      try {await actions(page,{out,context,signal:cancellation.signal});}
+      finally {
+        clearTimeout(deadline);result.actionSettled=true;actionState('SETTLED');
+      }
+      if(result.actionDeadlineExceeded)throw new Error('ACTION_DEADLINE');
       result.actionStatus='PASS';
     }
     result.title=await page.title();result.browserVersion=context.browser().version();result.urlKind=parsed.protocol;
@@ -126,7 +143,7 @@ export async function withPage(out,url,actions,{actionTimeoutMs=120000}={}) {
     result.status='PASS';
   } catch(e) {result.errorType=e.name;result.error='HEADLESS_SMOKE_FAILED';}
   finally {
-    if(context)try{let t;try{await Promise.race([context.close(),new Promise((_,reject)=>{t=setTimeout(()=>reject(new Error('CLOSE_DEADLINE')),8000);})]);}finally{clearTimeout(t);}}catch{result.cleanupError='CONTEXT_CLOSE_FAILED';result.status='FAIL';}
+    if(context)try{let t;try{await Promise.race([closeContext(),new Promise((_,reject)=>{t=setTimeout(()=>reject(new Error('CLOSE_DEADLINE')),8000);})]);}finally{clearTimeout(t);}}catch{result.cleanupError='CONTEXT_CLOSE_FAILED';result.status='FAIL';}
     clearInterval(timer);
     let survivors=[];
     for(let i=0;i<20;i++){const rows=processes();survivors=rows.filter(r=>seen.has(r.pid)&&seen.get(r.pid).comm===r.comm);if(!survivors.length)break;await wait(100);}
