@@ -268,7 +268,8 @@ def test_v016_legacy_policy_does_not_bypass_manual_heading_collision(notes,manua
     assert j.append(notes,event('ACCESS-NEW-LOGIN',operation='login',episode_kind='login'))['status']=='APPENDED'
 
 
-def test_v016_policy_is_not_historical_structural_validation(notes):
+@pytest.mark.parametrize('invalid_operation',['recover','merge'])
+def test_v016_policy_is_not_historical_structural_validation(notes,invalid_operation):
     old=legacy_event('ACCESS-OLD-ORDINARY',operation='merge')
     with notes.open('ab') as stream:stream.write(j.frame(j.validate(old)))
     assert len(j.records(notes.read_bytes()))==1
@@ -277,7 +278,7 @@ def test_v016_policy_is_not_historical_structural_validation(notes):
     legacy_genuine=legacy_event('ACCESS-NEW-LEGACY',operation='login')
     with pytest.raises(j.JournalError,match='EPISODE_CLASSIFICATION_REQUIRED'):j.append(notes,legacy_genuine)
     assert notes.read_bytes()==before
-    invalid=event('ACCESS-BAD-PROBLEM',operation='recover',episode_kind='access-problem',access_problem='none')
+    invalid=event('ACCESS-BAD-PROBLEM',operation=invalid_operation,episode_kind='access-problem',access_problem='none')
     assert j.validate(invalid)  # structural parsing is deliberately independent of eligibility
     with pytest.raises(j.JournalError,match='INVALID_EPISODE_CLASSIFICATION'):j.append(notes,invalid)
 

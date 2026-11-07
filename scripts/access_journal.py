@@ -123,12 +123,13 @@ def episode_class(event):
 
 
 def write_policy(event):
+    if event['schema']==SCHEMA:
+        require(event['episode_kind']!='access-problem' or event['access_problem']!='none',
+                'INVALID_EPISODE_CLASSIFICATION')
     kind=episode_class(event)
     if kind=='ORDINARY_OPERATION':
         return False
     require(event['schema']==SCHEMA, 'EPISODE_CLASSIFICATION_REQUIRED')
-    require(event['episode_kind']!='access-problem' or event['access_problem']!='none',
-            'INVALID_EPISODE_CLASSIFICATION')
     if event['operation'] in ('route-revision','route-update'):
         require(event['route_change']!='none','UNVERIFIED_ROUTE_CHANGE')
     return True
