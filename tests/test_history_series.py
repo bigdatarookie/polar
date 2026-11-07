@@ -197,3 +197,22 @@ def test_reference_no_overlap_and_empty_asset(api):
     assert all(r["values"]["asset_reference"] is None for r in page["rows"])
     retained.sources["a"]=[]
     assert get(client)["data_status"]=="EMPTY_WINDOW"
+
+
+def test_calendar_configuration_default_and_explicit_path(tmp_path,monkeypatch):
+    monkeypatch.setenv("POLAR_DATABASE_URL","unused")
+    monkeypatch.setenv("POLAR_ARTIFACT_ROOT",str(tmp_path))
+    monkeypatch.delenv("POLAR_HISTORY_CALENDAR_DIR",raising=False)
+    settings=Settings.load()
+    assert settings.history_calendar_dir is None
+    assert Service(settings).history_calendar_dir==tmp_path/"history-calendar"
+    monkeypatch.setenv("POLAR_HISTORY_CALENDAR_DIR",str(tmp_path/"bound-reference"))
+    assert Service(Settings.load()).history_calendar_dir==tmp_path/"bound-reference"
+
+
+def test_orphan_deviation_and_duplicate_query_rejected(api):
+    client,_=api
+    query=params(bb_deviation="2");query.pop("bb_period")
+    assert client.get(PREFIX,params=query).status_code==422
+    query=list(params().items())+[("ema_period","3")]
+    assert client.get(PREFIX,params=query).status_code==422
