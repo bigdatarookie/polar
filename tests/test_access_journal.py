@@ -174,3 +174,18 @@ def test_bounded_journal_size_and_incomplete_output(notes):
     notes.write_bytes(b'x'*(j.MAX_JOURNAL+1))
     with pytest.raises(j.JournalError,match='JOURNAL_LIMIT'):j.read(notes,'example')
     with pytest.raises(j.JournalError,match='JOURNAL_LIMIT'):j.append(notes,event())
+
+
+@pytest.mark.parametrize('manual_first',[False,True])
+def test_existing_framed_id_plus_manual_heading_conflicts_on_identical_retry(notes,manual_first):
+    data=event('ACCESS-QA-COLLISION-1')
+    if manual_first:
+        with notes.open('ab') as stream:stream.write(b'\n### ACCESS-QA-COLLISION-1\nmanual entry\n')
+        with notes.open('ab') as stream:stream.write(j.frame(j.validate(data)))
+    else:
+        assert j.append(notes,data)['status']=='APPENDED'
+        with notes.open('ab') as stream:stream.write(b'\n### ACCESS-QA-COLLISION-1\nmanual entry\n')
+    before=notes.read_bytes()
+    with pytest.raises(j.JournalError,match='EVENT_ID_CONFLICT'):
+        j.append(notes,data)
+    assert notes.read_bytes()==before

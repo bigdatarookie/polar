@@ -172,10 +172,11 @@ def append(path,event,wait=1):
     payload=validate(event);entry=frame(payload);identity=event['event_id']
     with locked(path,True,wait) as fd:
         raw=snapshot(fd);existing=records(raw)
+        headings=re.findall(rb'^### '+re.escape(identity.encode())+rb'[ \t]*\r?$',raw,re.M)
+        require(len(headings)==(1 if identity in existing else 0),'EVENT_ID_CONFLICT')
         if identity in existing:
             require(existing[identity]==payload,'EVENT_ID_CONFLICT')
             return {'status':'ALREADY_PRESENT','event_id':identity}
-        require(not re.search(rb'^### '+re.escape(identity.encode())+rb'\s*$',raw,re.M),'EVENT_ID_CONFLICT')
         require(len(raw)+len(entry)<=MAX_JOURNAL,'JOURNAL_LIMIT')
         try:
             written=os.write(fd,entry)
