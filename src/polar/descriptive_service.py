@@ -30,7 +30,7 @@ class DescriptiveService:
         source_code = code_projection()
         source_commit = os.environ.get("POLAR_SOURCE_COMMIT", "")
         started = {"schema":"polar.descriptive-attempt-start/1","attempt_id":aid,"started_at":utc(),
-            "config":config,"config_id":identity("config",config),"code_id":identity("code",source_code),
+            "config":config,"config_id":identity("config",config),"code_id":identity("code",source_code),"code":source_code,
             "environment":{"python":sys.version,"implementation":platform.python_implementation(),
                 "platform":sys.platform,"machine":platform.machine(),
                 "source_commit":source_commit if re.fullmatch(r"[a-f0-9]{40}", source_commit) else None}}
@@ -68,7 +68,9 @@ class DescriptiveService:
         return {**decode(values["experiment.json"]),"schema_version":"polar.history-experiment/1",
             "manifest_sha256":sha(values["manifest.json"]),"config":decode(values["config.json"]),
             "counts":decode(values["counts.json"])["assets"],"inputs":decode(values["inputs.json"]),
-            "reference_metadata":decode(values["reference-metadata.json"])["assets"]}
+            "reference_metadata":decode(values["reference-metadata.json"])["assets"],
+            "manifest":decode(values["manifest.json"]),"code":decode(values["code.json"]),
+            "protocol":decode(values["protocol.json"])}
 
     def view(self, view_id):
         eid, metadata, values = self.store.view(view_id)
