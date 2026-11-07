@@ -10,7 +10,7 @@ class Settings:
     max_jobs: int = 20
     lease_seconds: int = 15
     job_seconds: int = 60
-    storage_bytes: int = 4 * 1024**3
+    storage_bytes: int = 64 * 1024**3
     cpu_seconds: int = 3600
 
     @classmethod
@@ -24,4 +24,8 @@ class Settings:
             dsn = make_conninfo(host=os.environ.get("POLAR_DB_HOST", "db"),
                                dbname="polar", user="polar", password=secret.read_text().strip(),
                                connect_timeout=3)
-        return cls(dsn, Path(os.environ.get("POLAR_ARTIFACT_ROOT", "/data/artifacts")))
+        allocation = os.environ.get("POLAR_STORAGE_BYTES", str(64 * 1024**3))
+        if (not allocation.isascii() or not allocation.isdecimal() or len(allocation) > 11 or
+                not 1 <= int(allocation) <= 64 * 1024**3):
+            raise ValueError("INVALID_STORAGE_ALLOCATION")
+        return cls(dsn, Path(os.environ.get("POLAR_ARTIFACT_ROOT", "/data/artifacts")), storage_bytes=int(allocation))

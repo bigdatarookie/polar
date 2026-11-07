@@ -20,6 +20,7 @@ x-env: &env
   POLAR_DB_HOST: db
   POLAR_DB_PASSWORD_FILE: /run/secrets/db_password
   POLAR_ARTIFACT_ROOT: /data/artifacts
+  POLAR_STORAGE_BYTES: ${POLAR_STORAGE_BYTES:-68719476736}
   POLAR_IMAGE_REF: polar-local:${POLAR_IMAGE_TAG:-fixture}
 
 services:

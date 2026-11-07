@@ -89,6 +89,11 @@ class HistoryRegistry:
         return result
 
     def revision(self, dataset_id, revision):
+        summary, _ = self.load_revision(dataset_id, revision)
+        return summary
+
+    def load_revision(self, dataset_id, revision):
+        """Internal verified data access; bytes never appear in catalog projections."""
         identifier(dataset_id)
         revision_id(revision)
         self.legacy.check()
@@ -101,7 +106,7 @@ class HistoryRegistry:
         require(bundle.dataset_id == dataset_id and bundle.manifest_hash == row["manifest_hash"] and
                 {**bundle.summary, "publication_sha256": row["publication_hash"]} == row["summary"],
                 "HISTORY_IDENTITY_CONFLICT")
-        return {**row["summary"], "registered_at": row["registered_at"], "runtime_qualification": "NOT_RUN"}
+        return ({**row["summary"], "registered_at": row["registered_at"], "runtime_qualification": "NOT_RUN"}, bundle)
 
     def catalog(self, limit=50, cursor=None):
         require(type(limit) is int and 1 <= limit <= 50, "HISTORY_INVALID_PAGE")
@@ -110,7 +115,7 @@ class HistoryRegistry:
             require(type(cursor) is str and len(cursor) <= 2048, "HISTORY_INVALID_CURSOR")
             try:
                 page = decode(base64.b64decode(cursor, altchars=b"-_", validate=True))
-                require(set(page) == {"snapshot", "after", "limit"} and page["limit"] == limit and
+                require(set(page) == {"snapshot", "after", "limit"} and type(page["limit"]) is int and page["limit"] == limit and
                         type(page["snapshot"]) is int and 0 <= page["snapshot"] <= 2**63-1,
                         "HISTORY_INVALID_CURSOR")
                 snapshot, after = page["snapshot"], revision_id(page["after"])
