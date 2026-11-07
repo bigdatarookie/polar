@@ -140,9 +140,11 @@ def main(argv=None):
         print(json.dumps(result,default=str,sort_keys=True,allow_nan=False))
     except Exception as exc:
         # Exception messages can contain DSNs or payloads. Stable type only.
-        from .registry import NotFound
+        from .registry import BudgetExceeded, NotFound
         from .service import DatasetIntegrityError
         code = type(exc).__name__
+        if isinstance(exc, BudgetExceeded):
+            code = "RETAINED_STORAGE_ADMISSION_LIMIT" if str(exc) == "RETAINED_STORAGE_ADMISSION_LIMIT" else "BUDGET_EXCEEDED"
         if args.command == "dataset":
             if isinstance(exc, DatasetIntegrityError): code = "DATASET_INTEGRITY_ERROR"
             elif isinstance(exc, NotFound): code = "DATASET_NOT_FOUND"

@@ -141,3 +141,19 @@ def test_http_reports_current_storage_refusal_without_historical_caps(retained):
     refusal=client.post("/v1/runs",json=config.model_dump(mode="json"),headers={"Idempotency-Key":"storage-http"})
     assert refusal.status_code==429 and refusal.json()=={"code":"RETAINED_STORAGE_ADMISSION_LIMIT"}
     assert history.historical_hash()==before
+
+
+def test_cli_storage_error_names_remaining_guard(retained,tmp_path,monkeypatch,capsys):
+    from polar.cli import main
+    registry,history,config=retained
+    before=history.historical_hash()
+    registry.settings=Settings("unused",registry.settings.artifacts,storage_bytes=1)
+    monkeypatch.setattr(Settings,"load",lambda:registry.settings)
+    monkeypatch.setattr("polar.service.Service",lambda settings:SimpleNamespace(registry=registry))
+    payload=tmp_path/"config.json"
+    payload.write_text(json.dumps(config.model_dump(mode="json")))
+    with pytest.raises(SystemExit) as error:
+        main(["submit",str(payload),"--key","storage-cli"])
+    assert error.value.code==1
+    assert json.loads(capsys.readouterr().err)=={"status":"ERROR","code":"RETAINED_STORAGE_ADMISSION_LIMIT"}
+    assert history.historical_hash()==before
