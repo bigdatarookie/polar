@@ -101,6 +101,7 @@ export function exportSource(repo,commit,tree,out) {
 export async function withPage(out,url,actions,{actionTimeoutMs=120000}={}) {
   assert(Number.isInteger(actionTimeoutMs)&&actionTimeoutMs>=1000&&actionTimeoutMs<=600000);
   assert(actions===undefined||typeof actions==='function');
+  if(url){const u=new URL(url);assert(u.protocol==='file:'||(['http:','https:'].includes(u.protocol)&&['127.0.0.1','localhost','[::1]'].includes(u.hostname)),'LOCAL_PAGE_ONLY');}
   privateDir(out);const start=Date.now(),cpuStart=process.cpuUsage();let context,peak=process.memoryUsage().rss,seen=new Map(),timer,result={version:VERSION,start:new Date().toISOString(),host:host(),status:'FAIL'};
   const profile=path.join(out,'owned-profile');fs.mkdirSync(profile,{mode:0o700});
   const fixture=path.join(out,'smoke.html');
