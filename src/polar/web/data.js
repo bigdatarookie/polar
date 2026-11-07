@@ -78,15 +78,19 @@ function createLatestLoader(fetcher) {
     }
   };
 }
+function indicatorDefaults(){return {sma:{period:20},ema:{period:20},bollinger:{period:20,deviation:'2'},rsi:{period:14}};}
 function restoredControls(saved, count) {
   const clean = {granularity: '1D', rangeId: 'All', mode: 'Orders', theme: 'auto', sma: false, markers: true,
-    sortBy: 'createdAt', sortDir: 'desc', cursorSource: 'assetClose', lo: 0, hi: Math.max(0, count - 1)};
+    ema:false,bollinger:false,rsi:false,benchmark:false,referenceFamily:'RAW_PRICE_RELATIVE',indicators:indicatorDefaults(),sortBy: 'createdAt', sortDir: 'desc', cursorSource: 'assetClose', lo: 0, hi: Math.max(0, count - 1)};
   if (!saved || typeof saved !== 'object') return clean;
   if (GRANULARITIES.includes(saved.granularity)) clean.granularity = saved.granularity;
   if (['1W','1M','3M','6M','12M','All','Custom'].includes(saved.rangeId)) clean.rangeId = saved.rangeId;
   if (['Orders','Overlays','Settings'].includes(saved.mode)) clean.mode = saved.mode;
   if (['auto','light','dark'].includes(saved.theme)) clean.theme = saved.theme;
-  for (const key of ['sma','markers']) if (typeof saved[key] === 'boolean') clean[key] = saved[key];
+  for (const key of ['sma','ema','bollinger','rsi','benchmark','markers']) if (typeof saved[key] === 'boolean') clean[key] = saved[key];
+  for(const key of ['sma','ema','bollinger','rsi']){const period=saved.indicators?.[key]?.period;if(Number.isInteger(period)&&period>=2&&period<=500)clean.indicators[key].period=period;}
+  const k=saved.indicators?.bollinger?.deviation;if(typeof k==='string'&&k.length<=40&&/^\d+(?:\.\d+)?$/.test(k)&&Number(k)>0&&Number(k)<=10)clean.indicators.bollinger.deviation=k;
+  if(['RAW_PRICE_RELATIVE','PROVIDER_ADJUSTED_CLOSE_INDEX'].includes(saved.referenceFamily))clean.referenceFamily=saved.referenceFamily;
   if (['createdAt','returnPct','sharpe'].includes(saved.sortBy)) clean.sortBy = saved.sortBy;
   if (['asc','desc'].includes(saved.sortDir)) clean.sortDir = saved.sortDir;
   if (['assetClose','strategyEquity'].includes(saved.cursorSource)) clean.cursorSource = saved.cursorSource;
@@ -110,4 +114,31 @@ function decimalDelta(end, start) {
   const digits = (value < 0n ? -value : value).toString().padStart(scale+1, '0');
   return (value < 0n ? '-' : '') + (scale ? digits.slice(0,-scale) + '.' + digits.slice(-scale) : digits);
 }
-if (typeof module !== 'undefined') module.exports = {buildView, indexValue, createLatestLoader, restoredControls, decimalDelta};
+
+// Presentation-only decimal HALF_EVEN. Never modifies a metric or report object.
+function fixedTwoDecimal(value) {
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  if (typeof value === 'number' && !Number.isFinite(value)) return null;
+  const text=String(value).trim();
+  if (text.length>512 || !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(text)) return null;
+  const negative=text[0]==='-',unsigned=text.replace(/^[+-]/,''),[coefficient,rawExponent='0']=unsigned.toLowerCase().split('e');
+  const exponent=Number(rawExponent);
+  if (!Number.isInteger(exponent)||Math.abs(exponent)>10000) return null;
+  const [whole='',fraction='']=coefficient.split('.'),digits=(whole+fraction).replace(/^0+(?=\d)/,'')||'0',shift=exponent-fraction.length+2;
+  let scaled;
+  if (shift>=0) scaled=BigInt(digits+'0'.repeat(shift));
+  else {
+    const drop=-shift,kept=digits.slice(0,Math.max(0,digits.length-drop))||'0',discarded=digits.padStart(drop,'0').slice(-drop);
+    scaled=BigInt(kept);
+    const first=discarded[0]||'0',rest=discarded.slice(1);
+    if(first>'5'||first==='5'&&(/[1-9]/.test(rest)||scaled%2n===1n)) scaled++;
+  }
+  const output=scaled.toString().padStart(3,'0');
+  return (negative&&scaled!==0n?'−':'')+output.slice(0,-2)+'.'+output.slice(-2);
+}
+function sharpeText(metric) {
+  if(!metric||['UNAVAILABLE','INVALID','UNDEFINED','NO_DATA','NOT_COMPUTED','NOT_APPLICABLE','INSUFFICIENT_DATA','UNSUPPORTED'].includes(String(metric.status).toUpperCase())) return 'Unavailable';
+  return fixedTwoDecimal(metric.value)??'Unavailable';
+}
+
+if (typeof module !== 'undefined') module.exports = {buildView, indexValue, createLatestLoader, restoredControls, decimalDelta, fixedTwoDecimal, sharpeText, indicatorDefaults};
