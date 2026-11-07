@@ -18,6 +18,29 @@ class Service:
     def __init__(self, settings):
         self.registry = Registry(settings)
         self.artifacts = ArtifactStore(settings.artifacts,settings.storage_bytes)
+        from .history_registry import HistoryRegistry
+        self.history_registry = HistoryRegistry(settings)
+        self.history_cursor_key_file = settings.history_cursor_key_file
+
+    def history_read(self, operation, **kwargs):
+        import psycopg
+        from .history_bundle import HistoryError
+        from .history_cursor import HistoryCursorError
+        from .history_queries import HistoryQueries, HistoryReadError
+        try:
+            return getattr(HistoryQueries(self.history_registry, self.history_cursor_key_file), operation)(**kwargs)
+        except HistoryCursorError as exc:
+            raise HistoryReadError(exc.code, exc.status) from None
+        except HistoryError as exc:
+            status = (404 if exc.code == "HISTORY_REVISION_NOT_FOUND" else
+                      422 if exc.code == "HISTORY_INVALID_CURSOR" else
+                      503 if exc.code in {"HISTORY_SCHEMA_MISSING", "HISTORY_SCHEMA_MISMATCH", "HISTORY_SCHEMA_PARTIAL",
+                                          "HISTORY_DIRECTORY_MISSING"} else 409)
+            raise HistoryReadError(exc.code, status) from None
+        except (psycopg.Error, OSError):
+            raise HistoryReadError("HISTORY_DEPENDENCY_UNAVAILABLE", 503) from None
+        except (KeyError, TypeError, ValueError, AttributeError, RecursionError):
+            raise HistoryReadError("HISTORY_RETAINED_RECORD_INVALID", 409) from None
 
     def ready(self):
         self.registry.check()
