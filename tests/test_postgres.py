@@ -1,6 +1,6 @@
 """Effect tests for an explicitly provisioned EMPTY, isolated PostgreSQL DB.
 
-Never falls back to SQLite or resets a database. Costs three logical fixture jobs.
+Never falls back to SQLite or resets a database. Costs four logical fixture jobs.
 """
 import os
 import uuid
@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from polar.api import create_app
 from polar.config import Settings
-from polar.registry import BudgetExceeded,Conflict,Registry
+from polar.registry import Conflict,Registry
 from polar.service import Service
 from polar.worker import work_once
 
@@ -22,7 +22,7 @@ def test_postgres_api_worker_recovery(tmp_path,raw_fixture,data,config):
     dsn = os.environ.get("POLAR_TEST_DATABASE_URL")
     if not dsn:
         pytest.skip("NOT RUN: POLAR_TEST_DATABASE_URL requires fresh isolated PostgreSQL")
-    settings = Settings(dsn,tmp_path,max_jobs=3,lease_seconds=5)
+    settings = Settings(dsn,tmp_path,lease_seconds=5)
     reg = Registry(settings)
     with reg.connect() as db:
         name = db.execute("SELECT current_database() AS name").fetchone()["name"]
@@ -76,7 +76,8 @@ def test_postgres_api_worker_recovery(tmp_path,raw_fixture,data,config):
     assert not reg.heartbeat(third["id"],running["attempt_id"])
     assert reg.finish(third["id"],running["attempt_id"],"failed",0,error="TEST_CANCEL")
     assert reg.get(third["id"])["state"] == "canceled"
-    with pytest.raises(BudgetExceeded):reg.submit("over-limit",config)
+    # Service lifetime is not the historical bootstrap fixture allocation.
+    assert reg.submit("later-bounded-job",config)["state"] == "queued"
     # Report bytes changed while manifest changed too must still fail DB binding.
     manifest = s.artifacts.directory(completed["artifact_ref"])/"manifest.json"
     manifest.chmod(0o644)

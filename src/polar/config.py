@@ -7,11 +7,9 @@ from pathlib import Path
 class Settings:
     dsn: str
     artifacts: Path
-    max_jobs: int = 20
     lease_seconds: int = 15
     job_seconds: int = 60
     storage_bytes: int = 4 * 1024**3
-    cpu_seconds: int = 3600
 
     @classmethod
     def load(cls):

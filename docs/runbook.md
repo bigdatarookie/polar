@@ -122,11 +122,23 @@ automatically. Partial directories are not final manifests. PostgreSQL completio
 is the visibility boundary, after atomic publication, file/directory fsync and
 manifest hashing. APIs verify both DB manifest binding and required file hashes.
 
-At most 20 logical fixture jobs, one retry each; restarting services does not reset
-admission. Lost/killed attempts reserve a full 60 CPU-seconds. Successful attempts
-record child plus parent process CPU time. The fixed job/time ceilings bound
-fixture computation conservatively; host CPU deltas, recovery CPU and overhead
-must still be measured by SRE against the 60 CPU-minute mission envelope.
+The original bootstrap allocated 20 logical fixture jobs and 60 CPU-minutes;
+those dated allocation/results remain evidence, not continuing service-lifetime
+admission limits. New submissions and claims are not rejected because historical
+runs exceed 20 or old attempt CPU exceeds 3600 seconds. Retained runs, attempts,
+metrics and errors are never reset or rewritten to admit work. New admission no
+longer emits `FIXTURE_JOB_LIMIT` or bulk-fails queued runs as `CPU_BUDGET`; old
+records with those errors remain unchanged. API/CLI still report storage refusal
+as `RETAINED_STORAGE_ADMISSION_LIMIT` (HTTP 429), idempotency conflicts as 409,
+and per-job timeout as `JOB_TIMEOUT` in the retained attempt/run outcome.
+
+Single-active-job claiming, lease fencing, cancellation, one infrastructure retry
+and the supervised per-job time envelope remain. Lost/killed attempts record a
+full 60 CPU-seconds conservatively; successful attempts record child plus parent
+process CPU. Counters remain observations, not a new aggregate lifetime budget.
+Scientific campaign/trial/holdout/stopping and paid/spend authorization are
+separate and unchanged. DevOps measures actual host load/availability before
+substantial work; no artificial lifetime replacement limit is introduced.
 
 ## Persistence and isolated recovery
 
@@ -170,15 +182,23 @@ host-wide mount, and exclusive output creation preserves previous evaluations.
 It checks artifact integrity only. It cannot issue the independent financial
 verdict. Shared host/harness access means `BLINDING_NOT_ENFORCED`.
 
-DB/API/worker caps total 2 CPU and 2304 MiB (768 MiB margin within 3 GiB). Evaluator
-replaces worker. Helpers run serially with worker/evaluator stopped. Logs rotate
-at 2×5MiB/service; tempfs is 64MiB/service; PID caps are 100. Inspect actual
-HostConfig/cgroups and monitor task usage before claiming enforcement. Direct
-Compose commands can bypass helper serialization; there is no hard host-wide
-aggregate scheduler. Named volumes have no demonstrated hard disk boundary.
-Admission checks DB+artifact size; SRE accounts for backups/logs/scratch and stops
-before 4 GiB retained + 1 GiB scratch/logs. Report
-`STORAGE_HARD_QUOTA_NOT_ENFORCED` until real enforcement is demonstrated.
+The original bootstrap used fixed 2-CPU/2304-MiB profiles, 64-MiB tmpfs and
+retained/scratch suballocations. Those observations remain historical; current
+source Compose profiles do not impose fixed CPU/RAM or tmpfs-size project caps.
+The tmpfs mount/mode, read-only roots, PID100, security/network ownership,
+per-job deadlines and log rotation remain. Actual kernel tmpfs capacity and
+selected container HostConfig remain observable operating facts, not guaranteed
+host-wide resource enforcement. Inventory represents absent desired CPU/RAM
+caps as Docker zero/unset and reports actual observed caps separately; existing
+running containers may retain old settings until separately operated.
+
+Current local policy has one 64-GiB total across data/artifacts/evidence/backups/
+scratch/logs; CPU/RAM/concurrency follow measured host availability. This source
+change does not resize/restart healthy services or count every external taskroot.
+DB+artifact storage admission remains; DevOps accounts other known storage and
+coordinates genuine conflicts. Separately reviewed storage-allocation changes
+are not implicitly imported from another unmerged PR. There is no hard global
+quota/scheduler claim: report `STORAGE_HARD_QUOTA_NOT_ENFORCED` until demonstrated.
 
 ## Read-only runtime inventory and custody
 
@@ -186,8 +206,10 @@ Run `python3 scripts/ops.py inventory --help` from the assigned checkout. Invent
 only reads Compose/Docker metadata, bounded read-only PostgreSQL projections
 and (for version2 backup coverage) retained artifact-manifest identities; it never builds, starts, stops, migrates, restores, submits a job or
 reads a secret file. No Docker or host installation is implied. It requires the
-existing Docker CLI/Compose and selected task runtime. Run serially within the
-Lead's assigned computation and environment-custody window.
+existing Docker CLI/Compose and selected task runtime. Under current v0.14
+ownership, routine scoped checks need no separate compute-window approval;
+coordinate actual shared runtime conflicts directly with DevOps and preserve
+the selected environment's owner/custody.
 
 Before inspection, obtain the current candidate, app image/revision, environment
 owner and resource/backup handles through the native handoff. The selected host

@@ -464,8 +464,10 @@ def inventory_manifest(expected_revision=None, expected_image=None, backup_direc
     desired, observed, checks = {}, {}, {}
     for service in SERVICES:
         declaration = config["services"][service]
-        caps = {"nano_cpus": int(float(declaration["cpus"]) * 10**9),
-                "memory_bytes": int(declaration["mem_limit"]), "pids": int(declaration["pids_limit"])}
+        # Docker reports zero for an unset CPU/RAM cap. Preserve observed values
+        # separately: source configuration does not resize a running container.
+        caps = {"nano_cpus": int(float(declaration.get("cpus", 0)) * 10**9),
+                "memory_bytes": int(declaration.get("mem_limit", 0)), "pids": int(declaration["pids_limit"])}
         desired[service] = {"caps": caps}
         if service not in chosen:
             observed[service] = {"status": "UNKNOWN", "schema_probe": "NOT_RUN"}

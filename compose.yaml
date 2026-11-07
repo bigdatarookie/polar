@@ -11,7 +11,7 @@ x-app: &app
   cap_drop: [ALL]
   security_opt: [no-new-privileges:true]
   pids_limit: 100
-  tmpfs: ["/tmp:size=64m,mode=1777"]
+  tmpfs: ["/tmp:mode=1777"]
   logging: &logs
     driver: json-file
     options: {max-size: 5m, max-file: "2"}
@@ -25,8 +25,6 @@ x-env: &env
 services:
   db:
     image: postgres:17.11-alpine@sha256:3540c0362c809df084ffac0ae69fe794515f9de92692f02178bcdce0ef0302ac
-    cpus: 0.5
-    mem_limit: 768m
     pids_limit: 100
     environment:
       POSTGRES_DB: polar
@@ -46,8 +44,6 @@ services:
     <<: *app
     networks: [service]
     profiles: [tools]
-    cpus: 0.5
-    mem_limit: 512m
     environment: *env
     secrets: [db_password]
     command: [python, -m, polar.cli, migrate]
@@ -56,8 +52,6 @@ services:
   api:
     <<: *app
     networks: [service, api_host]
-    cpus: 0.5
-    mem_limit: 512m
     environment: *env
     secrets: [db_password]
     ports: ["127.0.0.1:${POLAR_API_PORT:-18080}:8000"]
@@ -72,8 +66,6 @@ services:
   worker:
     <<: *app
     networks: [service]
-    cpus: 1.0
-    mem_limit: 1024m
     environment: *env
     secrets: [db_password]
     volumes: [artifacts:/data/artifacts:rw]
@@ -88,8 +80,6 @@ services:
   evaluator:
     <<: *app
     profiles: [evaluation]
-    cpus: 1.0
-    mem_limit: 1024m
     network_mode: none
     environment: {}
     volumes:
@@ -100,8 +90,6 @@ services:
   snapshot:
     <<: *app
     profiles: [tools]
-    cpus: 0.5
-    mem_limit: 512m
     network_mode: none
     environment: {}
     volumes: [artifacts:/data/artifacts:ro]
@@ -110,8 +98,6 @@ services:
   restore-artifacts:
     <<: *app
     profiles: [tools]
-    cpus: 0.5
-    mem_limit: 512m
     network_mode: none
     environment: {}
     volumes: [artifacts:/data/artifacts:rw]

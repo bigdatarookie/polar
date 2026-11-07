@@ -83,6 +83,27 @@ def test_allowlist_binding_and_separate_selected_tooling(runtime):
     assert all(not any(v in c for v in ['up', 'run', 'stop', 'build', 'rm', 'migrate']) for c in calls)
 
 
+def test_unset_cpu_memory_profiles_are_reported_without_invented_limits(runtime):
+    config,items,_,_,read=runtime
+    for declaration in config['services'].values():
+        declaration.pop('cpus')
+        declaration.pop('mem_limit')
+    for item in items:
+        item['HostConfig'].update(NanoCpus=0,Memory=0)
+    manifest=ops.inventory_manifest(read=read)
+    for service in ops.SERVICES:
+        assert manifest['desired']['services'][service]['caps']=={'nano_cpus':0,'memory_bytes':0,'pids':100}
+        assert manifest['observed']['services'][service]['caps']=={'nano_cpus':0,'memory_bytes':0,'pids':100}
+        assert manifest['checks'][service]['caps_equal_desired'] is True
+    # A source change does not silently resize or relabel an existing container.
+    items[1]['HostConfig'].update(NanoCpus=500000000,Memory=512*1024**2)
+    unchanged=copy.deepcopy(items)
+    later=ops.inventory_manifest(read=read)
+    assert later['checks']['api']['caps_equal_desired'] is False
+    assert later['observed']['services']['api']['caps']['memory_bytes']==512*1024**2
+    assert items==unchanged
+
+
 @pytest.mark.parametrize('defect', ['project', 'root', 'duplicate', 'mount', 'network', 'port'])
 def test_refuses_wrong_or_ambiguous_runtime_before_db_probe(runtime, defect):
     _, items, _, calls, read = runtime
