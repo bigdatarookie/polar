@@ -20,13 +20,17 @@ class Service:
         self.artifacts = ArtifactStore(settings.artifacts,settings.storage_bytes)
         from .history_registry import HistoryRegistry
         self.history_registry = HistoryRegistry(settings)
+        self.history_cursor_key_file = settings.history_cursor_key_file
 
     def history_read(self, operation, **kwargs):
         import psycopg
         from .history_bundle import HistoryError
+        from .history_cursor import HistoryCursorError
         from .history_queries import HistoryQueries, HistoryReadError
         try:
-            return getattr(HistoryQueries(self.history_registry), operation)(**kwargs)
+            return getattr(HistoryQueries(self.history_registry, self.history_cursor_key_file), operation)(**kwargs)
+        except HistoryCursorError as exc:
+            raise HistoryReadError(exc.code, exc.status) from None
         except HistoryError as exc:
             status = (404 if exc.code == "HISTORY_REVISION_NOT_FOUND" else
                       422 if exc.code == "HISTORY_INVALID_CURSOR" else

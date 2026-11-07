@@ -12,6 +12,7 @@ class Settings:
     job_seconds: int = 60
     storage_bytes: int = 64 * 1024**3
     cpu_seconds: int = 3600
+    history_cursor_key_file: Path = Path("/run/secrets/history_cursor_key")
 
     @classmethod
     def load(cls):
@@ -28,4 +29,5 @@ class Settings:
         if (not allocation.isascii() or not allocation.isdecimal() or len(allocation) > 11 or
                 not 1 <= int(allocation) <= 64 * 1024**3):
             raise ValueError("INVALID_STORAGE_ALLOCATION")
-        return cls(dsn, Path(os.environ.get("POLAR_ARTIFACT_ROOT", "/data/artifacts")), storage_bytes=int(allocation))
+        return cls(dsn, Path(os.environ.get("POLAR_ARTIFACT_ROOT", "/data/artifacts")), storage_bytes=int(allocation),
+                   history_cursor_key_file=Path(os.environ.get("POLAR_HISTORY_CURSOR_KEY_FILE", "/run/secrets/history_cursor_key")))

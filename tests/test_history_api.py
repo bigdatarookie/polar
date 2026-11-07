@@ -1,5 +1,8 @@
 """HTTP/component evidence with invented data and retained metadata doubles, no PG."""
 import copy
+import base64
+import hashlib
+import json
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -65,7 +68,9 @@ class Retained:
 @pytest.fixture
 def api(tmp_path):
     retained = Retained(tmp_path)
-    service = Service(Settings("unused",tmp_path))
+    key_file = tmp_path/"cursor-test.key"
+    key_file.write_bytes(bytes(range(32)))  # invented test-only bytes, not a runtime key
+    service = Service(Settings("unused",tmp_path,history_cursor_key_file=key_file))
     service.history_registry = retained
     service.registry.check = lambda:None
     return TestClient(create_app(service)), retained
@@ -230,3 +235,100 @@ def test_history_unavailable_configuration_is_sanitized(monkeypatch):
     response=client.get("/v1/history/readyz")
     assert response.status_code == 503 and response.json() == {"code":"HISTORY_DEPENDENCY_UNAVAILABLE"}
     assert client.get("/livez").status_code == 200
+
+
+def edited_cursor(token, change, public_digest=False):
+    envelope=json.loads(base64.urlsafe_b64decode(token))
+    change(envelope["payload"])
+    if public_digest:
+        envelope["mac"]=hashlib.sha256(canonical(envelope["payload"])).hexdigest()
+    return base64.urlsafe_b64encode(canonical(envelope)).decode()
+
+
+@pytest.mark.parametrize("public_digest", [False,True])
+def test_existing_bar_position_cannot_be_changed_or_publicly_resigned(api, public_digest):
+    client,_=api
+    cursor=client.get(PREFIX+"/bars",params=params()).json()["next_cursor"]
+    edited=edited_cursor(cursor,lambda p:p.update(last="2024-01-05:VISIBLE"),public_digest)
+    response=client.get(PREFIX+"/bars",params=params(cursor=edited))
+    assert response.status_code==422 and response.json()=={"code":"HISTORY_INVALID_CURSOR"}
+
+
+def test_asset_position_and_projection_are_authenticated(api):
+    client,retained=api
+    retained.summary["instruments"].append({**retained.summary["instruments"][0],"instrument_id":"hist-us-0003"})
+    cursor=client.get(PREFIX+"/assets",params={"limit":"1"}).json()["next_cursor"]
+    edited=edited_cursor(cursor,lambda p:p.update(last="hist-us-0002"))
+    assert client.get(PREFIX+"/assets",params={"limit":"1","cursor":edited}).status_code==422
+    projected=edited_cursor(cursor,lambda p:p.update(projection="bars/1"))
+    assert client.get(PREFIX+"/bars",params=params(cursor=projected)).status_code==422
+
+
+def test_catalog_snapshot_and_position_are_authenticated(api):
+    client,retained=api
+    received=[]
+    unsigned=base64.urlsafe_b64encode(canonical({"snapshot":3,"after":"histrev-"+"1"*64,"limit":1})).decode()
+    def catalog(limit,cursor=None):
+        received.append(cursor)
+        return {"schema_version":"polar.history-catalog/1","catalog_snapshot":3,
+                "items":[retained.revision(DATASET,REVISION)],"next_cursor":unsigned if cursor is None else None}
+    retained.catalog=catalog
+    cursor=client.get("/v1/history/datasets",params={"limit":"1"}).json()["next_cursor"]
+    for field,value in (("after","histrev-"+"2"*64),("snapshot",4)):
+        def change(payload):
+            inner=json.loads(base64.urlsafe_b64decode(payload["cursor"]))
+            inner[field]=value
+            payload["cursor"]=base64.urlsafe_b64encode(canonical(inner)).decode()
+        edited=edited_cursor(cursor,change)
+        assert client.get("/v1/history/datasets",params={"limit":"1","cursor":edited}).status_code==422
+    assert received==[None]  # tampering rejected before reaching metadata registry
+    valid=client.get("/v1/history/datasets",params={"limit":"1","cursor":cursor})
+    assert valid.status_code==200 and valid.json()["next_cursor"] is None and received[-1]==unsigned
+    assert client.get("/v1/history/datasets",params={"limit":"1","cursor":unsigned}).status_code==422
+    assert client.get("/v1/history/datasets",params={"limit":"2","cursor":cursor}).status_code==422
+    assert client.get(PREFIX+"/assets",params={"limit":"1","cursor":cursor}).status_code==422
+
+
+def test_same_key_fresh_service_restarts_and_rotation(api):
+    client,retained=api
+    key_file=retained.store.root/"cursor-test.key"
+    first=client.get(PREFIX+"/bars",params=params()).json()
+    restarted=Service(Settings("unused",retained.store.root,history_cursor_key_file=key_file))
+    restarted.history_registry=retained
+    fresh=TestClient(create_app(restarted))
+    second=fresh.get(PREFIX+"/bars",params=params(cursor=first["next_cursor"]))
+    assert second.status_code==200 and second.json()["rows"][0]["session_date"]=="2024-01-04"
+    # Rotation changes the dedicated key, not the dataset, request or position.
+    replacement=retained.store.root/"rotated-test.key"
+    replacement.write_bytes(bytes(reversed(range(32))))
+    replacement.replace(key_file)
+    rejected=fresh.get(PREFIX+"/bars",params=params(cursor=first["next_cursor"]))
+    assert rejected.status_code==422 and rejected.json()=={"code":"HISTORY_INVALID_CURSOR"}
+    restarted_page=fresh.get(PREFIX+"/bars",params=params())
+    assert restarted_page.status_code==200 and restarted_page.json()["rows"][0]["session_date"]=="2024-01-02"
+
+
+@pytest.mark.parametrize("case", ["missing","short","long","symlink"])
+def test_missing_invalid_key_is_sanitized_without_affecting_legacy_or_detail(api, case):
+    client,retained=api
+    key_file=retained.store.root/"cursor-test.key"
+    key_file.unlink()
+    if case=="short": key_file.write_bytes(b"invented-short-key")
+    if case=="long": key_file.write_bytes(b"x"*33)
+    if case=="symlink":
+        alternate=retained.store.root/"other-test.key"
+        alternate.write_bytes(bytes(range(32)))
+        key_file.symlink_to(alternate)
+    for path in ("/v1/history/readyz","/v1/history/datasets",PREFIX+"/assets"):
+        response=client.get(path)
+        assert response.status_code==503 and response.json()=={"code":"HISTORY_CURSOR_KEY_UNAVAILABLE"}
+    assert client.get(PREFIX).status_code==200
+    assert client.get("/readyz").status_code==200 and client.get("/livez").status_code==200
+
+
+def test_unsigned_bar_cursor_is_not_an_http_token(api):
+    client,_=api
+    cursor=client.get(PREFIX+"/bars",params=params()).json()["next_cursor"]
+    payload=json.loads(base64.urlsafe_b64decode(cursor))["payload"]
+    unsigned=base64.urlsafe_b64encode(canonical(payload)).decode()
+    assert client.get(PREFIX+"/bars",params=params(cursor=unsigned)).status_code==422

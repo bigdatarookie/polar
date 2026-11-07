@@ -1,10 +1,10 @@
 """Read-only bounded history projections, independent of fixture/numeric engines."""
-import base64
 import json
 import re
 from bisect import bisect_left
 
 from .history_bundle import HistoryError, canonical, decode, identifier, label, revision_id, sha
+from .history_cursor import CursorCodec
 
 MAX_RESPONSE_BYTES = 1024**2
 
@@ -43,12 +43,12 @@ def cursor_text(cursor):
     invalid(type(cursor) is str and cursor and len(cursor.encode()) <= 2048, "HISTORY_INVALID_CURSOR")
 
 
-def cursor_position(cursor, projection, identity, keys):
+def cursor_position(cursor, projection, identity, keys, codec):
     if cursor is None:
         return 0
     cursor_text(cursor)
     try:
-        page = decode(base64.b64decode(cursor, altchars=b"-_", validate=True))
+        page = codec.decode(cursor)
         invalid(type(page) is dict and set(page) == {"version", "projection", "request_identity", "last"},
                 "HISTORY_INVALID_CURSOR")
         invalid(page["version"] == "polar.history-cursor/1" and page["projection"] == projection and
@@ -61,15 +61,15 @@ def cursor_position(cursor, projection, identity, keys):
         raise HistoryReadError("HISTORY_INVALID_CURSOR") from None
 
 
-def page_rows(rows, keys, limit, cursor, projection, identity, make):
-    offset = cursor_position(cursor, projection, identity, keys)
+def page_rows(rows, keys, limit, cursor, projection, identity, make, codec):
+    offset = cursor_position(cursor, projection, identity, keys, codec)
 
     def build(count):
         stop = offset + count
         next_cursor = None
         if stop < len(rows):
-            next_cursor = base64.urlsafe_b64encode(canonical({"version": "polar.history-cursor/1",
-                "projection": projection, "request_identity": identity, "last": keys[stop-1]})).decode()
+            next_cursor = codec.encode({"version": "polar.history-cursor/1",
+                "projection": projection, "request_identity": identity, "last": keys[stop-1]})
         return make(rows[offset:stop], next_cursor, stop == len(rows))
 
     if not rows:
@@ -100,14 +100,31 @@ def identity_fields(summary):
 
 
 class HistoryQueries:
-    def __init__(self, registry):
+    def __init__(self, registry, cursor_key_file):
         self.registry = registry
+        self.cursor_key_file, self._codec = cursor_key_file, None
+
+    @property
+    def codec(self):
+        if self._codec is None:
+            self._codec = CursorCodec.from_file(self.cursor_key_file)
+        return self._codec
 
     def catalog(self, limit="50", cursor=None):
         count = integer(limit, 1, 50)
+        codec = self.codec
         if cursor is not None:
             cursor_text(cursor)
-        return self.registry.catalog(count, cursor)
+            payload = codec.decode(cursor)
+            invalid(set(payload) == {"projection", "limit", "cursor"} and payload["projection"] == "catalog/1" and
+                    type(payload["limit"]) is int and payload["limit"] == count and type(payload["cursor"]) is str,
+                    "HISTORY_INVALID_CURSOR")
+            cursor = payload["cursor"]
+        page = self.registry.catalog(count, cursor)
+        if page["next_cursor"] is not None:
+            page = {**page, "next_cursor": codec.encode({"projection":"catalog/1", "limit":count,
+                                                          "cursor":page["next_cursor"]})}
+        return page
 
     def revision(self, dataset_id, revision):
         pinned(dataset_id, revision)
@@ -116,6 +133,7 @@ class HistoryQueries:
     def assets(self, dataset_id, revision, limit="50", cursor=None):
         pinned(dataset_id, revision)
         count = integer(limit, 1, 50)
+        codec = self.codec
         if cursor is not None:
             cursor_text(cursor)
         summary = self.registry.revision(dataset_id, revision)
@@ -126,11 +144,12 @@ class HistoryQueries:
             return {"schema_version": "polar.history-assets/1", **base, "request_identity": identity,
                     "items": items, "item_count": len(items), "fitness": summary["fitness"],
                     "next_cursor": next_cursor}
-        return page_rows(rows, [r["instrument_id"] for r in rows], count, cursor, "assets/1", identity, make)
+        return page_rows(rows, [r["instrument_id"] for r in rows], count, cursor, "assets/1", identity, make, codec)
 
     def bars(self, dataset_id, revision, instrument_id, start, end, limit="1000", warmup_sessions="0", cursor=None):
         pinned(dataset_id, revision)
         count, requested = integer(limit, 1, 1000), integer(warmup_sessions, 0, 2500)
+        codec = self.codec
         if cursor is not None:
             cursor_text(cursor)
         try:
@@ -179,9 +198,10 @@ class HistoryQueries:
                     "count_basis": "ADMITTED_OBSERVATIONS", "calendar_status": asset["calendar_status"]},
                     "coverage": coverage, "fitness": fitness, "next_cursor": next_cursor, "window_complete": complete}
         return page_rows(rows, [r["session_date"]+":"+r["row_role"] for r in rows],
-                         count, cursor, "bars/1", identity, make)
+                         count, cursor, "bars/1", identity, make, codec)
 
     def ready(self):
+        self.codec  # Fail readiness if the required pagination key is not usable.
         # A verifies extension/legacy DB and the first chart-ready publication.
         # No claim about every dataset, indicators, independent QA or financial fitness.
         page = self.registry.catalog(1)

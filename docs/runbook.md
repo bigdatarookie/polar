@@ -17,6 +17,26 @@ backup or scratch root; operators must account those separately. It does not
 change dataset/query/response bounds, and this source change does not resize or
 restart any existing container or volume.
 
+Before the next separately granted API deployment, provision one dedicated
+persistent random 32-byte cursor key outside Git and logs, retain it across API
+restarts, and set `POLAR_HISTORY_CURSOR_KEY_PATH` for the API-only Compose secret
+`history_cursor_key`. Within the container, `POLAR_HISTORY_CURSOR_KEY_FILE` is
+`/run/secrets/history_cursor_key`; direct-process operation can set that file path
+explicitly. Never reuse the PostgreSQL password or print the key. For example,
+after creating a private task-owned directory, create the file exclusively with
+`os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)` and write
+`os.urandom(32)` without a newline; preserve it in the owner's protected secret
+storage. This source change does not provision a runtime key or change a service.
+
+Missing/invalid key makes history pagination/readiness return 503; legacy
+`/readyz` remains unchanged. Same-key requests/process restarts preserve cursors.
+Rotation by atomic replacement invalidates outstanding cursors with 422; clients
+restart from the first page once new bytes are visible. File-bind mounts may
+retain the old inode; the operator must remount/restart under its separate grant
+when necessary. All serving processes must use the same retained
+key. The HTTP MAC covers projection, request, catalog snapshot and cursor
+position; keys/cursor errors never expose credentials or local paths.
+
 See [bounded history API](history-api.md) for revision-pinned catalog/assets/bars.
 `/v1/history/readyz` is separate from legacy `/readyz`: it checks the history
 extension and a bounded first chart-ready publication probe, while reporting
