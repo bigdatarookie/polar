@@ -33,8 +33,8 @@ class Service:
         except HistoryCursorError as exc:
             raise HistoryReadError(exc.code, exc.status) from None
         except HistoryError as exc:
-            status = (404 if exc.code == "HISTORY_REVISION_NOT_FOUND" else
-                      422 if exc.code == "HISTORY_INVALID_CURSOR" else
+            status = (404 if exc.code in {"HISTORY_REVISION_NOT_FOUND", "DESCRIPTIVE_NOT_FOUND", "DESCRIPTIVE_ASSET_NOT_FOUND"} else
+                      422 if exc.code == "HISTORY_INVALID_CURSOR" or exc.code.startswith("DESCRIPTIVE_INVALID") else
                       503 if exc.code in {"HISTORY_SCHEMA_MISSING", "HISTORY_SCHEMA_MISMATCH", "HISTORY_SCHEMA_PARTIAL",
                                           "HISTORY_DIRECTORY_MISSING"} else 409)
             raise HistoryReadError(exc.code, status) from None
@@ -42,6 +42,15 @@ class Service:
             raise HistoryReadError("HISTORY_DEPENDENCY_UNAVAILABLE", 503) from None
         except (KeyError, TypeError, ValueError, AttributeError, RecursionError):
             raise HistoryReadError("HISTORY_RETAINED_RECORD_INVALID", 409) from None
+
+    def history_experiment_run(self, config):
+        from .descriptive_service import DescriptiveService
+        from .descriptive_store import DescriptiveStore
+        # Same retained-storage admission convention as registration/legacy; no global-quota claim.
+        with self.registry.connect() as db:
+            db_bytes = db.execute("SELECT pg_database_size(current_database()) AS n").fetchone()["n"]
+        store = DescriptiveStore(self.artifacts.root, self.artifacts.limit-db_bytes-1024**2)
+        return DescriptiveService(self.history_registry, self.history_calendar_dir, store).run(config)
 
     def ready(self):
         self.registry.check()

@@ -37,6 +37,7 @@ def main(argv=None):
     subs.add_parser("register").add_argument("file",type=Path)
     subs.add_parser("inspect-dataset").add_argument("file",type=Path)
     subs.add_parser("history-migrate")
+    subs.add_parser("history-experiment").add_argument("config_file", type=Path)
     historical = subs.add_parser("history-register")
     historical.add_argument("directory", type=Path)
     historical.add_argument("--manifest-sha256", required=True)
@@ -65,11 +66,20 @@ def main(argv=None):
             from .history_registry import HistoryRegistry
             registry = HistoryRegistry(Settings.load())
             match args.command:
+                case "history-experiment":
+                    from .service import Service
+                    from .history_bundle import decode
+                    with args.config_file.open("rb") as stream:
+                        raw = stream.read(8193)
+                    if len(raw) > 8192: raise HistoryError("DESCRIPTIVE_INVALID_CONFIG")
+                    result = Service(Settings.load()).history_experiment_run(decode(raw))
                 case "history-migrate": result = registry.migrate()
                 case "history-register": result = registry.register(args.directory, args.manifest_sha256)
                 case "history-catalog": result = registry.catalog(args.limit, args.cursor)
                 case "history-revision": result = registry.revision(args.dataset_id, args.revision)
             print(json.dumps(result, default=str, sort_keys=True, allow_nan=False))
+            if args.command == "history-experiment" and result["status"] != "COMPLETED":
+                raise SystemExit(1)
         except Exception as exc:
             code = exc.code if isinstance(exc, HistoryError) else "HISTORY_DEPENDENCY_UNAVAILABLE"
             print(json.dumps({"status":"ERROR", "code":code}), file=sys.stderr)
