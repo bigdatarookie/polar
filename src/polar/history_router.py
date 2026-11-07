@@ -64,3 +64,19 @@ def install_history_routes(app, service):
                     limit=limit, warmup_sessions=warmup_sessions, cursor=cursor, sma_period=sma_period,
                     ema_period=ema_period, bb_period=bb_period, bb_deviation=bb_deviation, rsi_period=rsi_period,
                     benchmark_instrument_id=benchmark_instrument_id, reference_family=reference_family, basis=basis)
+
+    @app.get("/v1/history/experiments/{experiment_id}")
+    def experiment(request: Request, experiment_id: str):
+        return call(request, set(), "experiment", experiment_id=experiment_id)
+
+    @app.get("/v1/history/views/{view_id}")
+    def experiment_view(request: Request, view_id: str):
+        return call(request, set(), "experiment_view", view_id=view_id)
+
+    @app.get("/v1/history/views/{view_id}/rows")
+    def experiment_rows(request: Request, view_id: str, limit: str = "1000", cursor: str | None = None):
+        return call(request, {"limit","cursor"}, "experiment_rows", view_id=view_id, limit=limit, cursor=cursor)
+
+    @app.get("/v1/history/attempts/{attempt_id}")
+    def experiment_attempt(request: Request, attempt_id: str):
+        return call(request, set(), "experiment_attempt", attempt_id=attempt_id)

@@ -6,7 +6,7 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
-from .history_bundle import (HistoryError, canonical, decode, hex_hash, read_file,
+from .history_bundle import (MAX_FILE, HistoryError, canonical, decode, hex_hash, read_file,
                              relative, require, revision_id, safe_root, sha, verify_files)
 
 
@@ -51,7 +51,7 @@ class HistoryStore:
             require(path.is_dir(), "HISTORY_DIRECTORY_INVALID")
         return path
 
-    def _publish(self, parent_name, name, files):
+    def _publish(self, parent_name, name, files, *, file_limit=MAX_FILE):
         parent = self._directory(parent_name)
         final = parent / name
         require(not final.is_symlink(), "HISTORY_SYMLINK")
@@ -59,7 +59,7 @@ class HistoryStore:
             actual = {str(p.relative_to(final)) for p in final.rglob("*") if p.is_file()}
             require(all(not p.is_symlink() for p in final.rglob("*")) and actual == set(files),
                     "HISTORY_IMMUTABLE_CONFLICT")
-            require(all(read_file(final, key) == raw for key, raw in files.items()), "HISTORY_IMMUTABLE_CONFLICT")
+            require(all(read_file(final, key, limit=file_limit) == raw for key, raw in files.items()), "HISTORY_IMMUTABLE_CONFLICT")
             return
         require(self.used() + sum(map(len, files.values())) <= self.limit, "HISTORY_STORAGE_LIMIT")
         staging = Path(tempfile.mkdtemp(prefix=".history-partial-", dir=parent))
@@ -72,7 +72,7 @@ class HistoryStore:
                     stream.flush()
                     os.fsync(stream.fileno())
                 destination.chmod(0o400)
-                require(read_file(staging, key) == raw, "HISTORY_STAGING_HASH")
+                require(read_file(staging, key, limit=file_limit) == raw, "HISTORY_STAGING_HASH")
             for directory in sorted((p for p in staging.rglob("*") if p.is_dir()),
                                     key=lambda p: len(p.parts), reverse=True):
                 fsync_directory(directory)
