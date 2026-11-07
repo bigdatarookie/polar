@@ -20,6 +20,8 @@ x-env: &env
   POLAR_DB_HOST: db
   POLAR_DB_PASSWORD_FILE: /run/secrets/db_password
   POLAR_ARTIFACT_ROOT: /data/artifacts
+  POLAR_STORAGE_BYTES: ${POLAR_STORAGE_BYTES:-68719476736}
+  POLAR_HISTORY_CURSOR_KEY_FILE: /run/secrets/history_cursor_key
   POLAR_IMAGE_REF: polar-local:${POLAR_IMAGE_TAG:-fixture}
 
 services:
@@ -53,7 +55,7 @@ services:
     <<: *app
     networks: [service, api_host]
     environment: *env
-    secrets: [db_password]
+    secrets: [db_password, history_cursor_key]
     ports: ["127.0.0.1:${POLAR_API_PORT:-18080}:8000"]
     volumes: [artifacts:/data/artifacts:ro]
     depends_on: {db: {condition: service_healthy}}
@@ -118,5 +120,7 @@ volumes:
   evaluations: {name: "${POLAR_EVALUATION_VOLUME:-polar_fixture_evaluations}", labels: {polar.scope: POL.0.4.0.1}}
 
 secrets:
+  history_cursor_key:
+    file: ${POLAR_HISTORY_CURSOR_KEY_PATH:?Set persistent private history cursor key path}
   db_password:
     file: ${POLAR_DB_PASSWORD_PATH:?Set task-owned password file path}

@@ -4,6 +4,7 @@ import hashlib
 import json
 import uuid
 from types import SimpleNamespace
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -157,3 +158,20 @@ def test_cli_storage_error_names_remaining_guard(retained,tmp_path,monkeypatch,c
     assert error.value.code==1
     assert json.loads(capsys.readouterr().err)=={"status":"ERROR","code":"RETAINED_STORAGE_ADMISSION_LIMIT"}
     assert history.historical_hash()==before
+
+
+def test_merged_settings_preserve_B_storage_and_key_configuration(monkeypatch):
+    monkeypatch.setenv("POLAR_DATABASE_URL","unused")
+    monkeypatch.delenv("POLAR_STORAGE_BYTES",raising=False)
+    monkeypatch.delenv("POLAR_HISTORY_CURSOR_KEY_FILE",raising=False)
+    settings=Settings.load()
+    assert settings.storage_bytes==64*1024**3
+    assert settings.history_cursor_key_file==Path("/run/secrets/history_cursor_key")
+    assert (settings.lease_seconds,settings.job_seconds)==(15,60)
+    assert not hasattr(settings,"max_jobs") and not hasattr(settings,"cpu_seconds")
+    monkeypatch.setenv("POLAR_STORAGE_BYTES",str(16*1024**3))
+    monkeypatch.setenv("POLAR_HISTORY_CURSOR_KEY_FILE","/private/tmp/invented-key-path")
+    changed=Settings.load()
+    assert changed.storage_bytes==16*1024**3 and changed.history_cursor_key_file==Path("/private/tmp/invented-key-path")
+    monkeypatch.setenv("POLAR_STORAGE_BYTES",str(64*1024**3+1))
+    with pytest.raises(ValueError,match="INVALID_STORAGE_ALLOCATION"): Settings.load()

@@ -1,5 +1,49 @@
 # Local fixture runbook
 
+## Current storage policy and history reads
+
+Current user policy has one 64 GiB ceiling for all known local Polar data,
+artifacts, evidence, backups, scratch and logs. Historical bootstrap category
+allocations and CPU/RAM/browser caps below are past configuration/evidence, not
+new project stop gates. Assess actual host availability for each assigned task.
+Do not restart healthy services merely to propagate a historical profile change.
+
+`POLAR_STORAGE_BYTES` configures the app's storage allocation in bytes, from 1
+through 68,719,476,736; the source default is 68,719,476,736 (64 GiB). The shared
+Compose app environment passes this setting to API/worker/tool processes on
+their next separately authorized operation. An operator may allocate less within
+the shared total. This setting does not count or enforce every external evidence,
+backup or scratch root; operators must account those separately. It does not
+change dataset/query/response bounds, and this source change does not resize or
+restart any existing container or volume.
+
+Before the next separately granted API deployment, provision one dedicated
+persistent random 32-byte cursor key outside Git and logs, retain it across API
+restarts, and set `POLAR_HISTORY_CURSOR_KEY_PATH` for the API-only Compose secret
+`history_cursor_key`. Within the container, `POLAR_HISTORY_CURSOR_KEY_FILE` is
+`/run/secrets/history_cursor_key`; direct-process operation can set that file path
+explicitly. Never reuse the PostgreSQL password or print the key. For example,
+after creating a private task-owned directory, create the file exclusively with
+`os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)` and write
+`os.urandom(32)` without a newline; preserve it in the owner's protected secret
+storage. This source change does not provision a runtime key or change a service.
+
+Missing/invalid key makes history pagination/readiness return 503; legacy
+`/readyz` remains unchanged. Same-key requests/process restarts preserve cursors.
+Rotation by atomic replacement invalidates outstanding cursors with 422; clients
+restart from the first page once new bytes are visible. File-bind mounts may
+retain the old inode; the operator must remount/restart under its separate grant
+when necessary. All serving processes must use the same retained
+key. The HTTP MAC covers projection, request, catalog snapshot and cursor
+position; keys/cursor errors never expose credentials or local paths.
+
+See [bounded history API](history-api.md) for revision-pinned catalog/assets/bars.
+`/v1/history/readyz` is separate from legacy `/readyz`: it checks the history
+extension and a bounded first chart-ready publication probe, while reporting
+whether any chart-ready data exists. Neither endpoint certifies financial/PIT
+fitness or independent end-to-end acceptance. History migration/registration
+stays explicit and separately operated; no automatic startup write is added.
+
 SRE operates the reviewed exact candidate. Preserve owner checkout `test.txt`
 deletion and untracked `AGENTS.md`. Do not reset/start Docker Desktop or replace
 the owner's runtime as part of source checks. Resolve that operation explicitly

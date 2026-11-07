@@ -22,6 +22,9 @@ def create_app(service=None):
     def svc():
         return service or Service(Settings.load())
 
+    from .history_router import install_history_routes
+    install_history_routes(app, svc)
+
     @app.middleware("http")
     async def bounded_body(request,call_next):
         if request.method == "POST" and request.url.path in {"/v1/datasets","/v1/runs"}:
