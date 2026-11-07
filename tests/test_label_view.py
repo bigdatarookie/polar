@@ -201,8 +201,9 @@ def test_microsecond_endpoint_does_not_round_into_maturity():
 @pytest.mark.parametrize("rounding", [ROUND_DOWN, ROUND_HALF_EVEN, ROUND_UP])
 @pytest.mark.parametrize("trap_all", [False, True])
 @pytest.mark.parametrize("existing_flags", [False, True])
+@pytest.mark.parametrize("capitals", [0, 1])
 def test_decimal_admission_is_exact_and_preserves_caller_context(
-        precision, rounding, trap_all, existing_flags):
+        precision, rounding, trap_all, existing_flags, capitals):
     # Inclusive signed cap, just inside it, fractional values and scale equality.
     valid = {value: value for value in [
         "1000000000000", "-1000000000000", "999999999999.999999999999",
@@ -214,6 +215,7 @@ def test_decimal_admission_is_exact_and_preserves_caller_context(
                "not-a-number", "", "1" * 41, None, True, 1, 1.5]
     with localcontext() as caller:
         caller.prec, caller.rounding = precision, rounding
+        caller.capitals = capitals
         caller.Emax, caller.Emin, caller.clamp = 2, -2, 1
         for signal in caller.traps:
             caller.traps[signal] = trap_all
@@ -230,3 +232,34 @@ def test_decimal_admission_is_exact_and_preserves_caller_context(
                 view([row(value=value)])
             assert str(error.value) == error.value.code == "INVALID_LABEL_INPUT"
             assert repr(caller) == before
+
+
+@pytest.mark.parametrize("capitals", [0, 1])
+def test_decimal_serialization_binds_all_revisions_and_hashes(capitals):
+    records = [row(value="-0.000000000000"),
+               row("a", "2024-01-10T00:00:00Z", value="1e-12"),
+               row("late", "2024-01-11T00:00:00Z", value="1.2300")]
+    normalized = [row(value="-0E-12"),
+                  row("a", "2024-01-10T00:00:00Z", value="1E-12"),
+                  row("late", "2024-01-11T00:00:00Z", value="1.2300")]
+    def canonical_bytes(value):
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    expected_body = envelope(sorted(normalized, key=canonical_bytes))
+    expected_input = hashlib.sha256(canonical_bytes(expected_body)).hexdigest()
+    expected_request = hashlib.sha256(canonical_bytes({
+        "canonical_input_hash": expected_input, "fit_cutoff": FIT, "limit": 3})).hexdigest()
+    with localcontext() as caller:
+        caller.capitals, caller.prec = capitals, 1
+        for signal in caller.traps:
+            caller.traps[signal] = True
+        caller.flags[Inexact] = True
+        before = repr(caller)
+        result = view(records, limit=3)
+        assert repr(caller) == before
+    assert result["selected"] == [normalized[1]]
+    assert [(d["reason"], d["record"]) for d in result["diagnostics"]] == [
+        ("SELECTED", normalized[1]), ("NOT_MATURE", normalized[2]),
+        ("SUPERSEDED", normalized[0])]
+    assert result["canonical_input_hash"] == expected_input
+    assert result["request_hash"] == expected_request
+    assert result["source_sha256"] == hashlib.sha256(encode(records)).hexdigest()

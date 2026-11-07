@@ -2,10 +2,10 @@
 import hashlib
 import re
 from datetime import datetime, timedelta
-from decimal import Context, Decimal, InvalidOperation
+from decimal import Context, Decimal, InvalidOperation, localcontext
 from typing import Annotated, Literal
 
-from pydantic import BeforeValidator, Field, ValidationError, model_validator
+from pydantic import BeforeValidator, Field, PlainSerializer, ValidationError, model_validator
 
 from .codec import canonical, digest
 from .models import Strict
@@ -50,7 +50,15 @@ def _label_decimal(value):
     return number
 
 
-LabelNumber = Annotated[Decimal, BeforeValidator(_label_decimal)]
+def _label_decimal_text(value):
+    """Keep normal exact Decimal spelling regardless of caller capitals."""
+    with localcontext() as context:
+        context.capitals = 1
+        return str(value)
+
+
+LabelNumber = Annotated[Decimal, BeforeValidator(_label_decimal),
+                        PlainSerializer(_label_decimal_text, return_type=str, when_used="json")]
 
 
 class LabelRecord(Strict):

@@ -38,7 +38,11 @@ publication<=availability<=ingestion. Decimal values require strings <=40
 characters, finite magnitude <=1e12 (inclusive) and exponent >=-12; null,
 nonnumeric or float values are invalid. Local exact conversion uses a fresh
 explicit context and context-free absolute magnitude, preserving exact values
-and caller Decimal precision, rounding, traps and flags on success or failure.
+and caller Decimal precision, rounding, traps, capitals and flags on success or
+failure. A label-local JSON serializer uses exact normal Decimal spelling with
+uppercase `E`, preserving scale and signed zero. The same serializer covers
+selected/diagnostic records and canonical input/request identity; a temporary
+local context is restored without modifying the caller.
 This local admission does not modify or qualify other shared numeric interfaces.
 `limit` is mandatory, strict integer 1..1000; excess records reject, never truncate.
 Source input is <=1 MiB before parsing; no extra fields or implicit repairs.
