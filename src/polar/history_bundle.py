@@ -93,11 +93,15 @@ def label(value):
 
 
 def clock(value):
-    require(type(value) is str and value.endswith("Z"), "HISTORY_INVALID_RECEIPT_CLOCK")
+    require(type(value) is str and re.fullmatch(
+        r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|\+00:00)",
+        value), "HISTORY_INVALID_RECEIPT_CLOCK")
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith("Z") else value)
     except ValueError:
         raise HistoryError("HISTORY_INVALID_RECEIPT_CLOCK") from None
+    require(parsed.tzinfo is not None and parsed.utcoffset() == timedelta(0), "HISTORY_INVALID_RECEIPT_CLOCK")
+    return parsed
 
 
 def numeric(value, field):
@@ -114,6 +118,71 @@ def numeric(value, field):
         return n
     except ArithmeticError:
         raise HistoryError("HISTORY_NUMBER_BOUNDS") from None
+
+
+def audit_rows(source, instrument, symbol, snapshot_id, raw_hash, profile):
+    """Audit the frozen producer's records/reasons, without executing its normalizer."""
+    indexed_dates = Counter(row.get("date") for row in source
+                            if isinstance(row, dict) and isinstance(row.get("date"), str))
+    valid, quarantine, extra_fields, source_order = [], [], set(), []
+    for index, original in enumerate(source):
+        reasons, numbers = [], {}
+        if type(original) is not dict:
+            reasons.append("ROW_OBJECT_REQUIRED")
+        else:
+            extra_fields.update(set(original) - {"date", *FIELDS})
+            try:
+                session = label(original.get("date")).isoformat()
+                if not profile["request_start_inclusive"] <= session <= profile["request_end_inclusive"]:
+                    reasons.append("OUTSIDE_REQUEST_RANGE")
+                if indexed_dates[session] > 1:
+                    reasons.append("DUPLICATE_ASSET_DATE")
+            except HistoryError:
+                reasons.append("INVALID_SESSION_DATE")
+            for field in FIELDS:
+                try:
+                    require(type(original.get(field)) is Token, "HISTORY_SOURCE_NUMERIC_TOKEN")
+                    numbers[field] = numeric(original[field], field)
+                except HistoryError:
+                    reasons.append("INVALID_"+field.upper())
+            if all(k in numbers for k in ("open", "high", "low", "close")):
+                if (numbers["high"] < max(numbers["open"], numbers["close"]) or
+                        numbers["low"] > min(numbers["open"], numbers["close"]) or numbers["high"] < numbers["low"]):
+                    reasons.append("OHLC_RANGE")
+        if reasons:
+            quarantine.append({"source_row_index": index, "reasons": sorted(set(reasons)), "row": original})
+        else:
+            source_order.append(session)
+            valid.append({"instrument_id": instrument, "source_symbol": symbol,
+                "source_snapshot_id": snapshot_id, "raw_object_sha256": raw_hash,
+                "source_row_index": index, "session_date": session,
+                **{k: str(original[k]) for k in FIELDS}, "event_at": None, "published_at": None,
+                "historical_available_at": None, "source_revision": None, "source_status": "OBSERVED"})
+    valid.sort(key=lambda row: row["session_date"])
+    dates = [row["session_date"] for row in valid]
+    gaps = []
+    for left, right in zip(dates, dates[1:]):
+        day = label(left) + timedelta(days=1)
+        while day.isoformat() < right:
+            gaps.append(day.isoformat())
+            day += timedelta(days=1)
+    report = {"instrument_id": instrument, "source_symbol": symbol, "raw_rows": len(source),
+        "valid_unique_rows": len(valid), "quarantined_rows": len(quarantine),
+        "duplicate_keys": sum(n > 1 for n in indexed_dates.values()),
+        "duplicate_rows": sum(n for n in indexed_dates.values() if n > 1),
+        "quarantine_reason_counts": dict(Counter(reason for q in quarantine for reason in q["reasons"])),
+        "extra_source_fields": sorted(extra_fields), "source_order_ascending": source_order == sorted(source_order),
+        "first_valid_date": dates[0] if dates else None, "last_valid_date": dates[-1] if dates else None,
+        "observed_rows_by_year": dict(Counter(d[:4] for d in dates)), "calendar_status": "UNVERIFIED",
+        "expected_sessions": None, "missing_expected_sessions": None, "missing_fraction": None,
+        "qualified_ten_year_continuity": "UNVERIFIED", "calendar_days_without_observation_between_edges": gaps,
+        "requested_start_inclusive": profile["request_start_inclusive"],
+        "requested_end_inclusive": profile["request_end_inclusive"],
+        "unobserved_requested_edges": {"leading": not dates or dates[0] != profile["request_start_inclusive"],
+                                       "trailing": not dates or dates[-1] != profile["request_end_inclusive"]},
+        "weekend_observation_dates": [d for d in dates if label(d).weekday() > 4],
+        "ten_year_date_span": bool(dates and (label(dates[-1])-label(dates[0])).days >= 3653)}
+    return valid, quarantine, report, set(dates)
 
 
 def relative(value):
@@ -236,7 +305,7 @@ def _verify_files(files, expected_manifest_hash):
         raw = bound(raw_obj, raw_path)
         require(len(raw) <= MAX_FILE)
         source = decode(raw, source=True)
-        require(type(source) is list and 1 <= len(source) <= 5000, "HISTORY_ROW_LIMIT")
+        require(type(source) is list and len(source) <= 5000, "HISTORY_ROW_LIMIT")
         url = (f"https://eodhd.com/api/eod/{symbol}?api_token=demo&from=2015-11-02"
                "&to=2026-11-06&period=d&order=a&fmt=json")
         require(snapshot["content"]["requests"][i] == {"instrument_id": instrument,
@@ -253,62 +322,37 @@ def _verify_files(files, expected_manifest_hash):
                 ("instrument_id", "request_number", "url", "acquisition_started_at")})
         bar_path = f"bars/{instrument}.ndjson"
         lines = bound(content["bars"][i], bar_path).splitlines()
-        require(len(lines) == len(source), "HISTORY_ROW_COUNT")
         quarantine = f"quarantine/{instrument}.json"
         expected.add(quarantine)
-        require(decode(files[quarantine]) == [], "HISTORY_QUARANTINED")
-        dates, indices = [], set()
-        for line in lines:
-            row = decode(line)
-            index = row["source_row_index"]
-            require(type(index) is int and 0 <= index < len(source) and index not in indices)
-            indices.add(index)
-            original = source[index]
-            require(type(original) is dict and set(original) == {"date", *FIELDS})
-            session = label(row["session_date"])
-            require(profile["request_start_inclusive"] <= session.isoformat() <= profile["request_end_inclusive"])
-            require(row == {"instrument_id": instrument, "source_symbol": symbol,
-                    "source_snapshot_id": snapshot_id, "raw_object_sha256": raw_obj["sha256"],
-                    "source_row_index": index, "session_date": original["date"],
-                    **{k: str(original[k]) for k in FIELDS}, "event_at": None, "published_at": None,
-                    "historical_available_at": None, "source_revision": None, "source_status": "OBSERVED"},
-                    "HISTORY_ROW_PROVENANCE")
-            require(all(type(original[k]) is Token for k in FIELDS), "HISTORY_SOURCE_NUMERIC_TOKEN")
-            numbers = {k: numeric(row[k], k) for k in FIELDS}
-            require(numbers["high"] >= max(numbers["open"], numbers["close"]) and
-                    numbers["low"] <= min(numbers["open"], numbers["close"]) and
-                    numbers["high"] >= numbers["low"], "HISTORY_OHLC_RANGE")
-            dates.append(session.isoformat())
-        require(dates == sorted(set(dates)), "HISTORY_DUPLICATE_OR_ORDER")
+        valid, quarantined, checks, dates = audit_rows(source, instrument, symbol, snapshot_id,
+                                                      raw_obj["sha256"], profile)
+        require(len(lines) == len(valid), "HISTORY_ROW_COUNT")
+        require(canonical([decode(line) for line in lines]) == canonical(valid), "HISTORY_ROW_PROVENANCE")
+        # Audit every field, token and reason; producer JSON has a trailing newline.
+        # Preserve original q bytes separately in the publication inventory/hash.
+        require(canonical(decode(files[quarantine])) == canonical(quarantined), "HISTORY_QUARANTINE_PROVENANCE")
+        require(len(source) == len(valid) + len(quarantined), "HISTORY_ROW_COUNT")
         report = quality["assets"][i]
-        gaps = []
-        for left, right in zip(dates, dates[1:]):
-            day = label(left) + timedelta(days=1)
-            while day.isoformat() < right:
-                gaps.append(day.isoformat())
-                day += timedelta(days=1)
-        checks = {"instrument_id": instrument, "source_symbol": symbol,
-                  "raw_rows": len(source), "valid_unique_rows": len(lines), "quarantined_rows": 0,
-                  "duplicate_keys": 0, "duplicate_rows": 0, "quarantine_reason_counts": {},
-                  "extra_source_fields": [], "first_valid_date": dates[0], "last_valid_date": dates[-1],
-                  "observed_rows_by_year": dict(Counter(d[:4] for d in dates)),
-                  "calendar_status": "UNVERIFIED", "expected_sessions": None,
-                  "missing_expected_sessions": None, "missing_fraction": None,
-                  "qualified_ten_year_continuity": "UNVERIFIED",
-                  "calendar_days_without_observation_between_edges": gaps,
-                  "requested_start_inclusive": profile["request_start_inclusive"],
-                  "requested_end_inclusive": profile["request_end_inclusive"]}
-        require(all(report[k] == v for k, v in checks.items()), "HISTORY_QUALITY_COUNTS")
-        summaries.append({**instruments[i], "row_count": len(lines), "first_date": dates[0],
-                          "last_date": dates[-1], "expected_sessions": None,
+        require(canonical({k: report[k] for k in checks}) == canonical(checks), "HISTORY_QUALITY_COUNTS")
+        summaries.append({**instruments[i], "row_count": len(valid), "raw_rows": len(source),
+                          "quarantined_rows": len(quarantined), "duplicate_keys": checks["duplicate_keys"],
+                          "duplicate_rows": checks["duplicate_rows"],
+                          "quarantine_reason_counts": checks["quarantine_reason_counts"],
+                          "chart_fitness": "READY_WITH_LIMITS" if valid else "NOT_READY",
+                          "first_date": checks["first_valid_date"], "last_date": checks["last_valid_date"],
+                          "expected_sessions": None, "calendar_status": "UNVERIFIED",
                           "qualified_ten_year_continuity": "UNVERIFIED"})
-        date_sets.append(set(dates))
+        date_sets.append(dates)
         content_files.update((raw_path, bar_path, quarantine))
     content_files.update(("quality.json", "instruments.json"))
     total = sum(a["row_count"] for a in summaries)
-    require(total <= 20000 and quality["total_raw_rows"] == quality["total_valid_rows"] == total and
-            quality["total_quarantined_rows"] == 0 and quality["structural_status"] == "VALID",
-            "HISTORY_QUALITY_COUNTS")
+    raw_total = sum(a["raw_rows"] for a in summaries)
+    quarantine_total = sum(a["quarantined_rows"] for a in summaries)
+    structural = "VALID" if all(a["row_count"] and not a["quarantined_rows"] for a in summaries) else "QUARANTINED"
+    counts = {"total_raw_rows": raw_total, "total_valid_rows": total,
+              "total_quarantined_rows": quarantine_total, "structural_status": structural}
+    require(raw_total <= 20000 and raw_total == total + quarantine_total and
+            canonical({k: quality[k] for k in counts}) == canonical(counts), "HISTORY_QUALITY_COUNTS")
     require(quality["cross_asset_union_session_count"] == len(set.union(*date_sets)) and
             quality["cross_asset_common_session_count"] == len(set.intersection(*date_sets)) and
             quality["cross_asset_absent_dates"] == {a[0]: sorted(set.union(*date_sets)-dates)
@@ -322,9 +366,11 @@ def _verify_files(files, expected_manifest_hash):
     summary = {"schema_version": "polar.history-revision/1", "dataset_id": dataset,
                "dataset_revision": revision, "import_receipt_id": receipt_id,
                "manifest_sha256": expected_manifest_hash, "basis": BASES,
-               "instruments": summaries, "row_count": total, "calendar_status": "UNVERIFIED",
-               "fitness": {"rights_status": "ADMITTED", "structural_status": "VALID",
-                           "chart_fitness": "READY_WITH_LIMITS", "retrospective_analysis_fitness": "NOT_ASSESSED",
+               "instruments": summaries, "row_count": total, "raw_rows": raw_total,
+               "quarantined_rows": quarantine_total, "calendar_status": "UNVERIFIED",
+               "fitness": {"rights_status": "ADMITTED", "structural_status": structural,
+                           "chart_fitness": "READY_WITH_LIMITS" if total else "NOT_READY",
+                           "retrospective_analysis_fitness": "NOT_ASSESSED",
                            "causal_PIT_fitness": "INSUFFICIENT_EVIDENCE", "financial_evaluation": "NOT_RUN"},
                "rights_scope": "OWNER_ONLY_PRIVATE_NONCOMMERCIAL",
                "import_started_at": receipt["import_started_at"], "import_completed_at": receipt["import_completed_at"]}

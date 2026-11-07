@@ -123,7 +123,9 @@ class HistoryRegistry:
             if snapshot is None:
                 snapshot = db.execute("SELECT coalesce(max(catalog_sequence),0) AS n FROM history_revisions").fetchone()["n"]
             rows = db.execute("""SELECT dataset_id,revision FROM history_revisions
-                WHERE catalog_sequence<=%s AND revision>%s ORDER BY revision LIMIT %s""",
+                WHERE catalog_sequence<=%s AND revision>%s
+                AND summary->'fitness'->>'chart_fitness'='READY_WITH_LIMITS'
+                ORDER BY revision LIMIT %s""",
                               (snapshot, after, limit + 1)).fetchall()
         items, size = [], 0
         for row in rows[:limit]:
