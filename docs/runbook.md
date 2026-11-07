@@ -373,3 +373,10 @@ source volumes and immutable witnesses; any return to the prior service state
 must be explicitly included in that operation's custody. Restore remains outside
 the drill unless separately selected. No hard storage/global CPU enforcement is
 claimed; `NOT_ENFORCED`, `BLINDING_NOT_ENFORCED` and incomplete accounting remain.
+
+## Retained workspace UI
+
+Open `/ui/` on the existing API origin for the selected read-only workspace. See
+[retained-ui.md](retained-ui.md) for projection, status, controls and qualification
+limits. GET-only selection/refresh creates no datasets or jobs. Image/browser
+qualification requires a separately authorized candidate-scoped runtime slot.

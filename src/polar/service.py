@@ -25,6 +25,25 @@ class Service:
         return {"status":"READY","schema_version":1,"storage_hard_quota":"NOT_ENFORCED",
                 "blinding":"BLINDING_NOT_ENFORCED"}
 
+    def ui_datasets(self, limit=10, offset=0):
+        return self._ui_call("datasets", limit, offset)
+
+    def ui_dataset(self, dataset_id):
+        return self._ui_call("dataset", dataset_id)
+
+    def ui_runs(self, dataset_id, limit=10, offset=0):
+        return self._ui_call("runs", dataset_id, limit, offset)
+
+    def ui_run(self, run_id, dataset_id=None):
+        return self._ui_call("run", run_id, dataset_id)
+
+    def _ui_call(self, operation, *args):
+        from .ui import UIError, UIProjection
+        try:
+            return getattr(UIProjection(self), operation)(*args)
+        except (KeyError, TypeError, ValueError, AttributeError, RecursionError):
+            raise UIError("RETAINED_RECORD_INVALID") from None
+
     def dataset(self, dataset_id):
         row = self.registry.dataset(dataset_id)
         try:

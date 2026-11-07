@@ -4,6 +4,8 @@ import psycopg
 from fastapi import FastAPI, Header, Query, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from fastapi.staticfiles import StaticFiles
+from importlib.resources import files
 from pydantic import BaseModel
 
 from .artifacts import ArtifactError
@@ -11,6 +13,7 @@ from .config import Settings
 from .models import Dataset, RunConfig
 from .registry import BudgetExceeded, Conflict, NotFound
 from .service import DatasetIntegrityError, Service
+from .ui import UIError
 
 
 def create_app(service=None):
@@ -38,6 +41,10 @@ def create_app(service=None):
     @app.exception_handler(DatasetIntegrityError)
     def dataset_integrity(req,exc):
         return JSONResponse(status_code=409,content={"code":"DATASET_INTEGRITY_ERROR"})
+
+    @app.exception_handler(UIError)
+    def ui_error(req,exc):
+        return JSONResponse(status_code=exc.status,content={"code":exc.code})
 
     @app.exception_handler(NotFound)
     def not_found(req,exc):
@@ -122,6 +129,24 @@ def create_app(service=None):
     @app.get("/v1/compare")
     def compare(left:uuid.UUID,right:uuid.UUID):
         return svc().compare(left,right)
+
+    @app.get("/v1/ui/datasets")
+    def ui_datasets(limit:int=Query(10,ge=1,le=10),offset:int=Query(0,ge=0)):
+        return svc().ui_datasets(limit,offset)
+
+    @app.get("/v1/ui/datasets/{dataset_id}/runs")
+    def ui_runs(dataset_id:str,limit:int=Query(10,ge=1,le=10),offset:int=Query(0,ge=0)):
+        return svc().ui_runs(dataset_id,limit,offset)
+
+    @app.get("/v1/ui/datasets/{dataset_id}")
+    def ui_dataset(dataset_id:str):
+        return svc().ui_dataset(dataset_id)
+
+    @app.get("/v1/ui/runs/{run_id}")
+    def ui_run(run_id:uuid.UUID,dataset_id:str|None=None):
+        return svc().ui_run(run_id,dataset_id)
+
+    app.mount("/ui", StaticFiles(directory=str(files("polar").joinpath("web")), html=True), name="ui")
 
     return app
 
