@@ -100,8 +100,9 @@ def identity_fields(summary):
 
 
 class HistoryQueries:
-    def __init__(self, registry, cursor_key_file):
+    def __init__(self, registry, cursor_key_file, calendar_dir=None):
         self.registry = registry
+        self.calendar_dir = calendar_dir or registry.store.root/"history-calendar"
         self.cursor_key_file, self._codec = cursor_key_file, None
 
     @property
@@ -199,6 +200,10 @@ class HistoryQueries:
                     "coverage": coverage, "fitness": fitness, "next_cursor": next_cursor, "window_complete": complete}
         return page_rows(rows, [r["session_date"]+":"+r["row_role"] for r in rows],
                          count, cursor, "bars/1", identity, make, codec)
+
+    def series(self, **kwargs):
+        from .history_series import series
+        return series(self, **kwargs)
 
     def ready(self):
         self.codec  # Fail readiness if the required pagination key is not usable.
