@@ -9,7 +9,7 @@ import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
 
-export const VERSION='polar-local/1.2.0';
+export const VERSION='polar-local/1.3.0';
 const PW=process.env.POLAR_PLAYWRIGHT_MODULE||'/Users/garry/.npm/_npx/31e32ef8478fbf80/node_modules/playwright/index.js';
 const CHROME=process.env.POLAR_BROWSER_EXECUTABLE||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
@@ -157,7 +157,13 @@ export async function withPage(out,url,actions,{actionTimeoutMs=120000}={}) {
 export async function smoke(out,url){return withPage(out,url);}
 async function main(){
   const [mode,...args]=process.argv.slice(2);
-  if(mode==='doctor')console.log(JSON.stringify(await doctor(args)));
+  if(mode==='docker'||mode==='docker-cleanup'){
+    const {observedLaunch,observedCleanup}=await import('./polar-docker.mjs');
+    const result=(mode==='docker'?observedLaunch:observedCleanup)(path.resolve(args[0]),path.resolve(args[1]));
+    console.log(JSON.stringify(result));if(mode==='docker'&&(result.preparation_status!=='PREPARED'||result.scenario!=='PASS'))process.exitCode=1;
+    if(mode==='docker-cleanup'&&!['REMOVED','ALREADY_ABSENT','NO_RESOURCES'].includes(result.cleanup?.status))process.exitCode=1;
+  }
+  else if(mode==='doctor')console.log(JSON.stringify(await doctor(args)));
   else if(mode==='smoke'){const result=await smoke(path.resolve(args[0]),args[1]);console.log(JSON.stringify(result));if(result.status!=='PASS')process.exitCode=1;}
   else if(mode==='journey'){
     const modulePath=path.resolve(args[2]);const actions=(await import(pathToFileURL(modulePath).href)).default;
@@ -165,6 +171,6 @@ async function main(){
   }
   else if(mode==='export')console.log(JSON.stringify(exportSource(...args)));
   else if(mode==='timestamps')console.log(JSON.stringify(timestampCases()));
-  else throw Error('Usage: polar-local.mjs doctor [owned-container...] | smoke NEW_PRIVATE_DIR [localURL] | journey NEW_PRIVATE_DIR localURL ACTIONS_MODULE | export REPO COMMIT TREE NEW_DIR | timestamps');
+  else throw Error('Usage: polar-local.mjs docker CONFIG NEW_PRIVATE_DIR | docker-cleanup CONFIG PRIVATE_DIR | doctor [owned-container...] | smoke NEW_PRIVATE_DIR [localURL] | journey NEW_PRIVATE_DIR localURL ACTIONS_MODULE | export REPO COMMIT TREE NEW_DIR | timestamps');
 }
 if(process.argv[1]&&pathToFileURL(path.resolve(process.argv[1])).href===import.meta.url)main().catch(e=>{console.error(JSON.stringify({status:'FAIL',errorType:e.name,code:e.message}));process.exitCode=1;});
