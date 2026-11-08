@@ -160,7 +160,8 @@ class FamilyStore:
             if row['kind']=='RESOURCE':
                 p=row['payload'];key=(row['case'],p['attempt_id'])
                 prior=latest.get(key,{'cpu_us':0,'wall_ns':0,'native_wall_ns':0})
-                require(all(type(p[k]) is int and p[k]>=prior[k] for k in prior),'FAMILY_ROOT_MISMATCH')
+                require(all(type(p[k]) is int and p[k]>=prior[k]
+                            for k in ('cpu_us','wall_ns','native_wall_ns')),'FAMILY_ROOT_MISMATCH')
                 latest[key]=p
         immutable(directory/f'charge-{len(rows):06d}.json',candidate)
         _replace(directory/'projection.json',{'count':len(rows)+1,'tail':digest(candidate)})
@@ -271,7 +272,8 @@ class FamilyStore:
             elif kind=='RESOURCE':
                 exact(p,('attempt_id','cpu_us','wall_ns','native_wall_ns'),'FAMILY_ROOT_MISMATCH')
                 prior=a['resource'] or {'cpu_us':0,'wall_ns':0,'native_wall_ns':0}
-                require(all(type(p[k]) is int and p[k]>=prior[k] for k in prior),'FAMILY_ROOT_MISMATCH')
+                require(all(type(p[k]) is int and p[k]>=prior[k]
+                            for k in ('cpu_us','wall_ns','native_wall_ns')),'FAMILY_ROOT_MISMATCH')
                 a['resource']=p
             elif kind=='RUNTIME':
                 exact(p,('attempt_id','receipt_ref','observed_image_id'),'FAMILY_ROOT_MISMATCH')
