@@ -57,7 +57,7 @@ class Source:
         check(len(maps) == 1 and maps[0]["root_protocol_sha256"] == PROTOCOL, "HYP007_EVIDENCE_NOT_BOUND")
         self.evidence = {row["source_id"]: row for row in maps[0]["entries"]}
         required = {item[key] for row in self.evidence.values() for item in row["static_qualification_evidence"]
-                    for key in ("artifact_sha256", "report_sha256")}
+                    for key in ("artifact_sha256", "report_sha256") if key in item}
         check(required <= set(cfg["qualification_objects"].values()), "HYP007_QUALIFICATION_NOT_BOUND")
         self.bars = {s: {} for s in COHORT}
         self.conflicts = {s: set() for s in COHORT}
