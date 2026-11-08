@@ -131,7 +131,9 @@ class Snapshot:
             observed=self.observed();evidence['observed_at']=utc(observed)
             evidence['sha256']=hashlib.sha256(raw).hexdigest()
             state=value.get('state');require(state in STATES,'UNSUPPORTED_NATIVE_STATE')
-            waiting=value.get('waiting') or {};require(type(waiting) is dict,'INVALID_NATIVE_WAITING')
+            waiting=value.get('waiting')
+            if waiting is None:waiting={}  # Optional/legacy projection, never coerce other falsey types.
+            require(type(waiting) is dict,'INVALID_NATIVE_WAITING')
             require(waiting.get('obligation',qid)==qid and waiting.get('state',state)==state,'CONTRADICTORY_NATIVE_STATE')
             self.facts['queue_state']=self.fact(state,[evidence],event=observed)
             owner=value.get('destinationSession');require(type(owner) is str and SEAT.fullmatch(owner),'INVALID_NATIVE_OWNER')

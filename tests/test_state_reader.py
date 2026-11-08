@@ -139,3 +139,19 @@ def test_cli_stdout_only_and_no_artifact_mutation(tmp_path):
     assert r.returncode==0 and r.stderr=='' and SECRET not in r.stdout
     assert json.loads(r.stdout)['schema']=='polar.state/1'
     assert files(tmp_path)==before
+
+@pytest.mark.parametrize('waiting',[[], '', 0, False])
+def test_explicit_nonobject_waiting_is_unknown(waiting):
+    result=read_state(qitem=QID,now_ns=NOW,queue_reader=queue(waiting=waiting))
+    assert result['facts']['queue_state']['status']=='UNKNOWN'
+    assert result['facts']['owner']['status']=='UNKNOWN'
+    assert result['facts']['queue_state']['reason']=='INVALID_NATIVE_WAITING'
+
+@pytest.mark.parametrize('absent',[True,False])
+def test_missing_or_null_waiting_keeps_native_top_level_compatibility(absent):
+    data={'qitemId':QID,'state':'in-progress','destinationSession':'platform-engineer@polar-rig'}
+    if not absent:data['waiting']=None
+    result=read_state(qitem=QID,now_ns=NOW,queue_reader=lambda _:json.dumps(data).encode())
+    assert result['facts']['queue_state']['value']=='in-progress'
+    assert result['facts']['owner']['value']=='platform-engineer@polar-rig'
+    assert result['facts']['worker_liveness']['status']=='UNKNOWN'
