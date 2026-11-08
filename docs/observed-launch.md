@@ -107,3 +107,28 @@ The mode contract and frozen consumer expectations have not been relaxed. A new
 real-container invocation requires its separately recorded execution continuation
 after independent review of changed source/harness. No runtime or native PASS is
 implied by this source correction or its prospective component fixtures.
+
+## Mount-root initialization correction (launcher 2.2)
+
+The later 2de4679 qualification observed directory0700, file0444 and matching
+receipt bytes in the stopped-container archive. The guard returned
+NOT_PREPARED/PREPARATION_DIRECTORY_MODE_MISMATCH without starting the consumer.
+That FAIL is retained; process-visible stat/readability remained NOT RUN.
+
+The earlier source created the bind root0700 before container creation and only
+changed it to0555 after receipt publication. The corrected source explicitly sets
+0555 before `docker create`, including under a restrictive caller umask. For
+atomic publication it temporarily enables host-owner write (0755) inside the
+private0700 output root while the container is still created, then restores0555
+in a `finally` block. File0444, the stopped-container archive checks and the
+independent UID10001 consumer requirements are unchanged.
+
+Docker29.8.0 source archives a temporary mounted container filesystem view;
+it does not execute the consumer's stat/readability checks. The source ordering
+and observed initial mode support this bounded correction, but the mechanism
+which retained0700 despite later host chmod is UNVERIFIED. Neither a Docker
+Desktop projection defect nor successful runtime correction is asserted.
+Prospective fake-engine coverage retains the bind-root mode observed at create
+instead of supplying a constant0555, and checks restrictive umask and failed
+publication restoration. These fixtures are not a substitute for the separately
+authorized actual consumer qualification after independent review.

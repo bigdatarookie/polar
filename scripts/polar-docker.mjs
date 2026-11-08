@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
 
-export const VERSION='polar-observed-launch/2.1';
+export const VERSION='polar-observed-launch/2.2';
 const hash=b=>crypto.createHash('sha256').update(b).digest('hex');
 const now=()=>new Date().toISOString();
 const check=(v,code)=>assert(v,code);
@@ -210,7 +210,13 @@ export function observedLaunch(configFile,out) {
     preparation.engine={id:info.ID,server_version:info.ServerVersion,os:info.OSType,architecture:info.Architecture};
     check(typeof info.ID==='string'&&info.ID.length>0,'ENGINE_IDENTITY_MISSING');
     const sourceRequired=s.schema==='polar.observed-launch-config/2';
-    const observationDir=path.join(out,'observation');if(sourceRequired)fs.mkdirSync(observationDir,{mode:0o700});
+    const observationDir=path.join(out,'observation');
+    if(sourceRequired) {
+      fs.mkdirSync(observationDir,{mode:0o555});
+      // Pin the mount root's mode before create as well as before start.
+      // Explicit chmod avoids dependence on the caller's umask.
+      fs.chmodSync(observationDir,0o555);
+    }
     const args=['create','--pull=never','--name','polar-observed-'+s.launch_id,'--label','polar.launch.id='+s.launch_id,'--label','polar.launch.binding='+bindingHash,'--network','none','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--user',s.user,'--platform',s.platform,'--entrypoint',s.entrypoint];
     for(const [k,v] of Object.entries(s.environment))args.push('--env',k+'='+v);
     for(const [k,v] of Object.entries(refs))args.push('--mount','type=bind,src='+path.join(staged,k)+',dst='+v.path+',readonly');
@@ -236,8 +242,14 @@ export function observedLaunch(configFile,out) {
     preparation.preparation='PREPARED';preparation.reason='EXPECTED_OBSERVED_MATCH';preparation.published_at=now();
     let visibleRef=null;
     if(sourceRequired) {
-      const exposed=path.join(observationDir,'preparation.json');visibleRef=publish(exposed,preparation);
-      fs.chmodSync(exposed,0o444);fs.chmodSync(observationDir,0o555);
+      const exposed=path.join(observationDir,'preparation.json');
+      // No consumer has started. Enable host-owner publication only inside the
+      // private output root, and restore the mount mode even if publication fails.
+      fs.chmodSync(observationDir,0o755);
+      try {
+        visibleRef=publish(exposed,preparation);
+        fs.chmodSync(exposed,0o444);
+      } finally {fs.chmodSync(observationDir,0o555);}
       check(hash(regular(exposed))===visibleRef.sha256,'RECEIPT_CONFLICT');
       // Host chmod is not evidence of container-visible mode projection.
       // Keep this observation outside the receipt it hashes: no self-hash cycle.

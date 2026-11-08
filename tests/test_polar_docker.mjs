@@ -15,10 +15,10 @@ function setup(t) {
   const fake=`#!${process.execPath}
 const fs=require('fs'),path=require('path');const state=process.env.FAKE_DOCKER_STATE,log=process.env.FAKE_DOCKER_LOG;let s=JSON.parse(fs.readFileSync(state));const a=process.argv.slice(2);fs.appendFileSync(log,JSON.stringify(a)+'\\n');const save=()=>fs.writeFileSync(state,JSON.stringify(s));const emit=x=>process.stdout.write(typeof x==='string'?x:JSON.stringify(x));
 if(a[0]==='info')emit({ID:'synthetic-engine',ServerVersion:'fixture',OSType:'linux',Architecture:'arm64'});
-else if(a[0]==='create'){if(s.exists&&s.rejectDuplicate)process.exit(1);s.exists=true;s.args=a;s.started=false;save();if(s.unknownCreate)process.exit(1);if(s.conflict)fs.writeFileSync(path.join(process.env.FAKE_LAUNCH_OUT,'preparation.json'),'foreign');emit('${CID}');}
+else if(a[0]==='create'){if(s.exists&&s.rejectDuplicate)process.exit(1);s.exists=true;s.args=a;s.started=false;const observation=path.join(process.env.FAKE_LAUNCH_OUT,'observation');if(fs.existsSync(observation)){s.createDirectoryMode=(fs.statSync(observation).mode&0o7777).toString(8).padStart(4,'0');if(s.visibleConflict){fs.chmodSync(observation,0o755);try{fs.writeFileSync(path.join(observation,'preparation.json'),'foreign');}finally{fs.chmodSync(observation,parseInt(s.createDirectoryMode,8));}}}save();if(s.unknownCreate)process.exit(1);if(s.conflict)fs.writeFileSync(path.join(process.env.FAKE_LAUNCH_OUT,'preparation.json'),'foreign');emit('${CID}');}
 else if(a[0]==='inspect'){if(s.failInspect)process.exit(1);const value=k=>s.args[s.args.indexOf(k)+1];const all=k=>s.args.flatMap((x,i)=>x===k?[s.args[i+1]]:[]);const labels=Object.fromEntries(all('--label').map(x=>{let n=x.indexOf('=');return[x.slice(0,n),x.slice(n+1)]}));const imageAt=s.args.indexOf('--entrypoint')+2;const after=s.args.slice(imageAt);const runtime=after.findIndex(x=>/^sha256:/.test(x));emit([{Id:'${CID}',Image:s.actualImage,Created:'2026-11-08T00:00:00.123456789Z',Config:{Labels:labels,User:value('--user'),Entrypoint:[value('--entrypoint')],Cmd:after.slice(runtime+1),Env:[...all('--env'),'DATABASE_URL=DO_NOT_LEAK_PRIVATE_SENTINEL']},State:{Status:s.started?'exited':'created',Running:false,ExitCode:0}}]);}
 else if(a[0]==='image')emit([{Id:s.actualImage,Os:'linux',Architecture:'arm64'}]);
-else if(a[0]==='cp'){if(s.copyFail)process.exit(1);if(a[1].endsWith(':/polar-launch')){if(s.mountCopyFail)process.exit(1);const data=s.mountAltered?'altered':fs.readFileSync(path.join(process.env.FAKE_LAUNCH_OUT,'observation','preparation.json'));process.stdout.write((${tar.toString()})([{name:'polar-launch/',type:'5',mode:s.mountDirMode||'0555'},{name:'polar-launch/preparation.json',data,mode:s.mountFileMode||'0444'}]));}else process.stdout.write(Buffer.from(s.tar,'base64'));}
+else if(a[0]==='cp'){if(s.copyFail)process.exit(1);if(a[1].endsWith(':/polar-launch')){if(s.mountCopyFail)process.exit(1);const data=s.mountAltered?'altered':fs.readFileSync(path.join(process.env.FAKE_LAUNCH_OUT,'observation','preparation.json'));process.stdout.write((${tar.toString()})([{name:'polar-launch/',type:'5',mode:s.mountDirMode||s.createDirectoryMode},{name:'polar-launch/preparation.json',data,mode:s.mountFileMode||'0444'}]));}else process.stdout.write(Buffer.from(s.tar,'base64'));}
 else if(a[0]==='start'){const p=path.join(process.env.FAKE_LAUNCH_OUT,'preparation.json');const r=JSON.parse(fs.readFileSync(p));if(r.preparation!=='PREPARED'||r.scenario_started!==false)process.exit(9);if(s.tar){const visible=path.join(process.env.FAKE_LAUNCH_OUT,'observation','preparation.json');if(!fs.readFileSync(p).equals(fs.readFileSync(visible))||(fs.statSync(visible).mode&0o777)!==0o444||(fs.statSync(path.dirname(visible)).mode&0o777)!==0o555)process.exit(10);}s.started=true;s.starts=(s.starts||0)+1;save();fs.writeFileSync(path.join(process.env.FAKE_LAUNCH_OUT,'scenario','marker'),'one');emit('scenario marker');}
 else if(a[0]==='ps')emit(s.exists?'${CID}':'');
 else if(a[0]==='rm'){s.exists=false;save();emit('${CID}');}else process.exit(8);
@@ -91,6 +91,23 @@ for(const [field,value,reason,failed] of [
   assert.equal(result.scenario,'NOT_RUN');assert.equal(result.scenario_started,false);
   assert.equal(result.prestart_receipt_mount.matches[failed],false);
   assert.equal(result.prestart_receipt_mount.observed_container_id,CID);
+  assert(!f.calls().some(a=>a[0]==='start'));assert.equal(result.cleanup.status,'REMOVED');
+});
+test('mount root is sealed before create even under restrictive umask',t=>{
+  const f=sourceFixture(t),previous=process.umask(0o077);
+  let result;try{result=observedLaunch(f.config,f.out);}finally{process.umask(previous);}
+  const state=JSON.parse(fs.readFileSync(f.state));
+  assert.equal(state.createDirectoryMode,'0555');
+  assert.equal(result.prestart_receipt_mount.directory.mode,'0555');
+  assert.equal(result.scenario,'PASS');assert.equal(state.starts,1);
+  assert.equal(fs.statSync(path.join(f.out,'observation')).mode&0o7777,0o555);
+});
+test('publication conflict restores sealed mount root and cannot start',t=>{
+  const f=sourceFixture(t);f.engine({visibleConflict:true});
+  const result=observedLaunch(f.config,f.out);
+  assert.equal(result.preparation_status,'NOT_PREPARED');assert.equal(result.scenario,'NOT_RUN');
+  assert.equal(fs.statSync(path.join(f.out,'observation')).mode&0o7777,0o555);
+  assert.equal(fs.readFileSync(path.join(f.out,'observation','preparation.json'),'utf8'),'foreign');
   assert(!f.calls().some(a=>a[0]==='start'));assert.equal(result.cleanup.status,'REMOVED');
 });
 test('receipt copy failure cannot start a consumer',t=>{
