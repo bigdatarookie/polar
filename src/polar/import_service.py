@@ -39,7 +39,7 @@ def code_projection():
 
 
 def plan_name(value):
-    require(type(value) is str and value.startswith(("fixture-","import-")),"IMPORT_INVALID_ID")
+    require(type(value) is str and value.startswith(("fixture-","import-","rawsip-","rawsipfixture-")),"IMPORT_INVALID_ID")
     hash_value(value.split("-",1)[1]);return value
 
 
@@ -65,6 +65,9 @@ class ImportService:
         self.clock = clock or Clock()
 
     def plan(self,value):
+        if self.store.raw_sip:
+            from .import_raw_sip import plan
+            return plan(self,value)
         value = config(decode(canonical(value)))
         bound_file(value["route_evidence"])
         require((value["mode"]=="fixture") == ("imports-fixture-v1/" in self.store.base),"IMPORT_MODE_MISMATCH")
@@ -136,6 +139,9 @@ class ImportService:
         return states
 
     def status(self,pid):
+        if self.store.raw_sip:
+            from .import_raw_sip import status
+            return status(self,pid)
         plan = self.load(pid)
         cache = self.store.commits()
         records = self.request_records()
@@ -278,6 +284,9 @@ class ImportService:
         return max(waits)
 
     def execute(self,pid,*,fixture=None,network=False,attempt_id=None,scope=None):
+        if self.store.raw_sip:
+            from .import_raw_sip import execute
+            return execute(self,pid,fixture=fixture,network=network,attempt_id=attempt_id,scope=scope)
         plan = self.load(pid)
         require(plan["source_projection"]==code_projection(),"IMPORT_SOURCE_MISMATCH")
         require(self.store.read("policy.json")==POLICY,"IMPORT_POLICY_MISMATCH")

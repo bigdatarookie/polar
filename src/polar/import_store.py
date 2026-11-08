@@ -12,9 +12,13 @@ from .import_contract import (MAX_FILE, require, canonical, decode, digest, sha,
 
 
 class ImportStore(HistoryStore):
-    def __init__(self, root, limit, fixture=False):
+    def __init__(self, root, limit, fixture=False, raw_sip=False):
         super().__init__(root, limit)
+        self.raw_sip=raw_sip
         self.base = ("imports-fixture-v1/" if fixture else "imports-v1/")+scope_id()
+        if raw_sip:
+            from .import_raw_sip import UNIT_SHA
+            self.base=("imports-rawsip-fixture-v1/" if fixture else "imports-rawsip-v1/")+UNIT_SHA
 
     @contextmanager
     def locked(self):
@@ -96,6 +100,9 @@ class ImportStore(HistoryStore):
 
     def commits(self):
         """A committed result is authoritative even if the checkpoint update was interrupted."""
+        if self.raw_sip:
+            from .import_raw_sip import commits
+            return commits(self)
         cache = {}
         for name in self.list("successes")+self.list("cache-imports"):
             record = self.read(name)
