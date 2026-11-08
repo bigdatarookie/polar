@@ -1,0 +1,161 @@
+{
+  "closed_records": true,
+  "encoding": "sorted JSON keys, ASCII, compact separators, LF; integer nanoseconds; no floats",
+  "orders": {
+    "barriers": "ts_init then channel",
+    "decisions": "frozen calendar-profile order",
+    "fraction": "exact reduced before any Decimal projection",
+    "positions": "supplied frozen lexical route order",
+    "quotes_marks_eligible": "nominal date then lexical alias; delayed eligible ts_init monotonically ordered by pinned schedule",
+    "samples": "nominal date",
+    "units": "frozen action-profile order"
+  },
+  "part_b": "NOT_IMPLEMENTED; final runner/evaluation semantic projection must be separately frozen before invocation",
+  "records": {
+    "barrier": {
+      "channel": "QUOTES_COMPLETE|MARKS_COMPLETE|ELIGIBLE_COMPLETE",
+      "date": "date",
+      "expected_aliases": "literal158",
+      "ts_init": "integer"
+    },
+    "check": {
+      "basis": "string",
+      "code": "string",
+      "reason": "null|string",
+      "required": "boolean",
+      "status": "PASS|FAIL|NOT_RUN"
+    },
+    "decision": {
+      "decision_model": "aware UTC string",
+      "decision_ns": "integer",
+      "disposition": "IN_WINDOW|NOT_EXECUTED_OUTSIDE_PROFILE",
+      "known_by_model": "aware UTC string",
+      "known_by_ns": "integer",
+      "open_model": "aware UTC string",
+      "open_ns": "integer",
+      "order_date": "date",
+      "role": "INITIAL_BOTH|MONTHLY_ONLY",
+      "snapshot_date": "date",
+      "within_funded_window": "boolean"
+    },
+    "eligible": {
+      "alias": "string",
+      "date": "date",
+      "known_by_ns": "integer",
+      "ordinal": "integer",
+      "raw_ohlcv": "exact supplied map(o,h,l,c,v -> decimal lexeme)",
+      "source_row_sha256": "hex64",
+      "ts_event": "integer",
+      "ts_init": "integer"
+    },
+    "fill": {
+      "cash_after_cents": "nonnegative integer string",
+      "cash_delta_cents": "signed integer string",
+      "epsilon_USD": "fraction",
+      "fee_cents": "nonnegative integer string",
+      "filled_quantity": "nonnegative integer string",
+      "gross_exact_notional_USD": "fraction",
+      "intended_quantity": "nonnegative integer string",
+      "reasons": "ordered array(string)",
+      "settled_notional_cents": "nonnegative integer string",
+      "side": "BUY|SELL",
+      "signed_cash_rounding_USD": "fraction",
+      "unrouted_quantity": "nonnegative integer string"
+    },
+    "forward_unit": {
+      "factor": "1|4|5",
+      "native_mark_micro": "positive integer string",
+      "native_quantity": "nonnegative integer string",
+      "physical_quantity": "nonnegative integer string",
+      "position_cents": "nonnegative integer string"
+    },
+    "fraction": {
+      "denominator": "positive reduced integer string",
+      "numerator": "signed integer string"
+    },
+    "mark": {
+      "alias": "string",
+      "date": "date",
+      "ordinal": "integer",
+      "price_micro": "positive integer string",
+      "raw_close": "decimal lexeme",
+      "ts_event": "integer",
+      "ts_init": "integer"
+    },
+    "marked_account": {
+      "cash_cents": "nonnegative integer string",
+      "positions": "array(position)",
+      "price_ledger_value_cents": "positive integer string"
+    },
+    "polar.obs158-converted/1": {
+      "actions": "literal KNOWN_SPLITS_ONCE_ALL_DIVIDENDS_EXCLUDED_OTHER_FACTOR1_UNVERIFIED",
+      "barriers": "array(barrier)",
+      "decisions": "array(decision)",
+      "eligible_bars": "array(eligible)",
+      "event_clocks": "literal MODELED_NOT_OBSERVED",
+      "executor_quotes": "array(quote)",
+      "metric_sha256": "hex64",
+      "private_close_marks": "array(mark)",
+      "public_sha256": "hex64",
+      "raw_basis": "literal RAW_UNCHANGED",
+      "route_slots": "slots",
+      "sample_grid": "array(sample)",
+      "schema": "literal",
+      "unit_events": "array(unit)"
+    },
+    "polar.obs158-preflight/1": {
+      "bindings": "map(name -> {sha256:hex64,bytes:integer})",
+      "checks": "array(check)",
+      "financial_scope": "literal PRICE_ONLY_PARTIAL_ACTION_EXECUTION_MODEL",
+      "financial_status": "literal INSUFFICIENT_EVIDENCE",
+      "runner_execution_allowed": "literal false",
+      "schema": "literal",
+      "source_class": "RETAINED|INVENTED"
+    },
+    "position": {
+      "alias": "string",
+      "exact_mark_USD": "fraction",
+      "mark_rounding_USD": "fraction",
+      "physical_quantity": "nonnegative integer string",
+      "position_cents": "nonnegative integer string"
+    },
+    "quote": {
+      "alias": "string",
+      "date": "date",
+      "depth": "literal1000000",
+      "ordinal": "integer",
+      "price_micro": "positive integer string",
+      "raw_open": "decimal lexeme",
+      "ts_event": "integer",
+      "ts_init": "integer"
+    },
+    "sample": {
+      "cash_only": "boolean",
+      "date": "date",
+      "nominal_ns": "integer",
+      "report_known_by_ns": "integer",
+      "sample_ns": "integer"
+    },
+    "slots": {
+      "ack_required_before_next_order": "literal true",
+      "alias_slot_ns": "literal1",
+      "buy_offset_ns": "literal1000",
+      "mark_barrier_offset_ns": "literal1",
+      "native_behavior": "literal NOT_YET_QUALIFIED",
+      "quote_barrier_offset_ns": "literal1",
+      "sample_offset_ns": "literal100",
+      "sell_offset_ns": "literal100"
+    },
+    "unit": {
+      "alias": "string",
+      "application": "literal FORWARD_ONCE",
+      "date": "date",
+      "new_per_old": "4/1|5/1",
+      "source_id": "string",
+      "source_line_sha256": "hex64",
+      "ts_init": "integer"
+    }
+  },
+  "schema": "polar.obs158-part-a-wire-contract/1",
+  "semantic_identity": "Part A is pure callable outputs; no run ID/publisher implemented. Final full semantic file/ID/physical exclusion recipe belongs Part B and is NOT_BOUND."
+}
