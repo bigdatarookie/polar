@@ -1,0 +1,21 @@
+# Build only from the independently pinned service/numerical dependency image.
+# Source/native wheel/deb offline recipe is hash-bound in hyp007-build-reference.json.
+ARG HYP007_DEPENDENCY_IMAGE=polar-hyp007-deps:35bc5a28b8c1
+FROM ${HYP007_DEPENDENCY_IMAGE}
+LABEL polar.hyp007.dependency-image-id="sha256:35bc5a28b8c11d87d0825e44c59569c41cfdf446ffb7a9c77992de009bc2121c"
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app/src \
+    OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+    BLIS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
+WORKDIR /app
+COPY src src
+COPY pyproject.toml .
+COPY hyp007-build-reference.json .
+# Same entrypoint as pyproject.scripts, installed without an unpinned build dependency.
+RUN printf '#!/usr/local/bin/python\nfrom polar.cli import main\nmain()\n' > /usr/local/bin/polar && chmod 755 /usr/local/bin/polar \
+    && mkdir -p /data/artifacts && chown -R 10001:10001 /data
+ARG CODE_REVISION=UNRECORDED
+ENV POLAR_CODE_REVISION=$CODE_REVISION
+LABEL org.opencontainers.image.revision=$CODE_REVISION
+USER 10001:10001
+ENTRYPOINT ["polar"]
+CMD ["--help"]
