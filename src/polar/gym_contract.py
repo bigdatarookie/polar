@@ -62,6 +62,8 @@ def fraction(token):
     value = Decimal(token)
     if not value.is_finite():
         raise GymError('NONFINITE_DECIMAL')
+    if abs(value.as_tuple().exponent)>256 or value.adjusted()>255:
+        raise GymError('DECIMAL_INPUT_BOUND')
     return Fraction(value)
 
 def context():

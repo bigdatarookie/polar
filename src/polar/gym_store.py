@@ -30,12 +30,19 @@ class GymStore(HistoryStore):
         value=decode(raw)
         if canonical(value)!=raw:raise GymError('NONCANONICAL_RECORD')
         return value
-    def begin(self,config,bindings):
+    def begin(self,config,bindings,replay_of=None):
         aid=str(uuid.uuid4());namespace=config['namespace'];family='fixed-public-v1.1' if namespace=='retained' else sha(canonical(bindings))
         with self.locked():
             parent=f'gym-budgets/{namespace}/{family}';directory=self.root/parent
             existing=list(directory.iterdir()) if directory.exists() else []
-            if namespace=='retained' and len(existing)>=2:raise GymError('RETAINED_PAIR_REPLAY_BUDGET_EXHAUSTED')
+            if namespace=='retained':
+                if len(existing)>=2:raise GymError('RETAINED_PAIR_REPLAY_BUDGET_EXHAUSTED')
+                if not existing and replay_of is not None:raise GymError('REPLAY_REQUIRES_PRIOR_RUN')
+                if existing:
+                    prior=self.read_record(parent,existing[0].name)
+                    previous=self.attempt(prior['attempt_id'])
+                    if previous['status']!='SUCCESS' or prior['bindings']!=bindings or previous['finish']['experiment_id']!=replay_of:
+                        raise GymError('RETAINED_REQUIRES_SUCCESSFUL_EXACT_REPLAY')
             row={'schema':'polar.gym-attempt-start/1','attempt_id':aid,'namespace':namespace,
                  'bindings':bindings,'started_ns':time.time_ns(),'status':'UNFINALIZED',
                  'family':family,'ordinal':len(existing)}

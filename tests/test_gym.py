@@ -140,8 +140,15 @@ def test_store_replay_tamper_and_unfinalized(tmp_path):
 
 def test_retained_budget_no_reset(tmp_path):
     store=GymStore(tmp_path.resolve(),1024**2)
-    for i in range(2):store.begin({'namespace':'retained'},{'different':i})
+    started=store.begin({'namespace':'retained'},{'same':1})
+    with pytest.raises(GymError,match='EXACT_REPLAY'):store.begin({'namespace':'retained'},{'same':1})
+    store.finish(started['attempt_id'],{'status':'SUCCESS','experiment_id':'gym-'+'a'*64})
+    store.begin({'namespace':'retained'},{'same':1},replay_of='gym-'+'a'*64)
     with pytest.raises(GymError,match='BUDGET'):store.begin({'namespace':'retained'},{})
+
+def test_huge_exponent_is_bounded_before_fraction_expansion():
+    with pytest.raises(GymError,match='BOUND'):fraction('1e999999999')
+    with pytest.raises(GymError,match='BOUND'):fraction('1e-999999999')
 
 # Native author tests are opt-in, bounded in PREINVOCATION.md; no retained source input.
 @pytest.mark.skipif(os.environ.get('POLAR_GYM_NATIVE_TEST')!='1',reason='requires pinned isolated native image')

@@ -72,7 +72,7 @@ class GymService:
         if replay_of:
             previous=self.store.report(replay_of)
             if previous['manifest']['bindings']!=bindings:raise GymError('REPLAY_BINDING_MISMATCH')
-        start=self.store.begin(config,bindings);aid=start['attempt_id'];began=time.monotonic()
+        start=self.store.begin(config,bindings,replay_of=replay_of);aid=start['attempt_id'];began=time.monotonic()
         try:
             with self.store.locked():
                 self.store.record('gym-attempts/'+aid,'input-receipt',{'refs':prepared['physical_refs'],'config':config,
