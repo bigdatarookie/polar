@@ -1,5 +1,7 @@
 # Local verification launcher
 
+Version1.3 adds `docker CONFIG NEW_PRIVATE_DIR` and `docker-cleanup CONFIG PRIVATE_DIR` for the [runtime-observed launch boundary](observed-launch.md). Existing browser and export behavior is unchanged; Docker preparation, scenario and independent QA verdicts remain separate.
+
 `scripts/polar-local.mjs` is one versioned Node CLI and importable lifecycle for local Polar verification. It uses installed tools, no package download, personal browser connection, project CPU/RAM quota, or compute-slot gate. Coordinate actual shared state conflicts with their owner. Tool receipts are observations, not global enforcement or product/financial acceptance.
 
 ## Qualify and reuse
