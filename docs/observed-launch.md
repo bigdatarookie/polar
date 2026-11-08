@@ -77,3 +77,33 @@ Before starting the same full container ID, the parent copies its packaged direc
 The immutable preparation receipt includes `source_binding.packaged_source_independently_observed=true`, `observed_container_id`, and `observed_files` equal to the build map. The identical receipt bytes are exposed read-only at `/polar-launch/preparation.json` before start. The dedicated mounted directory is 0555 and file 0444, independently of the host root 0700 and private receipt 0600. The launcher verifies exact copy hashes; it observes configured user, while the consumer still verifies its actual UID/import origin and visible files. Preparation never imports candidate code.
 
 Legacy config /1 keeps its prior reference-only behavior. Source-boundary author tests use disposable shims; real-engine and consumer qualification belong to independent QA before adoption. No OBS158 native invocation is authorized by this interface change.
+
+## Pre-start receipt mount observation (launcher 2.1)
+
+Host chmod does not prove container-visible mode bits. For config /2, after
+publishing the read-only visible candidate receipt, the parent reads a bounded
+archive of `/polar-launch` from the same still-created full container ID. It does
+not execute a process. The archive must contain exactly the directory and one
+regular `preparation.json`, without links or extra entries. Directory mode0555,
+file mode0444 and exact receipt-byte hash must match before the canonical host
+preparation is published and before `docker start`.
+
+The final immutable `result.json` retains `prestart_receipt_mount`: observed
+container ID/time, directory and file modes separately, file bytes/hash, and
+individual directory-mode/file-mode/content matches. This observation is kept
+outside the receipt whose hash it measures, avoiding a self-reference. A mismatch
+publishes canonical NOT_PREPARED and starts no scenario, with distinct
+PREPARATION_DIRECTORY_MODE_MISMATCH, PREPARATION_FILE_MODE_MISMATCH or
+PREPARATION_MOUNT_CONTENT_MISMATCH. Copy/archive/file-set failures also fail closed.
+Cleanup remains exact-owned. A visible candidate copy created during a failed
+preparation is retained evidence, not independent launch authorization; the
+canonical preparation and final result remain authoritative.
+
+This records stopped-container archive metadata. It does not establish why an
+earlier process saw different modes, or replace applicable runtime consumer
+stat/readability checks. The original610fd3d System mode FAIL remains unchanged;
+whether its directory or file differed and the reason remain unlocalized.
+The mode contract and frozen consumer expectations have not been relaxed. A new
+real-container invocation requires its separately recorded execution continuation
+after independent review of changed source/harness. No runtime or native PASS is
+implied by this source correction or its prospective component fixtures.

@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
 
-export const VERSION='polar-observed-launch/2';
+export const VERSION='polar-observed-launch/2.1';
 const hash=b=>crypto.createHash('sha256').update(b).digest('hex');
 const now=()=>new Date().toISOString();
 const check=(v,code)=>assert(v,code);
@@ -90,9 +90,9 @@ export function validatePackagedSourceBinding(files,refs,entrypoint) {
   check(!Object.keys(files).some(p=>overlaps(p,entrypoint)),'SOURCE_ENTRYPOINT_OVERLAP');
 }
 // Parse Docker's bounded tar stream in memory; never extract paths onto the host.
-export function packagedSourceFromTar(raw,expected) {
-  sourceMap(expected);check(Buffer.isBuffer(raw)&&raw.length<=32*1024*1024,'SOURCE_ARCHIVE_BOUND');
-  let offset=0,pax={},files={},seen=new Set(),ended=false;
+function walkArchive(raw,root,visit) {
+  check(Buffer.isBuffer(raw)&&raw.length<=32*1024*1024,'SOURCE_ARCHIVE_BOUND');
+  let offset=0,pax={},seen=new Set(),ended=false;
   const field=b=>{const end=b.indexOf(0);return b.subarray(0,end<0?b.length:end).toString('utf8');};
   const octal=b=>{const text=field(b).trim();check(/^[0-7]+$/.test(text),'SOURCE_ARCHIVE_INVALID');return Number.parseInt(text,8);};
   while(offset+512<=raw.length) {
@@ -109,20 +109,47 @@ export function packagedSourceFromTar(raw,expected) {
     if(pax.path!==undefined)name=pax.path;pax={};
     check(!name.startsWith('/')&&!name.includes('\\')&&!/[\x00-\x1f]/.test(name),'SOURCE_PATH_INVALID');
     if(name.endsWith('/'))name=name.slice(0,-1);
-    check(path.posix.normalize(name)===name&&(name==='polar'||name.startsWith('polar/'))&&!seen.has(name),'SOURCE_PATH_INVALID');seen.add(name);
+    check(path.posix.normalize(name)===name&&(name===root||name.startsWith(root+'/'))&&!seen.has(name),'SOURCE_PATH_INVALID');seen.add(name);
     check(type===0||type===48||type===53,'SOURCE_NONREGULAR');
-    if(type===53){check(size===0,'SOURCE_ARCHIVE_INVALID');continue;}
-    const absolute='/app/src/'+name;
+    if(type===53)check(size===0,'SOURCE_ARCHIVE_INVALID');
+    visit({name,type,size,data,mode:octal(h.subarray(100,108))});
+  }
+  check(ended&&Object.keys(pax).length===0,'SOURCE_FILE_SET_MISMATCH');
+}
+export function packagedSourceFromTar(raw,expected) {
+  sourceMap(expected);const files={};
+  walkArchive(raw,'polar',entry=>{
+    if(entry.type===53)return;
+    const absolute='/app/src/'+entry.name;
     if(eligible(absolute)) {
       check(Object.keys(files).length<500&&Object.hasOwn(expected,absolute),'SOURCE_FILE_SET_MISMATCH');
-      const ref={sha256:hash(data),bytes:data.length};check(same(ref,expected[absolute]),'SOURCE_HASH_MISMATCH');files[absolute]=ref;
+      const ref={sha256:hash(entry.data),bytes:entry.size};check(same(ref,expected[absolute]),'SOURCE_HASH_MISMATCH');files[absolute]=ref;
     }
-  }
-  check(ended&&Object.keys(pax).length===0&&same(Object.keys(files).sort(),Object.keys(expected).sort()),'SOURCE_FILE_SET_MISMATCH');return files;
+  });
+  check(same(Object.keys(files).sort(),Object.keys(expected).sort()),'SOURCE_FILE_SET_MISMATCH');return files;
 }
 function observePackagedSource(id,expected) {
   const r=cp.spawnSync('docker',['cp',id+':'+SOURCE_ROOT,'-'],{timeout:15000,maxBuffer:32*1024*1024});
   check(!r.error&&r.status===0,'SOURCE_COPY_FAILED');return packagedSourceFromTar(r.stdout,expected);
+}
+export function preparationMountFromTar(raw,expectedHash) {
+  check(Buffer.isBuffer(raw)&&raw.length<=2*1024*1024,'PREPARATION_MOUNT_ARCHIVE_BOUND');
+  check(typeof expectedHash==='string'&&/^[a-f0-9]{64}$/.test(expectedHash),'PREPARATION_MOUNT_CONTENT_MISMATCH');
+  const entries=[];
+  try{walkArchive(raw,'polar-launch',entry=>entries.push(entry));}
+  catch{check(false,'PREPARATION_MOUNT_ARCHIVE_INVALID');}
+  const directory=entries.find(e=>e.name==='polar-launch'),file=entries.find(e=>e.name==='polar-launch/preparation.json');
+  check(entries.length===2&&directory?.type===53&&file&&file.type!==53,'PREPARATION_MOUNT_FILE_SET');
+  const dirMode=directory.mode.toString(8).padStart(4,'0'),fileMode=file.mode.toString(8).padStart(4,'0');
+  return {schema:'polar.prestart-receipt-mount/1',observation:'STOPPED_CONTAINER_ARCHIVE_METADATA',
+    directory:{path:'/polar-launch',mode:dirMode},
+    file:{path:'/polar-launch/preparation.json',mode:fileMode,sha256:hash(file.data),bytes:file.size},
+    matches:{directory_mode:dirMode==='0555',file_mode:fileMode==='0444',content:hash(file.data)===expectedHash}};
+}
+function observePreparationMount(id,expectedHash) {
+  const r=cp.spawnSync('docker',['cp',id+':/polar-launch','-'],{timeout:15000,maxBuffer:2*1024*1024});
+  check(!r.error&&r.status===0,'PREPARATION_MOUNT_COPY_FAILED');
+  return {...preparationMountFromTar(r.stdout,expectedHash),observed_container_id:id,observed_at:now()};
 }
 function ownedContainer(id,s,bindingHash) {
   check(/^[a-f0-9]{64}$/.test(id),'INVALID_CONTAINER_ID');
@@ -212,6 +239,14 @@ export function observedLaunch(configFile,out) {
       const exposed=path.join(observationDir,'preparation.json');visibleRef=publish(exposed,preparation);
       fs.chmodSync(exposed,0o444);fs.chmodSync(observationDir,0o555);
       check(hash(regular(exposed))===visibleRef.sha256,'RECEIPT_CONFLICT');
+      // Host chmod is not evidence of container-visible mode projection.
+      // Keep this observation outside the receipt it hashes: no self-hash cycle.
+      result.prestart_receipt_mount=observePreparationMount(id,visibleRef.sha256);
+      const still=ownedContainer(id,s,bindingHash);
+      check(still.State.Status==='created'&&still.Image===c.Image,'RUNTIME_BINDING_MISMATCH');
+      check(result.prestart_receipt_mount.matches.directory_mode,'PREPARATION_DIRECTORY_MODE_MISMATCH');
+      check(result.prestart_receipt_mount.matches.file_mode,'PREPARATION_FILE_MODE_MISMATCH');
+      check(result.prestart_receipt_mount.matches.content,'PREPARATION_MOUNT_CONTENT_MISMATCH');
     }
     prepRef=publish(path.join(out,'preparation.json'),preparation);
     if(visibleRef)check(visibleRef.sha256===prepRef.sha256&&hash(regular(prepRef.path))===visibleRef.sha256,'RECEIPT_CONFLICT');
@@ -224,7 +259,7 @@ export function observedLaunch(configFile,out) {
     const done=ownedContainer(id,s,bindingHash);result.container_exit=done.State.ExitCode;
     if(done.State.Running||done.State.ExitCode!==0)result.scenario='FAIL';
   } catch(e) {
-    const codes=new Set(['SOURCE_MAP_BOUND','SOURCE_PATH_INVALID','SOURCE_FILE_BOUND','SOURCE_REFERENCE_OVERLAP','SOURCE_ENTRYPOINT_OVERLAP','SOURCE_ARCHIVE_BOUND','SOURCE_ARCHIVE_INVALID','SOURCE_NONREGULAR','SOURCE_FILE_SET_MISMATCH','SOURCE_HASH_MISMATCH','SOURCE_COPY_FAILED','INVALID_FIELDS','INVALID_LAUNCH','INVALID_CANDIDATE','IMMUTABLE_IMAGE_ID_REQUIRED','IMMUTABLE_RUNTIME_IMAGE_ID_REQUIRED','INVALID_PLATFORM','INVALID_CONFIGURED_USER','INVALID_ENTRYPOINT','INVALID_DEADLINE','INVALID_ENVIRONMENT','UNSAFE_ENVIRONMENT','INVALID_REFERENCE','REFERENCE_HASH_MISMATCH','REFERENCE_PATH_COLLISION','INVALID_BUILD_FIELDS','SOURCE_BUILD_BINDING_MISMATCH','UNSAFE_OUTPUT_ROOT','OUTPUT_CONFLICT','OUTPUT_IDENTITY_CONFLICT','RECEIPT_CONFLICT','ENGINE_IDENTITY_MISSING','ENGINE_COMMAND_FAILED','INVALID_CONTAINER_ID','CONTAINER_OWNERSHIP_CONFLICT','IMAGE_OBSERVATION_MISSING','RUNTIME_BINDING_MISMATCH','STAGED_REFERENCE_CHANGED']);
+    const codes=new Set(['PREPARATION_MOUNT_ARCHIVE_BOUND','PREPARATION_MOUNT_CONTENT_MISMATCH','PREPARATION_MOUNT_ARCHIVE_INVALID','PREPARATION_MOUNT_FILE_SET','PREPARATION_MOUNT_COPY_FAILED','PREPARATION_DIRECTORY_MODE_MISMATCH','PREPARATION_FILE_MODE_MISMATCH','SOURCE_MAP_BOUND','SOURCE_PATH_INVALID','SOURCE_FILE_BOUND','SOURCE_REFERENCE_OVERLAP','SOURCE_ENTRYPOINT_OVERLAP','SOURCE_ARCHIVE_BOUND','SOURCE_ARCHIVE_INVALID','SOURCE_NONREGULAR','SOURCE_FILE_SET_MISMATCH','SOURCE_HASH_MISMATCH','SOURCE_COPY_FAILED','INVALID_FIELDS','INVALID_LAUNCH','INVALID_CANDIDATE','IMMUTABLE_IMAGE_ID_REQUIRED','IMMUTABLE_RUNTIME_IMAGE_ID_REQUIRED','INVALID_PLATFORM','INVALID_CONFIGURED_USER','INVALID_ENTRYPOINT','INVALID_DEADLINE','INVALID_ENVIRONMENT','UNSAFE_ENVIRONMENT','INVALID_REFERENCE','REFERENCE_HASH_MISMATCH','REFERENCE_PATH_COLLISION','INVALID_BUILD_FIELDS','SOURCE_BUILD_BINDING_MISMATCH','UNSAFE_OUTPUT_ROOT','OUTPUT_CONFLICT','OUTPUT_IDENTITY_CONFLICT','RECEIPT_CONFLICT','ENGINE_IDENTITY_MISSING','ENGINE_COMMAND_FAILED','INVALID_CONTAINER_ID','CONTAINER_OWNERSHIP_CONFLICT','IMAGE_OBSERVATION_MISSING','RUNTIME_BINDING_MISMATCH','STAGED_REFERENCE_CHANGED']);
     const code=codes.has(e.message)?e.message:'PREPARATION_IO_OR_RECORD_ERROR';
     if(!root)return {schema:'polar.observed-execution/1',preparation_status:'NOT_PREPARED',reason:code,scenario:'NOT_RUN',scenario_started:false,cleanup:{status:'NO_RESOURCES_CREATED'}};
     if(!prepRef){preparation.preparation='NOT_PREPARED';preparation.reason=code;preparation.published_at=now();try{prepRef=publish(path.join(out,'preparation.json'),preparation);}catch{result.receipt_error='IMMUTABLE_RECEIPT_PUBLICATION_FAILED';}}
