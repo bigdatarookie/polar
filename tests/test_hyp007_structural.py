@@ -134,6 +134,8 @@ class ClocksAndPanel(unittest.TestCase):
         c = calendar()
         ev,evidence = event(c,"2020-08-31","forward_splits",new_rate="4",old_rate="1")
         evidence[ev["id"]]["required_dated_evidence"] = [{"document_date":"2020-07-30"}]
+        # The owner artifact uses ISO offset seconds; compare instants, not spellings.
+        evidence[ev["id"]]["historical_event_K"] = ev["K"].isoformat()
         self.assertEqual(action_terms([ev],evidence,c)["K"],ev["K"])
         self.assertEqual(action_terms([ev,ev],evidence,c)["reason"],"UNRESOLVED_EVENT")
         self.assertEqual(action_terms([ev],{},c)["reason"],"EVIDENCE_NOT_BOUND")

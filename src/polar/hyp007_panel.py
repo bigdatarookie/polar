@@ -36,7 +36,8 @@ def action_terms(events, evidence, clock):
             elif k is not None:
                 k = max(k, ek)
         if k is not None:
-            check(stamp(k) == binding["historical_event_K"], "HYP007_EVIDENCE_CLOCK_MISMATCH")
+            expected = datetime.fromisoformat(binding["historical_event_K"].replace("Z", "+00:00"))
+            check(expected.tzinfo is not None and k == expected, "HYP007_EVIDENCE_CLOCK_MISMATCH")
     return {"reason": reason, "K": k, "event": event}
 
 
