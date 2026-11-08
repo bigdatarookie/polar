@@ -2,9 +2,11 @@
 ARG GYM_DEPENDENCIES=polar-local:gym-deps-nautilus-1.231.0
 FROM ${GYM_DEPENDENCIES}
 ENV PYTHONPATH=/app/src PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+USER root
 WORKDIR /app
 COPY src /app/src
 COPY pyproject.toml /app/pyproject.toml
+RUN python -c "from pathlib import Path; p=Path('/usr/local/bin/polar'); p.write_text('#!/usr/local/bin/python\nfrom polar.cli import main\nmain()\n'); p.chmod(0o555)"
 USER 10001
 ENTRYPOINT ["python", "-m", "polar.cli"]
 CMD ["--help"]

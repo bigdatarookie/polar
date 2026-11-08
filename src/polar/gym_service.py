@@ -5,14 +5,14 @@ import os
 import platform
 import time
 from pathlib import Path
-from .gym_contract import GymError, canonical, sha, read_ref, decode, MAX_BYTES
+from .gym_contract import GymError, canonical, sha, read_ref, decode, MAX_BYTES, COMPOSITION_SHA
 from .gym_data import load_inputs
 from .gym_evaluation import evaluate
 
 
 def code_binding():
     root=Path(__file__).parent
-    names=sorted(p.name for p in root.glob('gym_*.py'))+['cli.py','service.py']
+    names=sorted(str(p.relative_to(root)) for p in root.rglob('*') if p.is_file() and p.suffix in ('.py','.json','.sql'))
     return {n:sha((root/n).read_bytes()) for n in names}
 
 def native_worker(connection,converted):
@@ -44,7 +44,9 @@ class GymService:
                 'code':code_binding(),'input_bindings':pins,'physical_refs':physical,
                 'strategy_execution':'NOT_RUN'}
     def runtime(self,ref):
-        raw=read_ref(ref);lock=decode(raw)
+        raw=read_ref(ref)
+        if sha(raw)!=COMPOSITION_SHA:raise GymError('COMPOSITION_LOCK_MISMATCH')
+        lock=decode(raw)
         import sys
         if not sys.version.startswith('3.13.') or platform.machine()!='aarch64' or platform.system()!='Linux':raise GymError('NATIVE_PLATFORM_MISMATCH')
         for name,version in lock['packages'].items():
@@ -78,7 +80,9 @@ class GymService:
             # Re-read actual bytes immediately before simulation, not a cached free-form PASS.
             immediate=self.preflight(config)
             if canonical(immediate)!=canonical(prepared) or code_binding()!=source:raise GymError('INPUT_CHANGED_BEFORE_SIMULATION')
+            with self.store.locked():self.store.record('gym-attempts/'+aid,'preflight',prepared)
             simulation=bounded_simulation(prepared['converted'])
+            with self.store.locked():self.store.record('gym-attempts/'+aid,'simulation',simulation)
             evaluation=evaluate(simulation)
             files={'converted.json':prepared['converted'],'preflight.json':prepared['preflight'],
                    'simulation.json':simulation,'evaluation.json':evaluation}

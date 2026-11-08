@@ -82,6 +82,7 @@ def simulate(converted):
                 if set(self.opens)!=set(SYMBOLS) or any(t!=decision['open_ns']+i for i,s in enumerate(SYMBOLS) for t in [self.opens[s][0]]):
                     raise GymError('OPEN_PHASE_INCOMPLETE')
                 price=self.opens[symbol][1];before=self.cash()
+                if self.fills and before!=fraction(self.fills[-1]['cash_after']):raise GymError('NATIVE_CASH_BEFORE_ROUTE_MISMATCH')
                 qty=min(intended,self.held[symbol]) if side=='SELL' else min(intended,max(0,int((before-1)//price)))
                 logical=f'{strategy_id}/{decision["order_date"]}/{side}/{symbol}'
                 row={'order_id':logical,'symbol':symbol,'side':side,'route_ns':event.ts_event,
