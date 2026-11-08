@@ -41,6 +41,12 @@ def main(argv=None):
         subs.add_parser(name).add_argument("file", type=Path)
     subs.add_parser("hyp007-diagnostic-attempt").add_argument("attempt_id")
     subs.add_parser("hyp007-diagnostic-report").add_argument("experiment_id")
+    for name in ("gym-preflight", "gym-run", "gym-replay"):
+        gym = subs.add_parser(name)
+        gym.add_argument("file", type=Path)
+        if name == "gym-replay": gym.add_argument("experiment_id")
+    subs.add_parser("gym-attempt").add_argument("attempt_id")
+    subs.add_parser("gym-report").add_argument("experiment_id")
     subs.add_parser("history-experiment").add_argument("config_file", type=Path)
     historical = subs.add_parser("history-register")
     historical.add_argument("directory", type=Path)
@@ -63,6 +69,29 @@ def main(argv=None):
     compare.add_argument("left",type=uuid.UUID)
     compare.add_argument("right",type=uuid.UUID)
     args = parser.parse_args(argv)
+    if args.command.startswith("gym-"):
+        from .gym_contract import GymError, MAX_BYTES, decode
+        try:
+            from .config import Settings
+            from .service import Service
+            service = Service(Settings.load())
+            operation = args.command.removeprefix("gym-")
+            if operation in ("preflight", "run", "replay"):
+                with args.file.open("rb") as stream: raw = stream.read(MAX_BYTES+1)
+                if len(raw) > MAX_BYTES: raise GymError("INPUT_LIMIT")
+                config = decode(raw)
+                result = (service.gym_replay(config, args.experiment_id) if operation == "replay"
+                          else getattr(service, "gym_"+operation)(config))
+            else:
+                result = getattr(service, "gym_"+operation)(args.attempt_id if operation == "attempt" else args.experiment_id)
+            print(json.dumps(result, sort_keys=True, allow_nan=False))
+            if operation == "preflight" and not result["preflight"]["execution_allowed"]: raise SystemExit(1)
+            if result.get("status") in ("FAILED", "UNFINALIZED"): raise SystemExit(1)
+        except Exception as exc:
+            print(json.dumps({"schema":"polar.gym-error/1", "status":"ERROR",
+                              "code":str(exc) if isinstance(exc,GymError) else "GYM_DEPENDENCY_OR_RECORD_INVALID"}),file=sys.stderr)
+            raise SystemExit(1)
+        return
     if args.command.startswith("hyp007-diagnostic-"):
         from .hyp007_contract import DiagnosticError, MAX_FILE, decode
         try:

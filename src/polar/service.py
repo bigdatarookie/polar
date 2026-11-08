@@ -69,6 +69,26 @@ class Service:
     def hyp007_diagnostic_report(self, experiment_id):
         return self._hyp007().report(experiment_id)
 
+    def _gym(self):
+        from .gym_service import GymService
+        from .gym_store import GymStore
+        return GymService(GymStore(self.artifacts.root, self.artifacts.limit))
+
+    def gym_preflight(self, config):
+        return self._gym().preflight(config)
+
+    def gym_run(self, config):
+        return self._gym().run(config)
+
+    def gym_replay(self, config, experiment_id):
+        return self._gym().replay(config, experiment_id)
+
+    def gym_attempt(self, attempt_id):
+        return self._gym().attempt(attempt_id)
+
+    def gym_report(self, experiment_id):
+        return self._gym().report(experiment_id)
+
     def ready(self):
         self.registry.check()
         self.artifacts.check()
