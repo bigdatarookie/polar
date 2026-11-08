@@ -21,20 +21,99 @@ def host_cpu_us():
 
 
 
-def engine_capacity():
-    """Bounded metadata observation, no create/start/pull or scenario."""
+# These intervals are RESERVED inside the existing cumulative 900-second ceiling.
+FINAL_ACCOUNTING_NS=2000000000
+OWNED_REAP_NS=2000000000
+CLEANUP_COMMAND_NS=30000000000
+CLEANUP_RESERVE_NS=2*OWNED_REAP_NS+CLEANUP_COMMAND_NS+FINAL_ACCOUNTING_NS
+
+
+class _WallBudget:
+    def __init__(self,started_ns,prior_wall_ns,clock=None):
+        require(type(started_ns) is int and type(prior_wall_ns) is int
+                and 0<=prior_wall_ns<900000000000,'RESOURCE_WALL_LIMIT')
+        self.clock=clock or time.monotonic_ns
+        self.deadline=started_ns+900000000000-prior_wall_ns
+
+    def remaining_ns(self,reserve_ns=0):
+        return self.deadline-self.clock()-reserve_ns
+
+    def timeout(self,*,reserve_ns=0,cap_ns=None):
+        left=self.remaining_ns(reserve_ns)
+        if cap_ns is not None:left=min(left,cap_ns)
+        # Round DOWN to a millisecond, never offer a fresh relative deadline.
+        milliseconds=left//1000000
+        require(milliseconds>0,'RESOURCE_WALL_LIMIT')
+        return milliseconds/1000
+
+    def work_timeout(self,cap_ns=None):
+        return self.timeout(reserve_ns=CLEANUP_RESERVE_NS,cap_ns=cap_ns)
+
+    def scenario_ms(self):
+        milliseconds=int(self.work_timeout(300000000000)*1000)
+        require(milliseconds>=100,'RESOURCE_WALL_LIMIT')
+        return milliseconds
+
+
+def _stop_owned(process,wall,*,reserve_ns):
+    """Never wait indefinitely after kill, including an uninterruptible child."""
+    if process.poll() is not None:return True
+    try:os.killpg(process.pid,signal.SIGKILL)
+    except ProcessLookupError:pass
+    try:
+        timeout=wall.timeout(reserve_ns=reserve_ns,cap_ns=OWNED_REAP_NS)
+        process.wait(timeout=timeout)
+        return True
+    except (subprocess.TimeoutExpired,CapabilityError):
+        return False
+
+
+def _cleanup_owned(process,argv,wall):
+    launch_reaped=_stop_owned(process,wall,reserve_ns=(
+        CLEANUP_COMMAND_NS+OWNED_REAP_NS+FINAL_ACCOUNTING_NS))
+    # subprocess.run(timeout=...) has an unbounded reap on its timeout path.
+    # Own the process explicitly so BOTH command wait and kill/reap are bounded.
+    cleanup=None;cleanup_reaped=False;exit_code=None
+    try:
+        timeout=wall.timeout(reserve_ns=OWNED_REAP_NS+FINAL_ACCOUNTING_NS,
+                             cap_ns=CLEANUP_COMMAND_NS)
+        cleanup=subprocess.Popen(argv,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
+                                 start_new_session=True)
+        # Popen itself may have consumed time: recompute before waiting.
+        timeout=min(timeout,wall.timeout(reserve_ns=OWNED_REAP_NS+FINAL_ACCOUNTING_NS,
+                                         cap_ns=CLEANUP_COMMAND_NS))
+        exit_code=cleanup.wait(timeout=timeout)
+        cleanup_reaped=True
+    except (OSError,subprocess.TimeoutExpired,CapabilityError):
+        pass
+    finally:
+        if cleanup is not None and not cleanup_reaped:
+            cleanup_reaped=_stop_owned(cleanup,wall,reserve_ns=FINAL_ACCOUNTING_NS)
+            if cleanup_reaped:exit_code=cleanup.returncode
+    return {'launcher_reaped':launch_reaped,'cleanup_reaped':cleanup_reaped,
+            'exit_code':exit_code,
+            'verified':launch_reaped and cleanup_reaped and exit_code==0}
+
+
+def engine_capacity(wall):
+    """Bounded metadata observation using the SAME attempt deadline."""
+    wall.work_timeout()
     process=subprocess.Popen(['docker','info','--format','{{json .}}'],
         stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,start_new_session=True)
-    data=bytearray();selector=selectors.DefaultSelector();end=time.monotonic()+5
+    data=bytearray();selector=selectors.DefaultSelector()
+    end=time.monotonic_ns()+5000000000
     try:
         selector.register(process.stdout,selectors.EVENT_READ)
         while True:
-            require(time.monotonic()<end,'OBSERVATION_MISSING')
-            if not selector.select(.05):continue
+            timeout=min(wall.work_timeout(),(end-time.monotonic_ns())/1000000000)
+            require(timeout>0,'OBSERVATION_MISSING')
+            if not selector.select(min(.05,timeout)):continue
             chunk=os.read(process.stdout.fileno(),min(4096,1048576-len(data)+1))
             if not chunk:break
             require(len(data)+len(chunk)<=1048576,'OBSERVATION_MISSING');data.extend(chunk)
-        process.wait(timeout=max(.001,end-time.monotonic()))
+        timeout=min(wall.work_timeout(),(end-time.monotonic_ns())/1000000000)
+        require(timeout>0,'OBSERVATION_MISSING')
+        process.wait(timeout=timeout)
         require(process.returncode==0,'OBSERVATION_MISSING')
         info=decode(bytes(data),inert_numbers=True)
         require(type(info.get('NCPU')) is int and 1<=info['NCPU']<=1024
@@ -42,10 +121,8 @@ def engine_capacity():
         return {'engine_id':info['ID'],'logical_cpus':info['NCPU']}
     finally:
         selector.close();process.stdout.close()
-        if process.poll() is None:
-            try:os.killpg(process.pid,signal.SIGKILL)
-            except ProcessLookupError:pass
-            process.wait()
+        require(_stop_owned(process,wall,reserve_ns=(
+            CLEANUP_COMMAND_NS+OWNED_REAP_NS+FINAL_ACCOUNTING_NS)),'OBSERVATION_MISSING')
 
 
 class ObservedRuntime:
@@ -61,6 +138,7 @@ class ObservedRuntime:
         self.host_capacity=os.cpu_count()
         require(type(self.host_capacity) is int and 1<=self.host_capacity<=1024,'OBSERVATION_MISSING')
         self.engine=None;self.guest_origin=None;self.charge_cpu=current['cpu_us']
+        self.wall=_WallBudget(self.started,self.prior['wall_ns'])
 
     def usage(self,force=False):
         now=time.monotonic_ns()
@@ -103,6 +181,7 @@ class ObservedRuntime:
         else:require(self.receipt==ref,'BINDING_MISMATCH')
 
     def run(self,prepared):
+        self.wall.work_timeout()
         cfg=self.config;launch=cfg['launch'];root=self.directory/'observed-launch'
         # Full actual packaged application is separately bound by source_build/review refs.
         for name in ('tool_ref','observer_ref','harness_ref','review_ref','expectations_ref','source_build_ref'):
@@ -122,11 +201,13 @@ class ObservedRuntime:
             'platform':'linux/arm64','user':'10001:10001','entrypoint':'/usr/local/bin/python',
             'environment':{'PYTHONDONTWRITEBYTECODE':'1','PYTHONUNBUFFERED':'1'},
             'refs':refs,'build_fields':launch['build_fields'],'scenario_timeout_ms':300000}
-        config_path=self.directory/'observed-config.json';immutable(config_path,binding)
         require(sum(p.stat().st_size for p in self.directory.iterdir() if p.is_file())<32*1024**2,
                 'INPUT_INTEGRITY')
-        self.engine=engine_capacity()
+        self.engine=engine_capacity(self.wall)
         immutable(self.directory/'engine-capacity.json',self.engine)
+        binding['scenario_timeout_ms']=self.wall.scenario_ms()
+        config_path=self.directory/'observed-config.json';immutable(config_path,binding)
+        self.wall.work_timeout()
         origin=time.monotonic_ns();guard_cpu_origin=host_cpu_us()
         self.guest_origin=origin
         # Bounded stdout is not a receipt; all actual tool evidence is immutable on disk.
@@ -137,6 +218,7 @@ class ObservedRuntime:
         failure=None
         try:
             while True:
+                self.wall.work_timeout()
                 self.observe(root,binding)
                 if scenario.exists():
                     usages=sorted(scenario.glob('usage-*.json'))
@@ -161,6 +243,7 @@ class ObservedRuntime:
                         require(value=={'schema':'polar.capability-account-request/1','attempt_id':self.aid,
                             'account_id':ACCOUNTS[self.charged],'packet_ordinal':self.charged,
                             'prepared_input_sha256':digest(prepared)},'ACCOUNT_ORDER_MISMATCH')
+                        self.wall.work_timeout()
                         charge=self.store.account(self.aid,value['account_id'])
                         immutable(scenario/f'account-ack-{self.charged}.json',{'attempt_id':self.aid,
                             'account_id':value['account_id'],'request_sha256':digest(value),
@@ -179,13 +262,13 @@ class ObservedRuntime:
                 wall=time.monotonic_ns()-self.started
                 upper=(wall*self.host_capacity+elapsed*self.engine['logical_cpus']+999)//1000
                 require(self.prior['cpu_us']+upper<=600000000,'RESOURCE_CPU_LIMIT')
-                require(self.prior['wall_ns']+wall<=900000000000,'RESOURCE_WALL_LIMIT')
+                self.wall.work_timeout()
                 if self.active_since is not None:
                     require(self.native_ns+time.monotonic_ns()-self.active_since<=300000000000,
                             'NATIVE_WALL_LIMIT')
                 if process.poll() is not None:break
-                time.sleep(.05)
-            process.wait()
+                time.sleep(min(.05,self.wall.work_timeout()))
+            # poll() already reaped the completed launcher; no extra wait.
             require(self.receipt is not None,'OBSERVATION_MISSING')
             execution=record(root/'result.json')
             require(execution['preparation']==self.receipt and execution['scenario']=='PASS'
@@ -202,16 +285,14 @@ class ObservedRuntime:
         finally:
             # The launcher owns its labelled container. Request its exact cleanup after
             # stopping only our own launcher process group; never prune/name-delete.
-            if process.poll() is None:
-                try:os.killpg(process.pid,signal.SIGKILL)
-                except ProcessLookupError:pass
-                process.wait()
-            cleanup=subprocess.run([str(NODE),launch['tool_ref']['path'],'docker-cleanup',
-                str(config_path),str(root)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
-                timeout=30,check=False)
+            cleanup=_cleanup_owned(process,[str(NODE),launch['tool_ref']['path'],'docker-cleanup',
+                                    str(config_path),str(root)],self.wall)
+            # Failure here keeps resource_finalized=False. Service retains FAILED/
+            # INCOMPLETE and unknown remaining budget, with no replacement start.
+            self.wall.timeout()
             self.usage(force=True)
             cleanup_files=sorted(root.glob('cleanup-*.json'))
-            require(cleanup.returncode==0 and cleanup_files,'OBSERVATION_MISSING')
+            require(cleanup['verified'] and cleanup_files,'OBSERVATION_MISSING')
             cleanup_receipt=record(cleanup_files[-1])
             require(cleanup_receipt['launch_id']==binding['launch_id']
                     and cleanup_receipt['cleanup']['status'] in ('REMOVED','ALREADY_ABSENT'),
@@ -222,4 +303,5 @@ class ObservedRuntime:
                 'host_logical_cpus':self.host_capacity,'engine':self.engine,
                 'scope':'SUPERVISOR_ALL_HOST_DESCENDANTS_AND_ALL_CONTAINER_DESCENDANTS',
                 'native_wall_ns':self.native_ns,'cleanup_receipt_sha256':sha(cleanup_files[-1].read_bytes())})
+            self.wall.timeout()
             self.resource_finalized=True

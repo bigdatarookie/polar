@@ -2,7 +2,6 @@
 import os
 from pathlib import Path
 import re
-import signal
 import subprocess
 import sys
 import time
@@ -13,7 +12,8 @@ from .capability_contract import (CapabilityError, require, exact, canonical, de
 from .capability_inputs import checked_ref, read_ref, semantic_ref
 from .capability_profile import evaluate
 from .capability_store import FamilyStore, PacketStore, DEFAULT_ANCHOR, immutable, record, attempt_id
-from .capability_runtime import ObservedRuntime, host_cpu_us
+from .capability_runtime import (ObservedRuntime, host_cpu_us, _WallBudget, _stop_owned,
+    CLEANUP_COMMAND_NS, OWNED_REAP_NS, FINAL_ACCOUNTING_NS)
 
 CONFIG_FIELDS=('schema','profile_id','mode','technical_case','family_root','execution_authorization',
     'protocol_refs','input_refs','auxiliary_refs','code','build_ref','runtime_refs','expected_image_id','launch')
@@ -69,6 +69,10 @@ def config(value,root):
     return value
 
 
+class _UnreapedPreprocess(CapabilityError):
+    """Partial resource evidence cannot be upgraded after an unverified reap."""
+
+
 class CapabilityService:
     def __init__(self,root,limit,anchor=DEFAULT_ANCHOR):
         self.root=Path(root);self.limit=limit;self.anchor=Path(anchor)
@@ -122,29 +126,32 @@ class CapabilityService:
     def _preprocess(self,cfg,family,aid,directory,started,cpu_origin):
         immutable(directory/'sealed-config.json',cfg)
         prior=family.state()['spent']
+        wall_budget=_WallBudget(started,prior['wall_ns'])
+        wall_budget.work_timeout()
         process=subprocess.Popen([sys.executable,'-m','polar.capability_worker','--prepare',
             str(directory/'sealed-config.json'),str(directory)],
             stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
         last=0
         try:
             while True:
+                wall_budget.work_timeout()
                 wall=time.monotonic_ns()-started
                 # Host child is unreaped: logical-CPU capacity is a conservative CPU guard.
                 upper=(wall*(os.cpu_count() or 1)+999)//1000
                 require(prior['cpu_us']+upper<=600000000,'RESOURCE_CPU_LIMIT')
-                require(prior['wall_ns']+wall<=900000000000,'RESOURCE_WALL_LIMIT')
+                wall_budget.work_timeout()
                 if wall-last>=1000000000:
                     family.resources(aid,max(host_cpu_us()-cpu_origin,upper),wall,0);last=wall
                 if process.poll() is not None:break
-                time.sleep(.02)
-            process.wait()
+                time.sleep(min(.02,wall_budget.work_timeout()))
+            # poll() reaped the child; there is no unbounded extra wait.
             require(process.returncode==0,'INPUT_INTEGRITY')
             return record(directory/'prepared-native.json')
         finally:
-            if process.poll() is None:
-                try:os.killpg(process.pid,signal.SIGKILL)
-                except ProcessLookupError:pass
-                process.wait()
+            if not _stop_owned(process,wall_budget,reserve_ns=(
+                    CLEANUP_COMMAND_NS+OWNED_REAP_NS+FINAL_ACCOUNTING_NS)):
+                raise _UnreapedPreprocess('OBSERVATION_MISSING') from None
+            wall_budget.timeout()
             family.resources(aid,max(host_cpu_us()-cpu_origin,
                 ((time.monotonic_ns()-started)*(os.cpu_count() or 1)+999)//1000),
                 time.monotonic_ns()-started,0)
@@ -208,7 +215,7 @@ class CapabilityService:
         except BaseException as exc:
             reason=exc.code if isinstance(exc,CapabilityError) and exc.code in REASONS else (
                 'INTERRUPTED' if isinstance(exc,(KeyboardInterrupt,SystemExit)) else 'INTERNAL_EXECUTION_ERROR')
-            evidence='VERIFIED'
+            evidence='INCOMPLETE' if isinstance(exc,_UnreapedPreprocess) else 'VERIFIED'
             try:
                 if runtime:runtime.usage(force=True)
                 else:family.resources(aid,max(host_cpu_us()-cpu_origin,
