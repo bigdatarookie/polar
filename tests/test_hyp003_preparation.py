@@ -141,3 +141,26 @@ def test_cli_dispatch_precedes_settings_and_db(tmp_path,monkeypatch,capsys):
     main(['hyp003-prepare',str(p),'--output-dir',str(out.resolve())]);result=json.loads(capsys.readouterr().out)
     main(['hyp003-preparation-report',result['preparation_id'],'--output-dir',str(out.resolve())]);r=json.loads(capsys.readouterr().out)
     assert r['preparation_id']==result['preparation_id'] and r['financial']=='NOT_RUN'
+
+
+@pytest.mark.parametrize('tokens,different',[(False,True),(True,True),(False,False),(True,False)])
+def test_raw_cell_classification_preserves_supplied_values(tmp_path,tokens,different):
+    first=row(c='1.5000');second=row(c='1.5001' if different else '1.5000')
+    if not tokens:
+        first.pop('raw_fields_exact_tokens');second.pop('raw_fields_exact_tokens')
+    originals=deepcopy([first,second])
+    result=prepare_partial_input(config(raw(tmp_path/'raw',[first,second])))
+    actual=rows(result,'raw_rows.ndjson')
+    expected='CONFLICTING_SOURCE_CELL' if different else 'DUPLICATE_SOURCE_CELL'
+    other='DUPLICATE_SOURCE_CELL' if different else 'CONFLICTING_SOURCE_CELL'
+    assert [r['row'] for r in actual]==originals and [first,second]==originals
+    assert all(expected in r['validation']['reasons'] and other not in r['validation']['reasons'] for r in actual)
+
+
+def test_raw_cell_direct_difference_not_hidden_by_identical_token_map(tmp_path):
+    first=row(c='1.5000');second=deepcopy(first);second['raw_close']='1.5001'
+    originals=deepcopy([first,second])
+    actual=rows(prepare_partial_input(config(raw(tmp_path/'raw',[first,second]))),'raw_rows.ndjson')
+    assert [r['row'] for r in actual]==originals
+    assert all('CONFLICTING_SOURCE_CELL' in r['validation']['reasons'] and
+               'DUPLICATE_SOURCE_CELL' not in r['validation']['reasons'] for r in actual)

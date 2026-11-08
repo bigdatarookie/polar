@@ -111,7 +111,9 @@ def _prepare(config):
     for records in duplicate.values():
         if len(records)>1:
             duplicate_groups+=1
-            hashes={digest(r['row'].get('raw_fields_exact_tokens')) for r in records}
+            # Optional token metadata cannot stand in for supplied direct values.
+            fields=('raw_open','raw_high','raw_low','raw_close','raw_volume','raw_fields_exact_tokens')
+            hashes={digest({key:r['row'][key] for key in fields if key in r['row']}) for r in records}
             for record in records:
                 record['validation']['reasons'].append('CONFLICTING_SOURCE_CELL' if len(hashes)>1 else 'DUPLICATE_SOURCE_CELL')
                 record['validation']['status']='FIELDS_PARTIAL_OR_INVALID'
