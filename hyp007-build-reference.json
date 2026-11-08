@@ -1,0 +1,29 @@
+{
+  "artifact_retention": "Private task build artifacts; use exact referenced bytes, never latest filename",
+  "artifacts": {
+    "BUILD-LOCK.json": "7521df6ffc73ce9d567dd1b3154f8ab7d4d06d948c1c769ffaf7b8a00b72c05a",
+    "Dockerfile.offline": "829a87e96d1f1e93c2d8c9b441ac529f6eda5498d8bdbc10b3016a4715ff0167",
+    "Dockerfile.service-deps-offline": "9d82b55166c72121435a798c83bf1756a4512f96800826f6c22a3513bdf72d48",
+    "SERVICE-DEPENDENCY-COMPOSITION.json": "4790b5f7a607fd510144e9da1c8cf13704c9704bbce51f7dc85bfc616f239959",
+    "install-offline.sh": "6ffd351105b38e8cb292574d752b246feac7ad002d48ced68659b7a07654e331",
+    "learner-defaults.json": "03c460ab58562a41731257f1f6d8c88bb269fffd8f0fd5562ebb36518581f675",
+    "numeric-requirements.lock": "e8af24b9952a3427326bc1b14f617e014897e34b306db9b574bf6682dd41693e",
+    "rebuild-native-offline.sh": "f563ea5e034b4501d574add7b538946489ff1d1b0f3e2a7594f65155a3b9b440",
+    "source-provenance.json": "3b3128a450f209d61d8729b6a713516ea70105e5a12af2827f0991adcd5cf3cb"
+  },
+  "dependency_image_id": "sha256:35bc5a28b8c11d87d0825e44c59569c41cfdf446ffb7a9c77992de009bc2121c",
+  "independent_qualification": "PENDING",
+  "numeric_image_id": "sha256:3917056f9c3941d4468694d301a646784b94ff20704ae6d1d013745840353c86",
+  "protocol_sha256": "60dbc42dacb9c75bf6c84be807787c1e909749fba262626e1b4529c34268717d",
+  "real_execution": "NOT_ADMITTED",
+  "runtime_packages": {
+    "joblib": "1.4.2",
+    "lightgbm": "4.6.0",
+    "numpy": "2.2.6",
+    "scikit-learn": "1.6.1",
+    "scipy": "1.15.3",
+    "threadpoolctl": "3.6.0"
+  },
+  "schema": "polar.hyp007-build-reference/1",
+  "source_commit": "d02a01ac6f51d36c9e62388243bcb75c3b1b1774"
+}

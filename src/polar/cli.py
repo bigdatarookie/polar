@@ -37,6 +37,10 @@ def main(argv=None):
     subs.add_parser("register").add_argument("file",type=Path)
     subs.add_parser("inspect-dataset").add_argument("file",type=Path)
     subs.add_parser("history-migrate")
+    for name in ("hyp007-diagnostic-prepare", "hyp007-diagnostic-run"):
+        subs.add_parser(name).add_argument("file", type=Path)
+    subs.add_parser("hyp007-diagnostic-attempt").add_argument("attempt_id")
+    subs.add_parser("hyp007-diagnostic-report").add_argument("experiment_id")
     subs.add_parser("history-experiment").add_argument("config_file", type=Path)
     historical = subs.add_parser("history-register")
     historical.add_argument("directory", type=Path)
@@ -59,6 +63,32 @@ def main(argv=None):
     compare.add_argument("left",type=uuid.UUID)
     compare.add_argument("right",type=uuid.UUID)
     args = parser.parse_args(argv)
+    if args.command.startswith("hyp007-diagnostic-"):
+        from .hyp007_contract import DiagnosticError, MAX_FILE, decode
+        try:
+            from .config import Settings
+            from .service import Service
+            service = Service(Settings.load())
+            operation = args.command.removeprefix("hyp007-diagnostic-")
+            if operation in ("prepare", "run"):
+                with args.file.open("rb") as stream:
+                    raw = stream.read(MAX_FILE+1)
+                if len(raw) > MAX_FILE:
+                    raise DiagnosticError("HYP007_INPUT_LIMIT")
+                argument = decode(raw)
+            else:
+                argument = args.attempt_id if operation == "attempt" else args.experiment_id
+            result = getattr(service, "hyp007_diagnostic_"+operation)(argument)
+            print(json.dumps(result, sort_keys=True, allow_nan=False))
+            if result.get("status") == "NOT_BOUND":
+                raise SystemExit(2)
+            if result.get("status") in ("FAILED", "UNFINALIZED"):
+                raise SystemExit(1)
+        except Exception as exc:
+            code = exc.code if isinstance(exc, DiagnosticError) else "HYP007_DEPENDENCY_OR_RECORD_INVALID"
+            print(json.dumps({"schema": "polar.hyp007-error/1", "status": "ERROR", "code": code}), file=sys.stderr)
+            raise SystemExit(1)
+        return
     if args.command.startswith("history-"):
         from .history_bundle import HistoryError
         try:

@@ -52,6 +52,23 @@ class Service:
         store = DescriptiveStore(self.artifacts.root, self.artifacts.limit-db_bytes-1024**2)
         return DescriptiveService(self.history_registry, self.history_calendar_dir, store).run(config)
 
+    def _hyp007(self):
+        from .hyp007_service import DiagnosticService
+        from .hyp007_store import DiagnosticStore
+        return DiagnosticService(DiagnosticStore(self.artifacts.root, self.artifacts.limit))
+
+    def hyp007_diagnostic_prepare(self, config):
+        return self._hyp007().prepare(config)
+
+    def hyp007_diagnostic_run(self, sealed_manifest):
+        return self._hyp007().run(sealed_manifest)
+
+    def hyp007_diagnostic_attempt(self, attempt_id):
+        return self._hyp007().attempt(attempt_id)
+
+    def hyp007_diagnostic_report(self, experiment_id):
+        return self._hyp007().report(experiment_id)
+
     def ready(self):
         self.registry.check()
         self.artifacts.check()
