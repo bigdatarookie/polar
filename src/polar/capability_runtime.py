@@ -15,6 +15,14 @@ from .capability_inputs import read_ref
 NODE=Path('/Users/garry/.local/node-v24.22.1-darwin-arm64/bin/node')
 
 
+def prepared_input_ref(directory,prepared):
+    """Reference the preprocessor's sole publication; never republish it."""
+    path=directory/'prepared-native.json'
+    raw=canonical(record(path))  # record rejects unsafe paths/noncanonical bytes.
+    require(raw==canonical(prepared),'INPUT_INTEGRITY')
+    return {'path':str(path),'sha256':sha(raw),'bytes':len(raw)}
+
+
 def host_cpu_us():
     own=resource.getrusage(resource.RUSAGE_SELF);children=resource.getrusage(resource.RUSAGE_CHILDREN)
     return int((own.ru_utime+own.ru_stime+children.ru_utime+children.ru_stime)*1000000)
@@ -187,7 +195,7 @@ class ObservedRuntime:
         for name in ('tool_ref','observer_ref','harness_ref','review_ref','expectations_ref','source_build_ref'):
             read_ref(launch[name])
         require(NODE.is_file(),'OBSERVATION_MISSING')
-        input_ref=immutable(self.directory/'prepared-native.json',prepared)
+        input_ref=prepared_input_ref(self.directory,prepared)
         control=immutable(self.directory/'worker-config.json',{'schema':'polar.capability-worker/1',
             'attempt_id':self.aid,'prepared_input_sha256':digest(prepared),
             'expectations_sha256':launch['expectations_ref']['sha256']})
