@@ -4,6 +4,10 @@ Implementation contract, frozen before dependent synthetic tests. Scientific aut
 owner protocol `60dbc42dacb9c75bf6c84be807787c1e909749fba262626e1b4529c34268717d`.
 This is a distinct operation, not a revision of the existing descriptive experiment.
 No real label, fit or experiment is authorized by this implementation assignment.
+The complete machine-readable wire and artifact definitions are in
+`src/polar/hyp007_schema.json` (JSON Schema2020-12); its hash is part of the
+source projection. Physical failed-attempt resources can be unavailable after a
+supervisor failure; completed artifacts require the full resource record.
 
 Service methods and installed CLI commands correspond one to one:
 

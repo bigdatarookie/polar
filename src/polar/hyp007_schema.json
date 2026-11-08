@@ -1,0 +1,1840 @@
+{
+  "$defs": {
+    "admission": {
+      "additionalProperties": false,
+      "properties": {
+        "labels_computed": {
+          "const": false
+        },
+        "missing": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "real_fits_started": {
+          "const": 0
+        },
+        "schema": {
+          "const": "polar.hyp007-admission/1"
+        },
+        "status": {
+          "const": "NOT_BOUND"
+        }
+      },
+      "required": [
+        "schema",
+        "status",
+        "missing",
+        "real_fits_started",
+        "labels_computed"
+      ],
+      "type": "object"
+    },
+    "attempt": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {
+          "type": "string"
+        },
+        "receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/attempt_finish"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "schema": {
+          "const": "polar.hyp007-attempt/1"
+        },
+        "slots": {
+          "items": {
+            "$ref": "#/$defs/slot"
+          },
+          "maxItems": 9,
+          "minItems": 9,
+          "type": "array"
+        },
+        "started": {
+          "$ref": "#/$defs/attempt_start"
+        },
+        "status": {
+          "enum": [
+            "COMPLETED",
+            "FAILED",
+            "UNFINALIZED"
+          ]
+        }
+      },
+      "required": [
+        "schema",
+        "attempt_id",
+        "status",
+        "started",
+        "receipt",
+        "slots"
+      ],
+      "type": "object"
+    },
+    "attempt_finish": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {
+          "type": "string"
+        },
+        "code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "experiment_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "finished_at": {
+          "type": "string"
+        },
+        "manifest_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resources": {
+          "type": "object"
+        },
+        "schema": {
+          "const": "polar.hyp007-attempt-finish/1"
+        },
+        "slots": {
+          "items": {
+            "$ref": "#/$defs/slot"
+          },
+          "maxItems": 9,
+          "minItems": 9,
+          "type": "array"
+        },
+        "start_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "COMPLETED",
+            "FAILED"
+          ]
+        }
+      },
+      "required": [
+        "schema",
+        "attempt_id",
+        "status",
+        "start_sha256",
+        "code",
+        "resources",
+        "experiment_id",
+        "manifest_sha256",
+        "finished_at",
+        "slots"
+      ],
+      "type": "object"
+    },
+    "attempt_start": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {
+          "type": "string"
+        },
+        "family": {
+          "type": "string"
+        },
+        "schema": {
+          "const": "polar.hyp007-attempt-start/1"
+        },
+        "seal_id": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "sealed_at": {
+          "type": "string"
+        },
+        "slots": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "fold": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "model": {
+                "type": "string"
+              },
+              "status": {
+                "const": "NOT_RUN"
+              }
+            },
+            "required": [
+              "fold",
+              "model",
+              "status"
+            ],
+            "type": "object"
+          },
+          "maxItems": 9,
+          "minItems": 9,
+          "type": "array"
+        },
+        "started_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "attempt_id",
+        "family",
+        "seal_id",
+        "sealed_at",
+        "started_at",
+        "slots"
+      ],
+      "type": "object"
+    },
+    "binding": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "calculation": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {
+          "type": "string"
+        },
+        "census": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "info": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "opportunities": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "unknown_target": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "opportunities",
+              "info",
+              "unknown_target"
+            ],
+            "type": "object"
+          },
+          "type": "object"
+        },
+        "experiment_id": {
+          "type": "string"
+        },
+        "folds": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "fold": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "models": {
+                "$ref": "#/$defs/model_summaries"
+              },
+              "n_eval": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "n_score": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "n_train": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "fold",
+              "n_train",
+              "n_score",
+              "n_eval",
+              "models"
+            ],
+            "type": "object"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "meaning": {
+          "type": "string"
+        },
+        "paired_contrasts": {
+          "additionalProperties": false,
+          "properties": {
+            "tree_minus_ridge21": {
+              "type": "number"
+            },
+            "tree_minus_ridge6": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "tree_minus_ridge6",
+            "tree_minus_ridge21"
+          ],
+          "type": "object"
+        },
+        "pooled": {
+          "$ref": "#/$defs/model_summaries"
+        },
+        "real_fit_invocations": {
+          "const": 9
+        },
+        "repeated_fit_reproducibility": {
+          "const": "NOT_RUN"
+        },
+        "schema": {
+          "const": "polar.hyp007-calculation/1"
+        },
+        "source_reads": {
+          "additionalProperties": false,
+          "properties": {
+            "bytes": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "passes": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "bytes",
+            "passes"
+          ],
+          "type": "object"
+        },
+        "status": {
+          "const": "CALCULATION_COMPLETED_PENDING_FINALIZATION"
+        }
+      },
+      "required": [
+        "schema",
+        "experiment_id",
+        "attempt_id",
+        "status",
+        "folds",
+        "pooled",
+        "paired_contrasts",
+        "meaning",
+        "census",
+        "source_reads",
+        "real_fit_invocations",
+        "repeated_fit_reproducibility"
+      ],
+      "type": "object"
+    },
+    "config": {
+      "additionalProperties": false,
+      "properties": {
+        "action_manifest": {
+          "type": "string"
+        },
+        "calendar": {
+          "type": "string"
+        },
+        "qualification_objects": {
+          "additionalProperties": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "raw_manifest": {
+          "type": "string"
+        },
+        "schema": {
+          "const": "polar.hyp007-config/1"
+        },
+        "source_root": {
+          "type": "string"
+        },
+        "tzdata": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "source_root",
+        "raw_manifest",
+        "action_manifest",
+        "calendar",
+        "tzdata",
+        "qualification_objects"
+      ],
+      "type": "object"
+    },
+    "definitions": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "assurance": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "calendar": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "evidence": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "feature_manifest": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "features": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 6,
+          "minItems": 6,
+          "type": "array"
+        },
+        "known_by": {
+          "type": "string"
+        },
+        "masks": {
+          "additionalProperties": false,
+          "properties": {
+            "eval": {
+              "type": "string"
+            },
+            "info": {
+              "type": "string"
+            },
+            "score": {
+              "type": "string"
+            },
+            "train": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "info",
+            "train",
+            "score",
+            "eval"
+          ],
+          "type": "object"
+        },
+        "protocol": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "raw": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "terminal": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "tzdata": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol",
+        "features",
+        "target",
+        "feature_manifest",
+        "terminal",
+        "calendar",
+        "tzdata",
+        "raw",
+        "actions",
+        "evidence",
+        "known_by",
+        "assurance",
+        "masks"
+      ],
+      "type": "object"
+    },
+    "error": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "pattern": "^[A-Z0-9_]+$",
+          "type": "string"
+        },
+        "schema": {
+          "const": "polar.hyp007-error/1"
+        },
+        "status": {
+          "const": "ERROR"
+        }
+      },
+      "required": [
+        "schema",
+        "status",
+        "code"
+      ],
+      "type": "object"
+    },
+    "info_opportunity": {
+      "additionalProperties": false,
+      "properties": {
+        "D": {
+          "type": "string"
+        },
+        "I_D": {
+          "type": "string"
+        },
+        "M_info": {
+          "type": "boolean"
+        },
+        "decision_date": {
+          "type": "string"
+        },
+        "info_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "instrument": {
+          "enum": [
+            "AAPL",
+            "AMZN",
+            "TSLA",
+            "TWTR"
+          ]
+        },
+        "key": {
+          "type": "string"
+        },
+        "open_dates": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 6,
+          "minItems": 6,
+          "type": "array"
+        },
+        "openings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 6,
+          "minItems": 6,
+          "type": "array"
+        },
+        "packet": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/packet"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "key",
+        "instrument",
+        "decision_date",
+        "D",
+        "open_dates",
+        "I_D",
+        "openings",
+        "packet",
+        "M_info",
+        "info_reason"
+      ],
+      "type": "object"
+    },
+    "instrument_structure": {
+      "additionalProperties": false,
+      "properties": {
+        "action_rows": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "bar_rows": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "conflicting_dates": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "finite_feature_target_masks": {
+          "const": "NOT_COMPUTED"
+        },
+        "first": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "last": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "observed_historical_clocks": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "bar_rows",
+        "conflicting_dates",
+        "first",
+        "last",
+        "action_rows",
+        "finite_feature_target_masks",
+        "observed_historical_clocks"
+      ],
+      "type": "object"
+    },
+    "inventory": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "bytes",
+          "sha256"
+        ],
+        "type": "object"
+      },
+      "type": "object"
+    },
+    "loss": {
+      "additionalProperties": false,
+      "properties": {
+        "fold": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "instrument": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "losses": {
+          "additionalProperties": false,
+          "properties": {
+            "ridge21": {
+              "type": "number"
+            },
+            "ridge6": {
+              "type": "number"
+            },
+            "tree": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "ridge6",
+            "ridge21",
+            "tree"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "fold",
+        "key",
+        "instrument",
+        "losses"
+      ],
+      "type": "object"
+    },
+    "manifest": {
+      "additionalProperties": false,
+      "properties": {
+        "experiment_id": {
+          "type": "string"
+        },
+        "files": {
+          "$ref": "#/$defs/inventory"
+        },
+        "schema": {
+          "const": "polar.hyp007-manifest/1"
+        }
+      },
+      "required": [
+        "schema",
+        "experiment_id",
+        "files"
+      ],
+      "type": "object"
+    },
+    "mask": {
+      "additionalProperties": false,
+      "properties": {
+        "M_eval": {
+          "type": "boolean"
+        },
+        "M_info": {
+          "type": "boolean"
+        },
+        "M_score": {
+          "type": "boolean"
+        },
+        "M_train": {
+          "type": "boolean"
+        },
+        "fold": {
+          "enum": [
+            2022,
+            2023,
+            2024
+          ]
+        },
+        "key": {
+          "type": "string"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "fold",
+        "key",
+        "M_info",
+        "M_train",
+        "M_score",
+        "M_eval",
+        "reasons"
+      ],
+      "type": "object"
+    },
+    "model_summaries": {
+      "additionalProperties": false,
+      "properties": {
+        "ridge21": {
+          "$ref": "#/$defs/summary"
+        },
+        "ridge6": {
+          "$ref": "#/$defs/summary"
+        },
+        "tree": {
+          "$ref": "#/$defs/summary"
+        }
+      },
+      "required": [
+        "ridge6",
+        "ridge21",
+        "tree"
+      ],
+      "type": "object"
+    },
+    "models": {
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/ridge"
+          },
+          {
+            "$ref": "#/$defs/tree"
+          }
+        ]
+      },
+      "type": "object"
+    },
+    "opportunity": {
+      "additionalProperties": false,
+      "properties": {
+        "D": {
+          "type": "string"
+        },
+        "I_D": {
+          "type": "string"
+        },
+        "decision_date": {
+          "type": "string"
+        },
+        "instrument": {
+          "enum": [
+            "AAPL",
+            "AMZN",
+            "TSLA",
+            "TWTR"
+          ]
+        },
+        "key": {
+          "type": "string"
+        },
+        "open_dates": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 6,
+          "minItems": 6,
+          "type": "array"
+        },
+        "openings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 6,
+          "minItems": 6,
+          "type": "array"
+        }
+      },
+      "required": [
+        "key",
+        "instrument",
+        "decision_date",
+        "D",
+        "open_dates",
+        "I_D",
+        "openings"
+      ],
+      "type": "object"
+    },
+    "packet": {
+      "additionalProperties": false,
+      "properties": {
+        "K": {
+          "type": "string"
+        },
+        "ancestor_end": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ancestor_start": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "anchor": {
+          "type": "string"
+        },
+        "close_proxy": {
+          "type": "string"
+        },
+        "features": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 6,
+              "minItems": 6,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "flags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "index": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "last_operand_indices": {
+          "items": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 6,
+          "minItems": 6,
+          "type": "array"
+        },
+        "raw_volume_range": {
+          "items": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "anchor",
+        "index",
+        "ancestor_start",
+        "ancestor_end",
+        "K",
+        "close_proxy",
+        "features",
+        "reason",
+        "last_operand_indices",
+        "raw_volume_range",
+        "flags"
+      ],
+      "type": "object"
+    },
+    "panel_row": {
+      "additionalProperties": false,
+      "properties": {
+        "D": {
+          "type": "string"
+        },
+        "I_D": {
+          "type": "string"
+        },
+        "M_info": {
+          "type": "boolean"
+        },
+        "decision_date": {
+          "type": "string"
+        },
+        "info_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "instrument": {
+          "enum": [
+            "AAPL",
+            "AMZN",
+            "TSLA",
+            "TWTR"
+          ]
+        },
+        "key": {
+          "type": "string"
+        },
+        "open_dates": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 6,
+          "minItems": 6,
+          "type": "array"
+        },
+        "openings": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 6,
+          "minItems": 6,
+          "type": "array"
+        },
+        "packet": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/packet"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target": {
+          "$ref": "#/$defs/target"
+        }
+      },
+      "required": [
+        "key",
+        "instrument",
+        "decision_date",
+        "D",
+        "open_dates",
+        "I_D",
+        "openings",
+        "packet",
+        "M_info",
+        "info_reason",
+        "target"
+      ],
+      "type": "object"
+    },
+    "prediction": {
+      "additionalProperties": false,
+      "properties": {
+        "fold": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "key": {
+          "type": "string"
+        },
+        "model": {
+          "enum": [
+            "ridge6",
+            "ridge21",
+            "tree"
+          ]
+        },
+        "prediction": {
+          "type": "number"
+        },
+        "target_known": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "fold",
+        "key",
+        "model",
+        "prediction",
+        "target_known"
+      ],
+      "type": "object"
+    },
+    "prepared": {
+      "additionalProperties": false,
+      "properties": {
+        "config": {
+          "$ref": "#/$defs/config"
+        },
+        "definitions": {
+          "$ref": "#/$defs/definitions"
+        },
+        "inventory": {
+          "$ref": "#/$defs/inventory"
+        },
+        "prepare_id": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "roster": {
+          "items": {
+            "$ref": "#/$defs/opportunity"
+          },
+          "type": "array"
+        },
+        "schema": {
+          "const": "polar.hyp007-prepare/1"
+        },
+        "status": {
+          "const": "PREPARED_STRUCTURAL_ONLY"
+        },
+        "structural": {
+          "additionalProperties": false,
+          "properties": {
+            "final_finite_masks": {
+              "const": "NOT_COMPUTED"
+            },
+            "instruments": {
+              "additionalProperties": {
+                "$ref": "#/$defs/instrument_structure"
+              },
+              "type": "object"
+            },
+            "opportunities": {
+              "items": {
+                "$ref": "#/$defs/info_opportunity"
+              },
+              "type": "array"
+            },
+            "packets": {
+              "additionalProperties": {
+                "items": {
+                  "$ref": "#/$defs/packet"
+                },
+                "type": "array"
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "instruments",
+            "packets",
+            "opportunities",
+            "final_finite_masks"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema",
+        "status",
+        "config",
+        "inventory",
+        "roster",
+        "structural",
+        "definitions",
+        "prepare_id"
+      ],
+      "type": "object"
+    },
+    "report": {
+      "additionalProperties": false,
+      "properties": {
+        "experiment_id": {
+          "type": "string"
+        },
+        "manifest": {
+          "$ref": "#/$defs/manifest"
+        },
+        "report": {
+          "$ref": "#/$defs/calculation"
+        },
+        "schema": {
+          "const": "polar.hyp007-report/1"
+        }
+      },
+      "required": [
+        "schema",
+        "experiment_id",
+        "manifest",
+        "report"
+      ],
+      "type": "object"
+    },
+    "resources": {
+      "additionalProperties": false,
+      "properties": {
+        "cleanup": {
+          "enum": [
+            "COMPLETE",
+            "INCOMPLETE"
+          ]
+        },
+        "cpu_limit": {
+          "type": "number"
+        },
+        "cpu_seconds": {
+          "type": "number"
+        },
+        "detached_children": {
+          "type": "string"
+        },
+        "exit_code": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "failure": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "preflight_cpu_seconds": {
+          "type": "number"
+        },
+        "preflight_wall_seconds": {
+          "type": "number"
+        },
+        "remaining_owned_pids": {
+          "items": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "rss_measurement": {
+          "type": "string"
+        },
+        "sample_interval_seconds": {
+          "type": "number"
+        },
+        "sampled_group_rss_peak_bytes": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "schema": {
+          "const": "polar.process-budget/1"
+        },
+        "waited_owned_pids": {
+          "items": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "wall_limit": {
+          "type": "number"
+        },
+        "wall_seconds": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "schema",
+        "exit_code",
+        "failure",
+        "cpu_seconds",
+        "wall_seconds",
+        "cpu_limit",
+        "wall_limit",
+        "sampled_group_rss_peak_bytes",
+        "sample_interval_seconds",
+        "rss_measurement",
+        "waited_owned_pids",
+        "remaining_owned_pids",
+        "cleanup",
+        "detached_children",
+        "preflight_cpu_seconds",
+        "preflight_wall_seconds"
+      ],
+      "type": "object"
+    },
+    "ridge": {
+      "additionalProperties": false,
+      "properties": {
+        "coefficients": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "intercept": {
+          "type": "number"
+        },
+        "kind": {
+          "const": "ridge"
+        },
+        "lambda": {
+          "const": 1
+        },
+        "precision": {
+          "const": "IEEE754_BINARY64"
+        },
+        "singular_values": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "stationarity": {
+          "type": "number"
+        },
+        "sum_loss_alpha": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tolerance": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "coefficients",
+        "intercept",
+        "lambda",
+        "sum_loss_alpha",
+        "stationarity",
+        "tolerance",
+        "precision",
+        "singular_values"
+      ],
+      "type": "object"
+    },
+    "seal": {
+      "additionalProperties": false,
+      "properties": {
+        "bindings": {
+          "additionalProperties": false,
+          "properties": {
+            "accepted_tree": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/binding"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "build": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/binding"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "execution_assignment": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/binding"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "learner_defaults": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/binding"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "protocol": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/binding"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "qa": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/binding"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "resource_policy": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/binding"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "source_projection": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/binding"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "prepared": {
+          "$ref": "#/$defs/prepared"
+        },
+        "schema": {
+          "const": "polar.hyp007-seal/1"
+        },
+        "seal_id": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "sealed_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "prepared",
+        "sealed_at",
+        "bindings",
+        "seal_id"
+      ],
+      "type": "object"
+    },
+    "slot": {
+      "additionalProperties": false,
+      "properties": {
+        "finish": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/slot_finish"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fold": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "model": {
+          "type": "string"
+        },
+        "ordinal": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/slot_start"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "enum": [
+            "NOT_RUN",
+            "STARTED_UNFINALIZED",
+            "SUCCESS",
+            "SUCCESS_NATIVE_CONSTANT",
+            "FAILED"
+          ]
+        }
+      },
+      "required": [
+        "ordinal",
+        "fold",
+        "model",
+        "status",
+        "start",
+        "finish"
+      ],
+      "type": "object"
+    },
+    "slot_finish": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {
+          "type": "string"
+        },
+        "code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "finished_at": {
+          "type": "string"
+        },
+        "model_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ordinal": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "schema": {
+          "const": "polar.hyp007-slot-finish/1"
+        },
+        "start_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "SUCCESS",
+            "SUCCESS_NATIVE_CONSTANT",
+            "FAILED"
+          ]
+        }
+      },
+      "required": [
+        "schema",
+        "attempt_id",
+        "ordinal",
+        "start_sha256",
+        "status",
+        "model_sha256",
+        "code",
+        "finished_at"
+      ],
+      "type": "object"
+    },
+    "slot_start": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {
+          "type": "string"
+        },
+        "fold": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "model": {
+          "type": "string"
+        },
+        "ordinal": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "schema": {
+          "const": "polar.hyp007-slot-start/1"
+        },
+        "started_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "attempt_id",
+        "ordinal",
+        "fold",
+        "model",
+        "started_at"
+      ],
+      "type": "object"
+    },
+    "summary": {
+      "additionalProperties": false,
+      "properties": {
+        "MSE": {
+          "type": "number"
+        },
+        "SSE": {
+          "type": "number"
+        },
+        "n": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "n",
+        "SSE",
+        "MSE"
+      ],
+      "type": "object"
+    },
+    "target": {
+      "additionalProperties": false,
+      "properties": {
+        "K": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dependencies": {
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "intermediate_mark": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mark_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "value",
+        "reason",
+        "K",
+        "mark_kind",
+        "dependencies",
+        "intermediate_mark"
+      ],
+      "type": "object"
+    },
+    "transform": {
+      "additionalProperties": false,
+      "properties": {
+        "mean": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "population_sd": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "mean",
+        "population_sd"
+      ],
+      "type": "object"
+    },
+    "transforms": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "main": {
+            "$ref": "#/$defs/transform"
+          },
+          "product_order": {
+            "items": {
+              "items": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "maxItems": 15,
+            "minItems": 15,
+            "type": "array"
+          },
+          "products": {
+            "$ref": "#/$defs/transform"
+          }
+        },
+        "required": [
+          "main",
+          "products",
+          "product_order"
+        ],
+        "type": "object"
+      },
+      "type": "object"
+    },
+    "tree": {
+      "additionalProperties": false,
+      "properties": {
+        "actual_iterations": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "actual_trees": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "lightgbm"
+        },
+        "leaves_per_tree": {
+          "items": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "model": {
+          "type": "string"
+        },
+        "model_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "native_update_calls": {
+          "type": "null"
+        },
+        "parameters_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "requested_rounds": {
+          "const": 50
+        },
+        "sklearn_n_iter": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "SUCCESS",
+            "SUCCESS_NATIVE_CONSTANT"
+          ]
+        },
+        "wrapper_update_calls": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "kind",
+        "model",
+        "model_sha256",
+        "requested_rounds",
+        "wrapper_update_calls",
+        "native_update_calls",
+        "actual_iterations",
+        "actual_trees",
+        "leaves_per_tree",
+        "sklearn_n_iter",
+        "status",
+        "parameters_sha256"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "artifact_types": {
+    "fit-slots.json": "slot",
+    "inputs.json": "inventory",
+    "losses.ndjson": "loss",
+    "masks.ndjson": "mask",
+    "models.json": "models",
+    "panel.ndjson": "panel_row",
+    "predictions.ndjson": "prediction",
+    "report.json": "calculation",
+    "resources.json": "resources",
+    "roster.ndjson": "opportunity",
+    "seal.json": "seal",
+    "transforms.json": "transforms"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/config"
+    },
+    {
+      "$ref": "#/$defs/prepared"
+    },
+    {
+      "$ref": "#/$defs/seal"
+    },
+    {
+      "$ref": "#/$defs/attempt"
+    },
+    {
+      "$ref": "#/$defs/report"
+    },
+    {
+      "$ref": "#/$defs/admission"
+    },
+    {
+      "$ref": "#/$defs/error"
+    }
+  ],
+  "title": "Polar fixed HYP007 v1.1 wire and artifact schema"
+}

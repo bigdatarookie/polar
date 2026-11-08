@@ -25,6 +25,7 @@ def source_projection():
     paths = PROJECTION_FILES | {p.name for p in root.glob("hyp007_*.py")}
     result = {name: sha((root/name).read_bytes()) for name in sorted(paths)}
     result["@build-reference"] = sha((root.parents[1]/"hyp007-build-reference.json").read_bytes())
+    result["hyp007_schema.json"] = sha((root/"hyp007_schema.json").read_bytes())
     return result
 
 
