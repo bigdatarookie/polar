@@ -3,6 +3,71 @@ from fractions import Fraction
 import json
 from pathlib import Path
 import sys
+import hashlib
+import importlib.machinery
+import os
+import platform
+import time
+
+
+def verify_before_import(input_path,expectations_path,config_path,output_root):
+    """Standard-library-only binding before any polar/native import or scenario."""
+    def check(ok,reason):
+        if not ok:raise ValueError(reason)
+    def read(path):
+        path=Path(path);check(path.is_absolute() and path==path.resolve(),'UNSAFE_BINDING_PATH')
+        with path.open('rb') as stream:raw=stream.read(1048577)
+        check(len(raw)<=1048576,'BINDING_SIZE')
+        return raw,json.loads(raw)
+    digest=lambda raw:hashlib.sha256(raw).hexdigest()
+    input_raw,inputs=read(input_path);expect_raw,_=read(expectations_path)
+    config_raw,config=read(config_path)
+    check(inputs['schema']=='polar.obs158-native-cent-input/1'
+          and config=={'schema':'polar.obs158-native-cent-config/1',
+                       'preparation_receipt_path':'/polar-launch/preparation.json'},'BINDING_SCHEMA')
+    prep_raw,prep=read(config['preparation_receipt_path'])
+    check(prep['schema']=='polar.observed-preparation/1' and prep['preparation']=='PREPARED',
+          'PREPARATION_NOT_VERIFIED')
+    check(all(prep['observed']['matches'].values())
+          and prep['observed']['image_id']==inputs['expected_image_id']
+          and prep['observed']['os']=='linux' and prep['observed']['architecture']=='arm64'
+          and prep['expected']['candidate']==inputs['candidate'],'RUNTIME_IDENTITY_MISMATCH')
+    check(sys.platform=='linux' and platform.machine()=='aarch64' and os.geteuid()==10001,
+          'ACTUAL_PROCESS_PLATFORM_MISMATCH')
+    refs=prep['expected']['refs']
+    for name,path,raw in (('input',input_path,input_raw),('expectations',expectations_path,expect_raw),
+                          ('config',config_path,config_raw),('harness',__file__,Path(__file__).read_bytes())):
+        check(refs[name]['path']==str(path) and refs[name]['sha256']==digest(raw),'VISIBLE_BINDING_MISMATCH')
+    source=prep['source_binding']
+    check(source['packaged_source_independently_observed'] is True
+          and source['observed_files']==inputs['source_files'],'PACKAGED_SOURCE_NOT_OBSERVED')
+    check(not any(n=='polar' or n.startswith('polar.') for n in sys.modules),
+          'CANDIDATE_IMPORTED_BEFORE_BINDING')
+    module_root=Path('/app/src/polar')
+    expected=inputs['source_files'];check(type(expected) is dict and 1<=len(expected)<=500,
+                                        'SOURCE_MANIFEST_BOUND')
+    visible={str(p) for p in module_root.rglob('*') if p.is_file() and p.suffix in ('.py','.json','.sql')}
+    check(visible==set(expected),'VISIBLE_SOURCE_FILE_SET')
+    observed={}
+    for name,ref in sorted(expected.items()):
+        path=Path(name)
+        check(path==path.resolve() and path.is_relative_to(module_root),'UNSAFE_SOURCE_PATH')
+        raw=path.read_bytes();actual={'sha256':digest(raw),'bytes':len(raw)}
+        check(actual==ref,'VISIBLE_SOURCE_HASH_MISMATCH');observed[name]=actual
+    spec=importlib.machinery.PathFinder.find_spec('polar',sys.path)
+    check(spec is not None and spec.origin==str(module_root/'__init__.py')
+          and list(spec.submodule_search_locations)==[str(module_root)],'AMBIENT_IMPORT_PATH')
+    receipt={'schema':'polar.obs158-native-cent-prescenario/1','status':'PREPARED',
+             'candidate':inputs['candidate'],'actual_image_id':prep['observed']['image_id'],
+             'actual_platform':'linux/arm64','actual_uid':os.geteuid(),
+             'preparation_sha256':digest(prep_raw),'config_sha256':digest(config_raw),
+             'input_sha256':digest(input_raw),'expectations_sha256':digest(expect_raw),
+             'harness_sha256':digest(Path(__file__).read_bytes()),'observed_source_files':observed,
+             'scenario_started':False,'observed_at_ns':time.time_ns()}
+    target=Path(output_root)/'pre-scenario.json';raw=(json.dumps(receipt,sort_keys=True)+'\n').encode()
+    with target.open('xb') as stream:stream.write(raw);stream.flush();os.fsync(stream.fileno())
+    target.chmod(0o444)
+    return digest(raw)
 
 
 def run_control():
@@ -95,7 +160,10 @@ def run_control():
 
 
 if __name__=='__main__':
-    # Caller must first bind accepted harness/source and automatic observed image.
-    output=Path(sys.argv[1])
+    # Qualified launcher command: harness INPUT EXPECTATIONS CONFIG /polar-output.
+    if len(sys.argv)!=5:raise SystemExit('BOUND_LAUNCH_REQUIRED')
+    receipt_sha=verify_before_import(*sys.argv[1:])
+    output=Path(sys.argv[4])/'result.json'
     value=run_control()
+    value['pre_scenario_receipt_sha256']=receipt_sha
     with output.open('x') as stream:stream.write(json.dumps(value,sort_keys=True,allow_nan=False)+'\n')
