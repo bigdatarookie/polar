@@ -1,5 +1,6 @@
 """CLI and HTTP use the same Service/Registry application operations."""
 import argparse
+import hashlib
 import json
 import sys
 import uuid
@@ -47,6 +48,7 @@ def main(argv=None):
     for name in ("import-execute","import-resume"):
         imp = subs.add_parser(name);imp.add_argument("plan_id")
         imp.add_argument("--attempt-id")
+        imp.add_argument("--scope-file",type=Path)
         source = imp.add_mutually_exclusive_group(required=True)
         source.add_argument("--fixture",type=Path);source.add_argument("--network",action="store_true")
     imp = subs.add_parser("import-control")
@@ -87,6 +89,11 @@ def main(argv=None):
             with path.open("rb") as stream: value=stream.read(MAX_FILE+1)
             if len(value)>MAX_FILE: raise ImportError("IMPORT_INPUT_LIMIT")
             return decode(value)
+        def scope_ref(path):
+            if path is None:return None
+            with path.open("rb") as stream:value=stream.read(MAX_FILE+1)
+            if len(value)>MAX_FILE:raise ImportError("IMPORT_INPUT_LIMIT")
+            return {"path":str(path.absolute()),"sha256":hashlib.sha256(value).hexdigest()}
         try:
             from .config import Settings
             from .service import Service
@@ -100,7 +107,8 @@ def main(argv=None):
                 case "import-result": result=service.import_result(args.plan_id,args.job_id)
                 case "import-execute" | "import-resume":
                     result=service.import_execute(args.plan_id,fixture=bounded(args.fixture) if args.fixture else None,
-                                                  network=args.network,attempt_id=args.attempt_id)
+                                                  network=args.network,attempt_id=args.attempt_id,
+                                                  scope=scope_ref(args.scope_file))
                 case "import-control": result=service.import_control(args.plan_id,args.action)
                 case "import-terminal": result=service.import_terminal(args.plan_id,args.attempt_id,args.manifest_sha256)
                 case "import-consume": result=service.import_consume(args.plan_id,args.attempt_id,args.manifest_sha256,

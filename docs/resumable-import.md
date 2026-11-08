@@ -26,6 +26,10 @@ POLAR_CODE_REVISION and POLAR_IMPORT_BUILD_ID. It never reads a key or creates a
 account. Default operations are offline. Provider and invented-fixture namespaces
 are separate, even for identical request IDs, so fixtures cannot poison real cache.
 No custom watch, scheduler, database, Markdown state or agent task tracker is added.
+Provider execution additionally requires --scope-file pointing to the immutable
+remaining-only e094936f record. Fresh uncached jobs must be a subset of that scope;
+using an empty/wrong artifact root cannot refetch the8190completed jobs. This file
+is a scope bound, not an execution authorization by itself.
 
 ## Typed input/state and identities
 

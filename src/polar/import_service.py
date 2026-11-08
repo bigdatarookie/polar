@@ -15,6 +15,21 @@ from .import_contract import (ADAPTER, ENDPOINT, POLICY, MAX_FILE, ImportError, 
                               canonical, decode, digest, sha, job_id, alignment, timestamp, seconds, hash_value)
 from .import_transport import Clock,FixtureClock,HttpTransport,FixtureTransport
 
+REMAINING_SCOPE="e094936fc9b4bae5ed75813ecc3ae35f13470cef9cf449ca29a93a01f64a8756"
+
+
+def validate_remaining_scope(raw,requests):
+    require(sha(raw)==REMAINING_SCOPE,"IMPORT_REMAINING_SCOPE_HASH")
+    value=decode(raw)
+    require(value["schema"]=="polar.openfigi-remaining-source-scope/1" and
+            value["successful_or_no_match_refetch"] is False,"IMPORT_REMAINING_SCOPE_INVALID")
+    allowed=set()
+    for row in value["remaining_jobs"]:
+        require(row["literal_symbol"]==row["request"]["idValue"],"IMPORT_REMAINING_SCOPE_INVALID")
+        allowed.add(job_id(row["request"]))
+    require({job_id(r) for r in requests}<=allowed,"IMPORT_UNCACHED_JOBS_OUTSIDE_REMAINING_SCOPE")
+    return value
+
 
 def code_projection():
     root = Path(__file__).parent
@@ -262,13 +277,13 @@ class ImportService:
             waits.append(min(30,2*2**max(0,appearance-1))+random.uniform(0,1))
         return max(waits)
 
-    def execute(self,pid,*,fixture=None,network=False,attempt_id=None):
+    def execute(self,pid,*,fixture=None,network=False,attempt_id=None,scope=None):
         plan = self.load(pid)
         require(plan["source_projection"]==code_projection(),"IMPORT_SOURCE_MISMATCH")
         require(self.store.read("policy.json")==POLICY,"IMPORT_POLICY_MISMATCH")
         cfg = plan["config"]
         bound_file(cfg["route_evidence"])
-        require((cfg["mode"]=="fixture" and fixture is not None and not network) or
+        require((cfg["mode"]=="fixture" and fixture is not None and not network and scope is None) or
                 (cfg["mode"]=="provider" and fixture is None and network),"IMPORT_NETWORK_NOT_ADMITTED")
         if fixture is not None:
             self.clock = FixtureClock(fixture["start_seconds"])
@@ -278,9 +293,13 @@ class ImportService:
             require(len(os.environ.get("POLAR_CODE_REVISION",""))==40 and
                     os.environ.get("POLAR_IMPORT_BUILD_ID","").startswith("sha256:"),"IMPORT_EXECUTABLE_BUILD_NOT_BOUND")
             require(attempt_id is not None,"IMPORT_ATTEMPT_BINDING_REQUIRED")
+            require(scope is not None,"IMPORT_REMAINING_SCOPE_REQUIRED")
         with self.store.locked():
             self.store.admit_storage()
             records = self.request_records()
+            if network:
+                cached=self.store.commits()
+                validate_remaining_scope(bound_file(scope),[j["request"] for j in plan["jobs"] if j["job_id"] not in cached])
             # Recover committed response bytes before selecting any pending work.
             for start,response in records:
                 if response: self.disposition(start,response)
@@ -314,6 +333,7 @@ class ImportService:
                                       "code_revision":os.environ.get("POLAR_CODE_REVISION","NOT_BOUND"),
                                       "build_id":os.environ.get("POLAR_IMPORT_BUILD_ID","NOT_BOUND")},
                        "fixture_sha256":digest(fixture) if fixture is not None else None}
+            started["remaining_scope_sha256"]=scope["sha256"] if network else None
             prefix = "attempts/"+aid
             self.store.write(prefix+"/started.json",started)
             stats = {"request_seconds":0.,"throttle_seconds":0.,"local_processing_seconds":0.,

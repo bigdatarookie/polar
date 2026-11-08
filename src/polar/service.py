@@ -70,8 +70,8 @@ class Service:
     def import_result(self, plan_id, job_id):
         return self._imports(plan_id.startswith("fixture-")).result(plan_id,job_id)
 
-    def import_execute(self, plan_id, *, fixture=None, network=False, attempt_id=None):
-        return self._imports(plan_id.startswith("fixture-")).execute(plan_id,fixture=fixture,network=network,attempt_id=attempt_id)
+    def import_execute(self, plan_id, *, fixture=None, network=False, attempt_id=None, scope=None):
+        return self._imports(plan_id.startswith("fixture-")).execute(plan_id,fixture=fixture,network=network,attempt_id=attempt_id,scope=scope)
 
     def import_attempt_path(self, plan_id, attempt_id):
         return self._imports(plan_id.startswith("fixture-")).attempt_path(plan_id,attempt_id)

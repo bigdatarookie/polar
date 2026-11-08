@@ -9,7 +9,7 @@ import uuid
 from unittest.mock import patch
 
 from polar.import_contract import (ADAPTER,POLICY,ImportError,canonical,wire,digest,sha,request,job_id,timestamp)
-from polar.import_service import ImportService
+from polar.import_service import ImportService,validate_remaining_scope
 from polar.import_store import ImportStore
 from polar.import_migration import migration
 
@@ -47,6 +47,15 @@ class LoaderFixtures(unittest.TestCase):
         with self.assertRaises(ImportError):self.service.plan(bad)
         bad=copy.deepcopy(self.config);bad["requests"][0]["securityType2"]="Common Stock"
         with self.assertRaises(ImportError):self.service.plan(bad)
+
+    def test_remaining_scope_guard_rejects_missing_old_cache(self):
+        allowed=request("INVENTED-ALLOWED");old=request("INVENTED-OLD-CACHED")
+        raw=canonical({"schema":"polar.openfigi-remaining-source-scope/1","successful_or_no_match_refetch":False,
+                       "remaining_jobs":[{"literal_symbol":allowed["idValue"],"request":allowed}]})
+        with patch("polar.import_service.REMAINING_SCOPE",sha(raw)):
+            validate_remaining_scope(raw,[allowed])
+            with self.assertRaises(ImportError):validate_remaining_scope(raw,[allowed,old])
+        with self.assertRaises(ImportError):validate_remaining_scope(raw,[allowed])
 
     def test_no_match_reused_after_resume_without_transport(self):
         pid=self.plan()
