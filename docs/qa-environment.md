@@ -113,3 +113,37 @@ unavailable/conflicting image evidence fails closed. Failure receipts may update
 custody evidence, but invalid recovered containers are never started/removed or
 recorded as accepted resource IDs. Runtime/System qualification remains separate;
 this source correction performs no Docker or deployment operation.
+
+
+Before starting the API, the helper now atomically publishes and fsyncs an
+exclusive preparation.json (polar.observed-preparation/1). It observes the full
+actual API container ID, its .Image, the exact image's OS/architecture, configured
+user, entrypoint/command and complete effective-environment hash. Expected fields
+bind operation/config, candidate commit/tree, verified source manifest/schema,
+synthetic input and observer source hash. Environment values are never retained.
+Platform expectations come from inspection of the explicitly pinned image;
+supported platforms are linux/arm64 and linux/amd64. This records configured
+identity, not an observed process UID or independent source execution proof.
+
+All comparisons and durable publication precede start of that same full ID.
+Observation mismatch/unavailability or receipt publication failure leaves the
+scenario NOT RUN. An already running container without a valid original
+pre-start receipt is rejected. Repeated prepare revalidates source, resources,
+receipt content and reference; it neither overwrites the receipt nor invents
+pre-start evidence. A stopped container can restart only with its matching
+original receipt. Receipt corruption, replacement or loss fails closed. A linked
+receipt surviving an interrupted publication is revalidated and fsynced before
+it can authorize start. The PREPARED result has observed_image_id from the actual
+container and preparation {path, sha256}; it no longer labels the expected config
+image_id as an observed result.
+
+PR30 composition: the accepted polar-local export operation still produces this
+caller's exact source overlay. Its observedLaunch CLI cannot adopt this existing
+API container, mount the source overlay, or expose the bounded loopback liveness
+route: it creates a separate network-disabled harness container. We therefore
+adapt its create/observe/compare/atomic-no-clobber-publication/start boundary
+inside this caller, using the same preparation schema with a distinct producer
+polar.qa-environment-observation/1. No witness container is launched and no claim
+is made that the PR30 CLI observed this API. This adapter is new source requiring
+independent review; PR30's prior acceptance does not qualify it automatically.
+The existing bounded stdout and full environment checks remain in place.

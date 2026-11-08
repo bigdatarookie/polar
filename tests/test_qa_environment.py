@@ -27,6 +27,9 @@ class Daemon:
             raise Gap('IMAGE_VOLUMES_NOT_PREPARED')
         return sha(raw({**environment_map(IMAGE_ENV), **INERT_ENV}))
 
+    def image_identity(self, image_id):
+        return {'os': 'linux', 'architecture': 'arm64'}
+
     def find(self, kind, name):
         row = self.rows.get(kind)
         return copy.deepcopy(row) if row and row['Name'].lstrip('/') == name else None
@@ -50,13 +53,14 @@ class Daemon:
                            'PortBindings': {'8000/tcp': [{'HostIp': '127.0.0.1', 'HostPort': ''}]}},
             'Mounts': [{'Source': str(root/'source'), 'Destination': '/candidate', 'Type':'bind','RW':False},
                        {'Source':str(root/'empty'), 'Destination':'/qa-empty','Type':'bind','RW':False}],
-            'State': {'Running': False}, 'NetworkSettings': {'Ports': {}}}
+            'State': {'Running': False, 'Status': 'created'}, 'NetworkSettings': {'Ports': {}}}
         if self.fail == 'after-create':
             raise Gap('COMMAND_DEADLINE')
 
     def start(self, resource_id):
         self.calls.append(('start', resource_id))
         self.rows['api']['State']['Running'] = True
+        self.rows['api']['State']['Status'] = 'running'
         self.rows['api']['NetworkSettings']['Ports'] = {'8000/tcp':[{'HostIp':'127.0.0.1','HostPort':'49001'}]}
         self.rows['net']['Containers'] = {API: {}}
 
@@ -407,3 +411,68 @@ def test_image_falsey_environment_does_not_become_empty():
         def run(self,argv):return raw([{'Id':IMAGE,'Config':{'Env':False,'Volumes':None}}])
     with pytest.raises(Gap,match='ENVIRONMENT_INVALID'):
         Docker(Image(),'unix:///fake.sock').image(IMAGE)
+
+
+def test_preparation_is_published_before_same_container_start(fixture):
+    e, cfg, d = fixture
+    original = d.start
+    def start(resource_id):
+        receipt = decode(read(e.root/'preparation.json'))
+        assert receipt['observed']['container_id'] == resource_id == API
+        assert receipt['observed']['image_id'] == IMAGE
+        assert receipt['not_started'] is True
+        assert receipt['expected']['candidate'] == {'commit': cfg['commit'], 'tree': cfg['tree']}
+        assert 'PATH' not in str(receipt) and '/image/bin' not in str(receipt)
+        original(resource_id)
+    d.start = start
+    result = e.prepare(cfg)
+    assert result['status'] == 'PREPARED'
+    assert result['preparation'] == {
+        'path': str(e.root/'preparation.json'),
+        'sha256': sha(read(e.root/'preparation.json'))}
+    assert result['observed_image_id'] == IMAGE and 'image_id' not in result
+    receipt_bytes = read(e.root/'preparation.json')
+    assert e.prepare(cfg)['preparation'] == result['preparation']
+    assert read(e.root/'preparation.json') == receipt_bytes
+
+
+@pytest.mark.parametrize('fault', ['publication', 'platform', 'running-without-receipt'])
+def test_receipt_failure_blocks_scenarios(fixture, monkeypatch, fault):
+    e, cfg, d = fixture
+    probes = []
+    e.http = lambda url: probes.append(url)
+    if fault == 'publication':
+        def fail(*args):
+            raise OSError('no publication')
+        monkeypatch.setattr('polar.qa_environment.publish_preparation', fail)
+    elif fault == 'platform':
+        calls = []
+        def identity(image_id):
+            calls.append(image_id)
+            return {'os': 'linux', 'architecture': 'arm64' if len(calls) == 1 else 'amd64'}
+        d.image_identity = identity
+    else:
+        create = d.create_api
+        def running(*args):
+            create(*args)
+            d.rows['api']['State'] = {'Running': True, 'Status': 'running'}
+        d.create_api = running
+    result = e.prepare(cfg)
+    assert result['status'] == 'NOT_PREPARED' and result['qa_verdict'] == 'NOT_RUN'
+    assert not probes and not any(call[0] == 'start' for call in d.calls)
+
+
+def test_receipt_tampering_blocks_restart_without_overwrite(fixture):
+    e, cfg, d = fixture
+    assert e.prepare(cfg)['status'] == 'PREPARED'
+    path = e.root/'preparation.json'
+    receipt = decode(read(path))
+    receipt['observed']['container_id'] = 'f'*64
+    write(path, receipt)
+    tampered = read(path)
+    d.rows['api']['State'] = {'Running': False, 'Status': 'exited'}
+    before = list(d.calls)
+    result = e.prepare(cfg)
+    assert result['status'] == 'NOT_PREPARED'
+    assert result['reason'] == 'PREPARATION_RECEIPT_CONFLICT'
+    assert d.calls == before and read(path) == tampered

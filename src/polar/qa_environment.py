@@ -107,6 +107,25 @@ def write(path, value, exclusive=False):
         os.close(fd)
 
 
+
+def publish_preparation(path, value):
+    """Same fsync + atomic no-clobber hard-link boundary as PR30 publish()."""
+    data = raw(value)
+    require(len(data) <= LIMIT, 'RECEIPT_SIZE_BOUND')
+    fd, name = tempfile.mkstemp(prefix='.preparation-', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'wb') as f:
+            f.write(data); f.flush(); os.fsync(f.fileno())
+        os.link(name, path)  # Never overwrite even an incomplete/foreign receipt.
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        os.unlink(name)
+
+
 def config(value):
     require(type(value) is dict and set(value) == {
         'schema', 'scenario', 'repository', 'commit', 'tree', 'image_id',
@@ -215,6 +234,15 @@ class Docker:
         inherited = environment_map([] if image_env is None else image_env)
         inherited.update(INERT_ENV)
         return sha(raw(inherited))
+
+    def image_identity(self, image_id):
+        rows = decode(self.run('image', 'inspect', image_id))
+        require(type(rows) is list and len(rows) == 1 and rows[0]['Id'] == image_id,
+                'IMAGE_NOT_AVAILABLE')
+        row = rows[0]
+        require(row.get('Os') == 'linux' and row.get('Architecture') in ('arm64', 'amd64'),
+                'IMAGE_PLATFORM_NOT_PREPARED')
+        return {'os': row['Os'], 'architecture': row['Architecture']}
 
     def find(self, kind, name):
         args = ['container', 'ls', '-a'] if kind == 'api' else ['network', 'ls']
@@ -433,11 +461,85 @@ class Environment:
         self.save(state)  # recover exact create whose ID was not yet written
         return name, row
 
+    def preparation(self, owner, state, cfg, api, image_identity):
+        # resource() already rejects image/user/command/env/mount/ownership mismatches.
+        # Persist only allowed command strings and a hash of the COMPLETE environment.
+        observed_image = self.docker.image_identity(api['Image'])
+        require(observed_image == image_identity, 'RUNTIME_PLATFORM_CONFLICT')
+        observed = {
+            'container_id': api['Id'], 'image_id': api['Image'],
+            'image_identity_type': 'docker-local-image-id', **observed_image,
+            'configured_user': api['Config']['User'],
+            'entrypoint': api['Config']['Entrypoint'], 'command': api['Config']['Cmd'],
+            'effective_environment_sha256': sha(raw(environment_map(api['Config']['Env']))),
+        }
+        expected = {
+            'candidate': {'commit': cfg['commit'], 'tree': cfg['tree']},
+            'config_sha256': owner['config_sha256'], 'operation': owner['operation'],
+            'source_manifest_sha256': state['source_manifest_sha256'],
+            'source_schema_sha256': cfg['source_schema_sha256'],
+            'fixture_sha256': sha(raw(FIXTURE)),
+            'observer_source_sha256': sha(read(Path(__file__).resolve())),
+            'image_id': cfg['image_id'], **image_identity,
+            'configured_user': '10001:10001', 'entrypoint': ['python'],
+            'command': ['-m', 'uvicorn', 'polar.api:app', '--host', '0.0.0.0', '--port', '8000'],
+            'effective_environment_sha256': state['expected_environment_sha256'],
+        }
+        require(all(observed[k] == expected[k] for k in (
+            'image_id', 'os', 'architecture', 'configured_user', 'entrypoint',
+            'command', 'effective_environment_sha256')), 'RUNTIME_BINDING_MISMATCH')
+        path = self.root/'preparation.json'
+        if path.exists() or path.is_symlink():
+            body = read(path)
+            receipt = decode(body)
+            require(body == raw(receipt) and receipt.get('schema') == 'polar.observed-preparation/1'
+                    and receipt.get('preparation') == 'PREPARED'
+                    and receipt.get('scenario_started') is False
+                    and receipt.get('expected') == expected
+                    and receipt.get('observed') == observed
+                    and receipt.get('not_started') is True,
+                    'PREPARATION_RECEIPT_CONFLICT')
+        else:
+            require(api['State'].get('Status') == 'created'
+                    and api['State']['Running'] is False, 'PRESTART_OBSERVATION_REQUIRED')
+            stamp = datetime.now(timezone.utc).isoformat()
+            receipt = {
+                'schema': 'polar.observed-preparation/1',
+                'producer': {'version': 'polar.qa-environment-observation/1',
+                             'sha256': sha(read(Path(__file__).resolve()))},
+                'created_at': stamp, 'observed_at': stamp, 'compared_at': stamp,
+                'published_at': datetime.now(timezone.utc).isoformat(),
+                'preparation': 'PREPARED', 'scenario_started': False,
+                'not_started': True, 'expected': expected, 'observed': observed,
+                'environment_values': 'REDACTED_HASH_ONLY',
+                'source_binding': 'EXACT_VERIFIED_READ_ONLY_GIT_OVERLAY',
+            }
+            publish_preparation(path, receipt)
+            body = read(path)
+            require(body == raw(receipt), 'PREPARATION_PUBLICATION_CONFLICT')
+        # Also close a prior crash window after link but before directory fsync.
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+        ref = {'path': str(path), 'sha256': sha(body)}
+        require(state.get('preparation_ref', ref) == ref, 'PREPARATION_REFERENCE_CONFLICT')
+        state['preparation_ref'] = ref
+        self.save(state)
+        return ref
+
     def result(self, owner, state, status, reason=None, **extra):
         result = {'schema': 'polar.qa-environment-result/1', 'status': status, 'reason': reason,
                   'operation': owner['operation'], 'config_sha256': owner['config_sha256'],
                   'root': str(self.root), 'resources': dict(state['resources']),
-                  'db_readiness': 'NOT_APPLICABLE', 'qa_verdict': 'NOT_RUN', **extra}
+                  'db_readiness': 'NOT_APPLICABLE', 'qa_verdict': 'NOT_RUN',
+                  'preparation': state.get('preparation_ref'), **extra}
         result['observed_at'] = datetime.now(timezone.utc).isoformat()
         result_file = 'result-'+str(uuid.uuid4())+'.json'
         write(self.root/result_file, result, exclusive=True)
@@ -483,6 +585,7 @@ class Environment:
                 state['docker_endpoint'] = self.docker.endpoint
                 self.save(state)
                 expected_env = self.docker.image(cfg['image_id'])
+                image_identity = self.docker.image_identity(cfg['image_id'])
                 require(state.get('expected_environment_sha256', expected_env) == expected_env,
                         'IMAGE_ENVIRONMENT_CONFLICT')
                 state['expected_environment_sha256'] = expected_env
@@ -516,6 +619,7 @@ class Environment:
                     self.docker.create_api(api_name, self.labels(owner, cfg, 'api'), cfg, self.root, net['Id'])
                     _, api = self.resource(owner, state, cfg, 'api')
                     require(api is not None, 'CONTAINER_CREATE_UNOBSERVED')
+                preparation = self.preparation(owner, state, cfg, api, image_identity)
                 if not api['State']['Running']:
                     self.docker.start(api['Id'])
                     _, api = self.resource(owner, state, cfg, 'api')
@@ -536,9 +640,11 @@ class Environment:
                 return self.result(owner, state, 'PREPARED', endpoint=url,
                                    openapi_sha256=openapi_hash, source_manifest_sha256=manifest,
                                    source_schema_sha256=cfg['source_schema_sha256'], fixture_sha256=sha(raw(FIXTURE)),
-                                   image_id=cfg['image_id'], commit=cfg['commit'], tree=cfg['tree'])
+                                   observed_image_id=api['Image'], commit=cfg['commit'], tree=cfg['tree'])
             except Gap as exc:
                 return self.result(owner, state, 'NOT_PREPARED', exc.code)
+            except OSError:
+                return self.result(owner, state, 'NOT_PREPARED', 'PREPARATION_OR_STORAGE_UNAVAILABLE')
 
     def cleanup(self, operation, config_sha256):
         self.state()
