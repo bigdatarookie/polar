@@ -9,6 +9,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app/src \
 WORKDIR /app
 COPY src src
 COPY pyproject.toml .
+COPY hyp007-build-reference.json .
 # Same entrypoint as pyproject.scripts, installed without an unpinned build dependency.
 RUN printf '#!/usr/local/bin/python\nfrom polar.cli import main\nmain()\n' > /usr/local/bin/polar && chmod 755 /usr/local/bin/polar \
     && mkdir -p /data/artifacts && chown -R 10001:10001 /data

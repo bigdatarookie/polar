@@ -143,7 +143,7 @@ class DurableFamily(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.store = DiagnosticStore(Path(self.tmp.name),64*1024**2)
+        self.store = DiagnosticStore(Path(self.tmp.name).resolve(),64*1024**2)
         self.aid = str(uuid.uuid4())
         self.seal = {"seal_id": "1"*64, "sealed_at": "2026-01-01T00:00:00.000000Z"}
 
@@ -152,7 +152,7 @@ class DurableFamily(unittest.TestCase):
         self.store.start_slot(self.aid,0)
         self.store.finish_slot(self.aid,0,"FAILED",code="INVENTED_FAILURE")
         with self.assertRaises(DiagnosticError): self.store.start_slot(self.aid,1)
-        other = DiagnosticStore(Path(self.tmp.name),64*1024**2)
+        other = DiagnosticStore(Path(self.tmp.name).resolve(),64*1024**2)
         with self.assertRaises(DiagnosticError): other.begin(self.seal,str(uuid.uuid4()))
         with self.assertRaises(DiagnosticError): other.start_slot(self.aid,0)
         rows = other.slots(self.aid)

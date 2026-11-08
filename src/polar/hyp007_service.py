@@ -23,7 +23,9 @@ PROJECTION_FILES = {"service.py", "cli.py", "history_store.py", "history_bundle.
 def source_projection():
     root = Path(__file__).parent
     paths = PROJECTION_FILES | {p.name for p in root.glob("hyp007_*.py")}
-    return {name: sha((root/name).read_bytes()) for name in sorted(paths)}
+    result = {name: sha((root/name).read_bytes()) for name in sorted(paths)}
+    result["@build-reference"] = sha((root.parents[1]/"hyp007-build-reference.json").read_bytes())
+    return result
 
 
 def binding(ref):
@@ -39,12 +41,14 @@ def binding(ref):
 def verify_build(raw, defaults_raw):
     import importlib.metadata
     build = decode(raw)
+    reference = decode((Path(__file__).parents[2]/"hyp007-build-reference.json").read_bytes())
     check(build["schema"] == "polar.hyp007-numeric-build/3" and
-          build["protocol_authority_sha256"] == PROTOCOL and
+          sha(raw) == reference["artifacts"]["BUILD-LOCK.json"] and
+          sha(defaults_raw) == reference["artifacts"]["learner-defaults.json"] and
           build["source_commit"] == "d02a01ac6f51d36c9e62388243bcb75c3b1b1774" and
           build["learner_defaults_sha256"] == sha(defaults_raw), "HYP007_BUILD_MISMATCH")
     check(build["runtime_files"] and build["runtime_packages"] and build["numeric_image_id"], "HYP007_BUILD_MISMATCH")
-    for name, version in build["runtime_packages"].items():
+    for name, version in {**build["runtime_packages"], **build["legacy_packages"]}.items():
         check(importlib.metadata.version(name) == version, "HYP007_PACKAGE_MISMATCH")
     total = 0
     for path, expected in build["runtime_files"].items():
