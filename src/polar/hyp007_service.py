@@ -162,7 +162,7 @@ class DiagnosticService:
         own_cpu = cpu.ru_utime+cpu.ru_stime-started_cpu.ru_utime-started_cpu.ru_stime
         try:
             resources = supervise([sys.executable, "-m", "polar.hyp007_worker", str(self.store.root), aid,
-                                   str(self.store.limit)], env=env,
+                                   str(self.store.limit), str(os.getpid())], env=env,
                                   output=self.store.root/parent/"worker.log",
                                   cpu_seconds=max(0,600-own_cpu), wall_seconds=max(0,900-elapsed))
             resources["preflight_cpu_seconds"] = own_cpu
@@ -181,7 +181,8 @@ class DiagnosticService:
             eid = "hyp007-"+seal["seal_id"]
             manifest = self.store.publish(eid, files)
             cpu = resource.getrusage(resource.RUSAGE_SELF)
-            resources["finalization_cpu_seconds"] = cpu.ru_utime+cpu.ru_stime-started_cpu.ru_utime-started_cpu.ru_stime-own_cpu
+            resources["finalization_cpu_seconds"] = max(0., cpu.ru_utime+cpu.ru_stime-started_cpu.ru_utime-
+                started_cpu.ru_stime-own_cpu-resources["supervisor_cpu_seconds"])
             resources["total_wall_seconds"] = time.monotonic()-started_wall
             check(resources["cpu_seconds"]+resources["finalization_cpu_seconds"] <= 600 and
                   resources["total_wall_seconds"] <= 900, "HYP007_RESOURCE_LIMIT")

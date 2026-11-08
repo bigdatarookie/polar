@@ -6,6 +6,7 @@ Linux subreaping preserves CPU accounting for orphaned descendants. Samples reta
 an RSS sum peak; the exact wait4 CPU total includes exited/reaped children.
 """
 import ctypes
+import json
 import os
 from pathlib import Path
 import resource
@@ -45,7 +46,7 @@ def supervise(argv, *, env, output, cpu_seconds=600., wall_seconds=900., poll=.0
     check(libc.prctl(36, 1, 0, 0, 0) == 0, "PROCESS_ACCOUNTING_UNAVAILABLE")
     start = time.monotonic()
     before = resource.getrusage(resource.RUSAGE_SELF)
-    with output.open("xb") as log:
+    with output.open("xb") as log, output.with_suffix(".resources.ndjson").open("xb") as journal:
         child = subprocess.Popen(argv, env=env, start_new_session=True, stdin=subprocess.DEVNULL,
                                  stdout=log, stderr=subprocess.STDOUT)
         pgid = child.pid
@@ -58,6 +59,10 @@ def supervise(argv, *, env, output, cpu_seconds=600., wall_seconds=900., poll=.0
                 own_cpu = current.ru_utime+current.ru_stime-before.ru_utime-before.ru_stime
                 maximum = max(maximum, spent+live_cpu+own_cpu)
                 elapsed = time.monotonic()-start
+                sample = {"wall_seconds": elapsed, "observed_cpu_seconds": maximum,
+                          "sampled_group_rss_peak_bytes": peak, "owned_pids": pids}
+                journal.write((json.dumps(sample,sort_keys=True)+"\n").encode())
+                journal.flush(); os.fsync(journal.fileno())
                 if killed is None and (maximum > cpu_seconds or elapsed > wall_seconds):
                     killed = "CPU_LIMIT" if maximum > cpu_seconds else "WALL_LIMIT"
                     try: os.killpg(pgid, signal.SIGKILL)
@@ -106,6 +111,7 @@ def supervise(argv, *, env, output, cpu_seconds=600., wall_seconds=900., poll=.0
     _, _, remaining = group_sample(pgid)
     return {"schema": "polar.process-budget/1", "exit_code": status, "failure": killed,
             "cpu_seconds": total, "wall_seconds": time.monotonic()-start,
+            "child_cpu_seconds": spent, "supervisor_cpu_seconds": own_cpu,
             "cpu_limit": cpu_seconds, "wall_limit": wall_seconds,
             "sampled_group_rss_peak_bytes": peak, "sample_interval_seconds": poll,
             "rss_measurement": "SAMPLED_SUM_MAY_MISS_SHORT_PEAKS", "waited_owned_pids": waited,

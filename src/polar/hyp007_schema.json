@@ -1183,6 +1183,9 @@
     "resources": {
       "additionalProperties": false,
       "properties": {
+        "child_cpu_seconds": {
+          "type": "number"
+        },
         "cleanup": {
           "enum": [
             "COMPLETE",
@@ -1236,6 +1239,9 @@
         "schema": {
           "const": "polar.process-budget/1"
         },
+        "supervisor_cpu_seconds": {
+          "type": "number"
+        },
         "waited_owned_pids": {
           "items": {
             "minimum": 0,
@@ -1266,7 +1272,9 @@
         "cleanup",
         "detached_children",
         "preflight_cpu_seconds",
-        "preflight_wall_seconds"
+        "preflight_wall_seconds",
+        "child_cpu_seconds",
+        "supervisor_cpu_seconds"
       ],
       "type": "object"
     },

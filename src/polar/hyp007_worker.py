@@ -1,5 +1,8 @@
 """Fixed supervised worker entrypoint. No source fetch, dynamic callable, retry or fixture lease."""
 import math
+import os
+import signal
+import ctypes
 import sys
 
 from .history_bundle import read_file
@@ -106,7 +109,12 @@ def compile_output(source, seal, store, aid, defaults):
 
 
 def main(argv=None):
-    root, aid, limit = sys.argv[1:] if argv is None else argv
+    root, aid, limit, expected_parent = sys.argv[1:] if argv is None else argv
+    # No labels/fits if the supervisor disappeared during Python startup. The fixed
+    # worker never forks, uses one native thread and cannot survive parent death.
+    check(sys.platform == "linux", "HYP007_EXECUTABLE_BUILD_UNAVAILABLE")
+    check(ctypes.CDLL(None).prctl(1, signal.SIGKILL, 0, 0, 0) == 0 and
+          os.getppid() == int(expected_parent), "HYP007_SUPERVISOR_LOST")
     store = DiagnosticStore(root, int(limit))
     seal = store.read_record("hyp007-attempts/"+aid, "request")
     try:

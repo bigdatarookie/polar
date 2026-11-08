@@ -101,3 +101,10 @@ The owner evidence-clock map691495df and definitione10a38e6 are required qualifi
 inputs. Cash unit checks qualify reconstruction at S, not historical publication;
 required dated split/terminal assertions contribute max two-session K. All referenced
 static check/report objects are verified by exact bytes. No real source IDs live in Git.
+
+Resource samples are append-only fsynced to worker.resources.ndjson throughout
+supervision. An interrupted supervisor retains a measured spent lower bound and
+unfinalized family; it cannot start a replacement family. The fixed Linux worker
+sets parent-death SIGKILL before accessing source data and checks the expected
+parent identity. It contains no process-fork/detach operation. RSS peaks remain
+explicitly sampled, while waited child CPU and supervisor CPU are separate totals.
