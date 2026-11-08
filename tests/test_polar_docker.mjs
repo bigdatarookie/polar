@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import {observedLaunch,observedCleanup} from '../scripts/polar-docker.mjs';
+import {observedLaunch,observedCleanup,packagedSourceFromTar,validatePackagedSourceBinding} from '../scripts/polar-docker.mjs';
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 const IMAGE='sha256:'+'a'.repeat(64),OTHER='sha256:'+'b'.repeat(64),CID='c'.repeat(64);
 function removeFixture(dir){for(const n of fs.readdirSync(dir)){const p=path.join(dir,n);if(fs.lstatSync(p).isDirectory()){fs.chmodSync(p,0o700);removeFixture(p);}}fs.rmSync(dir,{recursive:true,force:true});}
@@ -18,7 +18,8 @@ if(a[0]==='info')emit({ID:'synthetic-engine',ServerVersion:'fixture',OSType:'lin
 else if(a[0]==='create'){if(s.exists&&s.rejectDuplicate)process.exit(1);s.exists=true;s.args=a;s.started=false;save();if(s.unknownCreate)process.exit(1);if(s.conflict)fs.writeFileSync(path.join(process.env.FAKE_LAUNCH_OUT,'preparation.json'),'foreign');emit('${CID}');}
 else if(a[0]==='inspect'){if(s.failInspect)process.exit(1);const value=k=>s.args[s.args.indexOf(k)+1];const all=k=>s.args.flatMap((x,i)=>x===k?[s.args[i+1]]:[]);const labels=Object.fromEntries(all('--label').map(x=>{let n=x.indexOf('=');return[x.slice(0,n),x.slice(n+1)]}));const imageAt=s.args.indexOf('--entrypoint')+2;const after=s.args.slice(imageAt);const runtime=after.findIndex(x=>/^sha256:/.test(x));emit([{Id:'${CID}',Image:s.actualImage,Created:'2026-11-08T00:00:00.123456789Z',Config:{Labels:labels,User:value('--user'),Entrypoint:[value('--entrypoint')],Cmd:after.slice(runtime+1),Env:[...all('--env'),'DATABASE_URL=DO_NOT_LEAK_PRIVATE_SENTINEL']},State:{Status:s.started?'exited':'created',Running:false,ExitCode:0}}]);}
 else if(a[0]==='image')emit([{Id:s.actualImage,Os:'linux',Architecture:'arm64'}]);
-else if(a[0]==='start'){const p=path.join(process.env.FAKE_LAUNCH_OUT,'preparation.json');const r=JSON.parse(fs.readFileSync(p));if(r.preparation!=='PREPARED'||r.scenario_started!==false)process.exit(9);s.started=true;s.starts=(s.starts||0)+1;save();fs.writeFileSync(path.join(process.env.FAKE_LAUNCH_OUT,'scenario','marker'),'one');emit('scenario marker');}
+else if(a[0]==='cp'){if(s.copyFail)process.exit(1);process.stdout.write(Buffer.from(s.tar,'base64'));}
+else if(a[0]==='start'){const p=path.join(process.env.FAKE_LAUNCH_OUT,'preparation.json');const r=JSON.parse(fs.readFileSync(p));if(r.preparation!=='PREPARED'||r.scenario_started!==false)process.exit(9);if(s.tar){const visible=path.join(process.env.FAKE_LAUNCH_OUT,'observation','preparation.json');if(!fs.readFileSync(p).equals(fs.readFileSync(visible))||(fs.statSync(visible).mode&0o777)!==0o444||(fs.statSync(path.dirname(visible)).mode&0o777)!==0o555)process.exit(10);}s.started=true;s.starts=(s.starts||0)+1;save();fs.writeFileSync(path.join(process.env.FAKE_LAUNCH_OUT,'scenario','marker'),'one');emit('scenario marker');}
 else if(a[0]==='ps')emit(s.exists?'${CID}':'');
 else if(a[0]==='rm'){s.exists=false;save();emit('${CID}');}else process.exit(8);
 `;
@@ -42,3 +43,32 @@ test('changed reference bytes fail closed and preserve caller inputs',t=>{const 
 test('unknown create outcome retains name and is resolved only through owned cleanup',t=>{const f=setup(t);f.engine({unknownCreate:true});const r=observedLaunch(f.config,f.out);assert.equal(r.cleanup.status,'UNKNOWN_CREATE_OUTCOME');assert.equal(r.scenario,'NOT_RUN');assert(!f.calls().some(a=>a[0]==='start'));assert.equal(observedCleanup(f.config,f.out).cleanup.status,'REMOVED');});
 test('cleanup does not require original harness to survive',t=>{const f=setup(t);f.engine({failInspect:true});observedLaunch(f.config,f.out);fs.unlinkSync(f.spec.refs.harness.path);f.engine({failInspect:false});assert.equal(observedCleanup(f.config,f.out).cleanup.status,'REMOVED');});
 test('same launch ID in a different root cannot adopt or remove the first resource',t=>{const f=setup(t);f.engine({failInspect:true,rejectDuplicate:true});observedLaunch(f.config,f.out);f.engine({failInspect:false});const second=path.join(f.root,'other');const r=observedLaunch(f.config,second);assert.equal(r.cleanup.status,'UNKNOWN_CREATE_OUTCOME');assert.equal(observedCleanup(f.config,second).cleanup.status,'UNVERIFIED_RETAINED');assert.equal(JSON.parse(fs.readFileSync(f.state)).exists,true);assert.equal(observedCleanup(f.config,f.out).cleanup.status,'REMOVED');});
+
+function tar(entries) {
+  const parts=[];
+  for(const {name,data='',type='0'} of entries){const b=Buffer.from(data),h=Buffer.alloc(512);h.write(name,0,100);h.write('0000644\0',100);h.write('0000000\0',108);h.write('0000000\0',116);h.write(b.length.toString(8).padStart(11,'0')+'\0',124);h.write('00000000000\0',136);h.fill(32,148,156);h.write(type,156);h.write('ustar\0',257);let sum=0;for(const x of h)sum+=x;h.write(sum.toString(8).padStart(6,'0')+'\0 ',148);parts.push(h,b,Buffer.alloc((512-b.length%512)%512));}parts.push(Buffer.alloc(1024));return Buffer.concat(parts);
+}
+const code='invented source\n',sourceName='/app/src/polar/example.py';
+const sourceFiles=()=>({[sourceName]:{sha256:sha(code),bytes:Buffer.byteLength(code)}});
+function sourceFixture(t,entries=[{name:'polar/example.py',data:code}]) {
+  const f=setup(t);f.spec.schema='polar.observed-launch-config/2';
+  const build=JSON.parse(fs.readFileSync(f.spec.refs.source_build.path));build.source_files=sourceFiles();const raw=JSON.stringify(build);fs.writeFileSync(f.spec.refs.source_build.path,raw);f.spec.refs.source_build.sha256=sha(raw);f.write();f.engine({tar:tar(entries).toString('base64')});return f;
+}
+test('packaged source from same stopped container and identical readable receipt precede start',t=>{const f=sourceFixture(t);const result=observedLaunch(f.config,f.out);assert.equal(result.scenario,'PASS');const p=f.read('preparation.json');assert.equal(p.source_binding.packaged_source_independently_observed,true);assert.equal(p.source_binding.observed_container_id,CID);assert.deepEqual(p.source_binding.observed_files,sourceFiles());const calls=f.calls();assert.deepEqual(calls.find(x=>x[0]==='cp'),['cp',CID+':/app/src/polar','-']);assert(calls.findIndex(x=>x[0]==='cp')<calls.findIndex(x=>x[0]==='start'));assert(calls.find(x=>x[0]==='create').some(x=>x.endsWith('dst=/polar-launch,readonly')));assert.equal(observedLaunch(f.config,f.out).reconciled,true);assert.equal(observedCleanup(f.config,f.out).cleanup.status,'ALREADY_ABSENT');});
+for(const [label,entries,reason] of [
+ ['changed',[{name:'polar/example.py',data:'changed'}],'SOURCE_HASH_MISMATCH'],
+ ['extra',[{name:'polar/example.py',data:code},{name:'polar/extra.sql',data:'x'}],'SOURCE_FILE_SET_MISMATCH'],
+ ['missing',[],'SOURCE_FILE_SET_MISMATCH'],
+ ['symlink',[{name:'polar/example.py',type:'2'}],'SOURCE_NONREGULAR'],
+ ['hardlink',[{name:'polar/example.py',type:'1'}],'SOURCE_NONREGULAR'],
+ ['fifo',[{name:'polar/example.py',type:'6'}],'SOURCE_NONREGULAR'],
+ ['traversal',[{name:'polar/../example.py',data:code}],'SOURCE_PATH_INVALID'],
+ ['absolute',[{name:'/polar/example.py',data:code}],'SOURCE_PATH_INVALID'],
+ ['duplicate',[{name:'polar/example.py',data:code},{name:'polar/example.py',data:code}],'SOURCE_PATH_INVALID'],
+])test('source '+label+' fails before start with exact cleanup',t=>{const f=sourceFixture(t,entries);const r=observedLaunch(f.config,f.out);assert.equal(r.reason,reason);assert.equal(r.scenario,'NOT_RUN');assert(!f.calls().some(a=>a[0]==='start'));assert.equal(r.cleanup.status,'REMOVED');});
+test('copy failure cannot start and source observation remains false',t=>{const f=sourceFixture(t);f.engine({copyFail:true});const r=observedLaunch(f.config,f.out);assert.equal(r.reason,'SOURCE_COPY_FAILED');assert.equal(f.read('preparation.json').source_binding.packaged_source_independently_observed,false);assert(!f.calls().some(a=>a[0]==='start'));});
+for(const dest of ['/app','/app/src/polar/injected.py','/polar-launch/preparation.json','/polar-output'])test('reference overlap rejected: '+dest,()=>{assert.throws(()=>validatePackagedSourceBinding(sourceFiles(),{input:{path:dest}},'/usr/local/bin/python'),/SOURCE_REFERENCE_OVERLAP/);});
+test('source map count/size limits and source entrypoint fail closed',()=>{assert.throws(()=>validatePackagedSourceBinding({}, {}, '/bin/python'),/SOURCE_MAP_BOUND/);const many=Object.fromEntries(Array.from({length:501},(_,i)=>['/app/src/polar/x'+i+'.py',{sha256:sha(''),bytes:0}]));assert.throws(()=>validatePackagedSourceBinding(many,{},'/bin/python'),/SOURCE_MAP_BOUND/);assert.throws(()=>validatePackagedSourceBinding({[sourceName]:{sha256:sha(''),bytes:1048577}},{},'/bin/python'),/SOURCE_FILE_BOUND/);assert.throws(()=>validatePackagedSourceBinding(sourceFiles(),{},sourceName),/SOURCE_ENTRYPOINT_OVERLAP/);});
+test('PAX path preserves exact identity and cannot escape source root',()=>{function paxPath(value){const body='path='+value+'\n';let count=Buffer.byteLength(body)+3;while(count!==Buffer.byteLength(body)+String(count).length+1)count=Buffer.byteLength(body)+String(count).length+1;return count+' '+body;}const archive=tar([{name:'PaxHeaders/path',type:'x',data:paxPath('polar/example.py')},{name:'polar/placeholder',data:code}]);assert.deepEqual(packagedSourceFromTar(archive,sourceFiles()),sourceFiles());assert.throws(()=>packagedSourceFromTar(tar([{name:'PaxHeaders/path',type:'x',data:paxPath('../bad.py')},{name:'polar/example.py',data:code}]),sourceFiles()),/SOURCE_PATH_INVALID/);});
+test('source map bounds and unsafe paths reject without engine calls',t=>{const f=sourceFixture(t);const raw=JSON.stringify({commit:f.spec.candidate.commit,tree:f.spec.candidate.tree,image_id:IMAGE,source_files:{'/app/src/polar/../bad.py':{sha256:sha(code),bytes:1}}});fs.writeFileSync(f.spec.refs.source_build.path,raw);f.spec.refs.source_build.sha256=sha(raw);f.write();assert.equal(observedLaunch(f.config,f.out).reason,'SOURCE_PATH_INVALID');assert.equal(f.calls().length,0);});
+test('tar checksum and truncation reject rather than hash ambiguous bytes',()=>{const raw=tar([{name:'polar/example.py',data:code}]);raw[0]^=1;assert.throws(()=>packagedSourceFromTar(raw,sourceFiles()),/SOURCE_ARCHIVE_INVALID/);assert.throws(()=>packagedSourceFromTar(Buffer.alloc(7),sourceFiles()),/SOURCE_FILE_SET_MISMATCH/);});

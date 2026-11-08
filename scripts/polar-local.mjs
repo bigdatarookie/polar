@@ -9,7 +9,7 @@ import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
 
-export const VERSION='polar-local/1.3.0';
+export const VERSION='polar-local/1.4.0';
 const PW=process.env.POLAR_PLAYWRIGHT_MODULE||'/Users/garry/.npm/_npx/31e32ef8478fbf80/node_modules/playwright/index.js';
 const CHROME=process.env.POLAR_BROWSER_EXECUTABLE||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
