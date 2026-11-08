@@ -265,6 +265,7 @@ class ImportService:
     def execute(self,pid,*,fixture=None,network=False,attempt_id=None):
         plan = self.load(pid)
         require(plan["source_projection"]==code_projection(),"IMPORT_SOURCE_MISMATCH")
+        require(self.store.read("policy.json")==POLICY,"IMPORT_POLICY_MISMATCH")
         cfg = plan["config"]
         bound_file(cfg["route_evidence"])
         require((cfg["mode"]=="fixture" and fixture is not None and not network) or
