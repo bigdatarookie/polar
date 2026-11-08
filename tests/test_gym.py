@@ -185,3 +185,57 @@ def test_native_invented_pair_and_fresh_replay(data):
         assert t['nav'][-1]['nav']==t['nav'][-1]['cash']
         assert all(x['order_date']!=DATES[0] for x in t['intents'])
     assert evaluate(first)==evaluate(second)
+
+
+def test_missing_mark_does_not_mask_independent_fill_metrics():
+    t=tape(['100','120','110'])
+    t['nav'][1]['positions']['AAPL']=1
+    t['fills']=[{'price':'7','quantity':2,'fee':'4'}]
+    r=evaluate_strategy(t)
+    for name in ('total_return','CAGR','ES95','maximum_drawdown','maximum_close_name_concentration'):
+        assert r['metrics'][name]['reason']=='MISSING_POSITION_MARK'
+    assert r['metrics']['fees_USD']==metric('4')
+    assert r['metrics']['gross_executed_notional']==metric('14')
+    assert r['metrics']['turnover_over_initial']==metric('0.14')
+    t['nav'][1]['nav']=None
+    r=evaluate_strategy(t)
+    assert r['metrics']['fees_USD']==metric('4')
+    assert r['metrics']['gross_executed_notional']==metric('14')
+
+
+def test_fill_metric_statuses_follow_their_own_inputs():
+    t=tape(['100','110'])
+    t['nav'][1]['positions']['AAPL']=1
+    t['fills']=[{'price':'7','quantity':2,'fee':'bad'}]
+    r=evaluate_strategy(t)
+    assert r['metrics']['fees_USD']['status']=='INVALID'
+    assert r['metrics']['gross_executed_notional']==metric('14')
+    t['fills']=[{'price':None,'quantity':2,'fee':'4'}]
+    r=evaluate_strategy(t)
+    assert r['metrics']['fees_USD']==metric('4')
+    assert r['metrics']['gross_executed_notional']['status']=='INSUFFICIENT_EVIDENCE'
+    assert r['metrics']['gross_executed_notional']['value'] is None
+
+
+@pytest.mark.parametrize('bad_row', [0, 20])
+def test_bad_decimal_does_not_skip_basis_or_clock_checks(data,bad_row):
+    r,tz=data
+    r[bad_row]['raw_fields_exact_tokens']['o']='invalid'
+    r[20-bad_row]['feed']='wrong-feed'
+    r[20-bad_row]['event_open_at']='invented-observed-clock'
+    result=preflight_experiment(r,DATES,tz)
+    statuses={c['code']:c['status'] for c in result['checks']}
+    assert statuses['DECIMAL_OHLCV_DOMAIN']=='FAIL'
+    assert statuses['RAW_BASIS_UNITS_ASOF']=='FAIL'
+    assert statuses['SOURCE_NULL_CLOCKS_PRESERVED']=='FAIL'
+    assert statuses['AGGREGATION_DATE']=='PASS'
+    assert not result['execution_allowed']
+
+
+def test_no_rows_do_not_pass_unvisited_checks(data):
+    _,tz=data
+    result=preflight_experiment([],DATES,tz)
+    checks={c['code']:c for c in result['checks']}
+    for name in ('DECIMAL_OHLCV_DOMAIN','LOSSLESS_4DP_WHOLE_VOLUME','RAW_BASIS_UNITS_ASOF','SOURCE_NULL_CLOCKS_PRESERVED','AGGREGATION_DATE'):
+        assert checks[name]['status']!='PASS'
+    assert not result['execution_allowed']

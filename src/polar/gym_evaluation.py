@@ -8,6 +8,46 @@ def evaluate_strategy(tape):
     with localcontext(context()):
         return _evaluate(tape)
 
+def _fill_metrics(tape, rows):
+    """Fees/notional depend on fills; turnover additionally needs initial capital."""
+    ledger=tape.get('fills')
+    def total(keys, reason):
+        if not isinstance(ledger,list):
+            return None,metric(None,'INSUFFICIENT_EVIDENCE','MISSING_FILL_LEDGER')
+        value=Fraction();missing=False;invalid=False
+        for fill in ledger:
+            if not isinstance(fill,dict):invalid=True;continue
+            if any(fill.get(k) is None for k in keys):missing=True;continue
+            try:
+                if keys==('fee',):
+                    amount=fraction(fill['fee'])
+                    if amount<0:raise ValueError()
+                else:
+                    price=fraction(fill['price']);qty=fill['quantity']
+                    if price<=0 or type(qty) is not int or qty<=0:raise ValueError()
+                    amount=price*qty
+                value+=amount
+            except (GymError,ArithmeticError,ValueError,TypeError):invalid=True
+        if invalid:return None,metric(None,'INVALID','INVALID_FILL_'+reason)
+        if missing:return None,metric(None,'INSUFFICIENT_EVIDENCE','MISSING_FILL_'+reason)
+        return value,metric(S(D(value)))
+    _,fees=total(('fee',),'FEE')
+    notional,gross=total(('price','quantity'),'NOTIONAL')
+    turnover=dict(gross)
+    if notional is not None:
+        try:
+            if not rows or rows[0].get('nav') is None:
+                turnover=metric(None,'INSUFFICIENT_EVIDENCE','MISSING_NAV_ENDPOINT')
+            elif any(rows[0]['positions'].get(s,0) and rows[0]['marks'].get(s) is None for s in SYMBOLS):
+                turnover=metric(None,'INSUFFICIENT_EVIDENCE','MISSING_POSITION_MARK')
+            else:
+                initial=fraction(rows[0]['nav'])
+                if initial<=0:raise ValueError()
+                turnover=metric(S(D(notional/initial)))
+        except (GymError,ArithmeticError,ValueError,TypeError):
+            turnover=metric(None,'INVALID','INVALID_NAV')
+    return {'fees_USD':fees,'gross_executed_notional':gross,'turnover_over_initial':turnover}
+
 def _evaluate(tape):
     rows=tape['nav'];returns=[];unavailable=None;values=[]
     for row in rows:
@@ -38,8 +78,11 @@ def _evaluate(tape):
            'gross_executed_notional','mean_return','sample_variance')
     metrics={name:metric(None,'INSUFFICIENT_EVIDENCE','NO_RETURN_INTERVALS') for name in names}
     details={'worst_period':None,'drawdown':None,'concentration':None,'ES95_intervals':[]}
+    ledger_metrics=_fill_metrics(tape,rows)
+    metrics.update(ledger_metrics)
     if unavailable:
         metrics={name:dict(unavailable) for name in names}
+        metrics.update(ledger_metrics)
         return {'strategy_id':tape['strategy_id'],'daily_returns':returns,'metrics':metrics,'details':details}
     def put(name,v): metrics[name]=metric(S(D(v)))
     if len(rows)>1:put('total_return',values[-1]/values[0]-1)
@@ -47,9 +90,6 @@ def _evaluate(tape):
     elapsed=rows[-1]['nominal_ns']-rows[0]['nominal_ns']
     if elapsed<=0: metrics['CAGR']=metric(None,'INVALID','NONPOSITIVE_ELAPSED_TIME')
     else: metrics['CAGR']=metric(S(D(values[-1]/values[0]).__pow__(D(Fraction(31557600*10**9,elapsed)))-Decimal(1)))
-    fees=sum((fraction(f['fee']) for f in tape['fills']),Fraction())
-    notional=sum((fraction(f['price'])*f['quantity'] for f in tape['fills']),Fraction())
-    put('fees_USD',fees);put('gross_executed_notional',notional);put('turnover_over_initial',notional/values[0])
     peak=values[0];peak_i=0;maxdd=Fraction();trough=0;selected_peak=0
     maxconc=Fraction();conc_i=0;conc_s=SYMBOLS[0];missing_mark=False
     for i,(row,v) in enumerate(zip(rows,values)):

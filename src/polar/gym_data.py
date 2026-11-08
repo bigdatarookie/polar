@@ -65,22 +65,26 @@ def preflight_experiment(rows, calendar_dates, tz_bytes, converted=None, *,
     check('COMPLETE_GRID',len(rows)==21 and not missing and not extra,
           'INCOMPLETE_GRID',scope={'expected':21,'received':len(rows),'missing':missing,'extra':extra})
     check('NO_DUPLICATES',len(cells)==len(set(cells)),'DUPLICATE_CELL')
-    domains=True;precision=True;basis=True;unknown=True;labels=True
-    try:
-        tz=ZoneInfo.from_file(BytesIO(tz_bytes))
-        for row in rows:
+    domains=precision=basis=unknown=labels=bool(rows)
+    try:tz=ZoneInfo.from_file(BytesIO(tz_bytes))
+    except (ValueError,TypeError,EOFError):tz=None;labels=False
+    for row in rows:
+        # These inputs do not depend on numeric parsing and must be inspected even on a malformed row.
+        basis &= row.get('adjustment')=='raw' and row.get('currency')=='USD_REQUEST_CONTRACT' and row.get('feed')=='sip' and row.get('requested_asof')=='2020-09-02'
+        unknown &= all(row.get(k,'ABSENT') is None for k in OBSERVED_NULLS)
+        try:
             values=row['raw_fields_exact_tokens']
             p={k:fraction(values[k]) for k in ('o','h','l','c','v')}
             domains &= (min(p[k] for k in ('o','h','l','c'))>0 and
                         p['l']<=min(p['o'],p['c'])<=max(p['o'],p['c'])<=p['h'] and
                         p['v']>=0 and p['v'].denominator==1)
-            precision &= all((p[k]*10000).denominator==1 for k in ('o','h','l','c'))
-            basis &= row.get('adjustment')=='raw' and row.get('currency')=='USD_REQUEST_CONTRACT' and row.get('feed')=='sip' and row.get('requested_asof')=='2020-09-02'
-            unknown &= all(row.get(k,'ABSENT') is None for k in OBSERVED_NULLS)
+            precision &= all((p[k]*10000).denominator==1 for k in ('o','h','l','c')) and p['v'].denominator==1
+        except (GymError,KeyError,ValueError,TypeError,ArithmeticError):
+            domains=False;precision=False
+        try:
             aggregation=datetime.fromisoformat(row['aggregation_label'].replace('Z','+00:00'))
-            labels &= aggregation.astimezone(tz).date().isoformat()==row['reference_date']
-    except (GymError,KeyError,ValueError,TypeError,ArithmeticError):
-        domains=False;precision=False;labels=False
+            labels &= tz is not None and aggregation.astimezone(tz).date().isoformat()==row['reference_date']
+        except (KeyError,ValueError,TypeError,AttributeError):labels=False
     check('DECIMAL_OHLCV_DOMAIN',bool(domains),'INVALID_OHLCV')
     check('LOSSLESS_4DP_WHOLE_VOLUME',bool(precision),'PRECISION_LOSS')
     check('RAW_BASIS_UNITS_ASOF',bool(basis),'BASIS_MISMATCH')
