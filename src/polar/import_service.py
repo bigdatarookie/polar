@@ -379,7 +379,7 @@ class ImportService:
                     self.store.write("throttle.json",throttle,replace=True)
                     before = self.clock.monotonic()
                     result = transport.post(reqs,len(records),start["request_timeout_seconds"])
-                    if self.clock.now()<seconds(start["started_at"]):result["error"]="CLOCK_ROLLBACK"
+                    if seconds(timestamp(self.clock.now()))<seconds(start["started_at"]):result["error"]="CLOCK_ROLLBACK"
                     stats["request_seconds"] += self.clock.monotonic()-before
                     local = self.clock.monotonic()
                     body = self.store.object(result.pop("body"))

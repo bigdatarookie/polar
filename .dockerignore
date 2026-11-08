@@ -3,3 +3,4 @@
 !src/**
 !pyproject.toml
 !requirements.lock
+!hyp007-build-reference.json

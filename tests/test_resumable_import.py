@@ -94,7 +94,8 @@ class LoaderFixtures(unittest.TestCase):
 
     def test_four_started_appearances_exhaust_without_reset(self):
         pid=self.plan()
-        result=self.run_fixture(pid,[{"error":"TIMEOUT","status":None} for _ in range(4)])
+        with patch("polar.import_service.random.uniform",return_value=.1234567):
+            result=self.run_fixture(pid,[{"error":"TIMEOUT","status":None} for _ in range(4)])
         self.assertEqual(result["status"],"failed")
         state=next(iter(self.service.status(pid)["states"].values()))
         self.assertEqual(state["state"],"permanent_error")
