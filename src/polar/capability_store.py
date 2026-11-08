@@ -294,7 +294,8 @@ class FamilyStore:
                     if len(attempts)==2:
                         require(p['packet_id']==attempts[0]['finish']['packet_id'],'REPLAY_MISMATCH')
                 a['finish']=p
-        spent={key:sum((a['resource'] or {}).get(key,0) for a in attempts) for key in ('cpu_us','wall_ns')}
+        spent={key:sum((a['resource'] or {}).get(key,0) for a in attempts)
+               for key in ('cpu_us','wall_ns','native_wall_ns')}
         return {'attempts':attempts,'spent':spent,'tail':tail,
                 'remaining_known':all(a['finish'] is not None and a['finish']['resource_evidence']=='VERIFIED' for a in attempts)}
 
@@ -309,6 +310,7 @@ class FamilyStore:
             require(state['remaining_known'],'FAMILY_ALREADY_FAILED')
             require(state['spent']['cpu_us']<600000000,'RESOURCE_CPU_LIMIT')
             require(state['spent']['wall_ns']<900000000000,'RESOURCE_WALL_LIMIT')
+            require(state['spent']['native_wall_ns']<300000000000,'NATIVE_WALL_LIMIT')
             aid=str(uuid.uuid4())
             payload={'attempt_id':aid,'kind':kind,'ordinal':len(previous),'replay_of':replay_of}
             self.qualification('START',payload)
@@ -337,9 +339,10 @@ class FamilyStore:
             self.qualification('RESOURCE',payload)
             total_cpu=state['spent']['cpu_us']-previous['cpu_us']+cpu_us
             total_wall=state['spent']['wall_ns']-previous['wall_ns']+wall_ns
+            total_native=state['spent']['native_wall_ns']-previous['native_wall_ns']+native_wall_ns
             require(total_cpu<=600000000,'RESOURCE_CPU_LIMIT')
             require(total_wall<=900000000000,'RESOURCE_WALL_LIMIT')
-            require(native_wall_ns<=300000000000,'NATIVE_WALL_LIMIT')
+            require(total_native<=300000000000,'NATIVE_WALL_LIMIT')
             return result
 
     def runtime(self,aid,receipt_ref,observed_image):
@@ -358,6 +361,7 @@ class FamilyStore:
             if state=='SUCCESS':
                 require(data['spent']['cpu_us']<=600000000,'RESOURCE_CPU_LIMIT')
                 require(data['spent']['wall_ns']<=900000000000,'RESOURCE_WALL_LIMIT')
+                require(data['spent']['native_wall_ns']<=300000000000,'NATIVE_WALL_LIMIT')
                 require((a['resource'] or {}).get('native_wall_ns',300000000001)<=300000000000,'NATIVE_WALL_LIMIT')
                 require(type(packet_id) is str and re.fullmatch(r'[0-9a-f]{64}',packet_id),'SEMANTIC_INTEGRITY')
                 require(resource_evidence=='VERIFIED' and completed_accounts==7 and len(a['accounts'])==7
