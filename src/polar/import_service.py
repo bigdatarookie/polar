@@ -8,6 +8,7 @@ import platform
 import sys
 import time
 import uuid
+from email.utils import parsedate_to_datetime
 
 from .history_bundle import read_file,safe_root
 from .import_contract import (ADAPTER, ENDPOINT, POLICY, MAX_FILE, ImportError, require, exact, config,
@@ -247,6 +248,11 @@ class ImportService:
             except (TypeError,ValueError): return None
             return value if math.isfinite(value) and value>=0 else None
         reset,after = duration("ratelimit-reset"),duration("retry-after")
+        if after is None and "retry-after" in headers:
+            try:
+                date=parsedate_to_datetime(headers["retry-after"])
+                if date.tzinfo is not None:after=max(0.,date.timestamp()-seconds(response["completed_at"]))
+            except (TypeError,ValueError,OverflowError):pass
         waits = [0.]
         if response["status"]==429:
             waits += [max(reset or 0,after or 0,60 if reset is None and after is None else 0)+1]
@@ -316,6 +322,7 @@ class ImportService:
             reason = "AUTH_SCOPE_PAUSED" if self.store.exists("auth-pause.json") else "NO_PENDING_WORK"
             interrupted = False
             run_begin = self.clock.monotonic()
+            monotonic_deadline=run_begin+max(0.,seconds(budget["deadline"])-self.clock.now())
             try:
                 cache = self.store.commits()
                 states = self.states(plan,cache,records)
@@ -343,30 +350,36 @@ class ImportService:
                     if total_bytes+2*1024**2>32*1024**2: reason="RESPONSE_BYTE_BUDGET";break
                     deadline = seconds(budget["deadline"])
                     throttle = self.store.read("throttle.json") if self.store.exists("throttle.json") else None
+                    if throttle and self.clock.now()<throttle["last_observed_time"]:
+                        reason="CLOCK_ROLLBACK_REQUIRES_RECONCILIATION";break
                     gate = (throttle["next_start"] if throttle else self.clock.now()+60)
                     recent = [seconds(s["started_at"]) for s,_ in records if seconds(s["started_at"])>self.clock.now()-60]
                     if len(recent)>=25: gate=max(gate,sorted(recent)[-25]+60+1)
                     if gate>self.clock.now():
-                        if gate>=deadline: reason="MANDATED_WAIT_EXCEEDS_DEADLINE";break
+                        if gate>=deadline or gate-self.clock.now()>=monotonic_deadline-self.clock.monotonic():
+                            reason="MANDATED_WAIT_EXCEEDS_DEADLINE";break
                         wait = gate-self.clock.now()
                         while self.clock.now()<gate:
+                            if self.clock.monotonic()>=monotonic_deadline:break
                             control = self.store.read("control.json") if self.store.exists("control.json") else {}
                             if control.get("action") in ("pause","stop"): break
                             step=min(1,gate-self.clock.now())
                             self.clock.sleep(step);stats["throttle_seconds"]+=step
                         if control.get("action") in ("pause","stop"):
                             reason="CONTROL_"+control["action"].upper();break
-                    if self.clock.now()>=deadline: reason="OPERATION_DEADLINE";break
+                    if self.clock.now()>=deadline or self.clock.monotonic()>=monotonic_deadline:
+                        reason="OPERATION_DEADLINE";break
                     rid = str(uuid.uuid4())
                     reqs = [j["request"] for j in batch]
                     start = {"schema":"polar.import-request-start/1","request_id":rid,"attempt_id":aid,
                              "job_ids":[j["job_id"] for j in batch],"requests":reqs,"wire_sha256":sha(canonical(reqs)),
-                             "started_at":timestamp(self.clock.now()),"request_timeout_seconds":min(45,deadline-self.clock.now())}
+                             "started_at":timestamp(self.clock.now()),"request_timeout_seconds":min(45,deadline-self.clock.now(),monotonic_deadline-self.clock.monotonic())}
                     self.store.write("requests/"+rid+".json",start)  # consumes budget before POST
                     throttle = {"next_start":self.clock.now()+3,"last_observed_time":self.clock.now()}
                     self.store.write("throttle.json",throttle,replace=True)
                     before = self.clock.monotonic()
                     result = transport.post(reqs,len(records),start["request_timeout_seconds"])
+                    if self.clock.now()<seconds(start["started_at"]):result["error"]="CLOCK_ROLLBACK"
                     stats["request_seconds"] += self.clock.monotonic()-before
                     local = self.clock.monotonic()
                     body = self.store.object(result.pop("body"))
@@ -384,6 +397,7 @@ class ImportService:
                     self.store.checkpoint(pid,{"plan_id":pid,"attempt_id":aid,"counts":current["counts"],
                                               "physical_posts":current["scope_physical_posts"],"at":timestamp(self.clock.now())})
                     stats["local_processing_seconds"] += self.clock.monotonic()-local
+                    if response["error"]=="CLOCK_ROLLBACK":reason="CLOCK_ROLLBACK_REQUIRES_RECONCILIATION";break
                     if outcome["scope_pause"]: reason="AUTH_SCOPE_PAUSED";break
                     retry = [j for j in batch if current["states"][j["job_id"]]["retry_eligible"]]
                     if outcome["split"]: queue.extend([[j] for j in retry])

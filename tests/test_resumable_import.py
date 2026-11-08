@@ -84,6 +84,14 @@ class LoaderFixtures(unittest.TestCase):
         self.assertEqual(result["reason"],"MANDATED_WAIT_EXCEEDS_DEADLINE")
         self.assertEqual(self.service.status(pid)["scope_physical_posts"],1)
 
+    def test_retry_after_http_date_is_not_shortened(self):
+        pid=self.plan()
+        result=self.run_fixture(pid,[{"status":429,"headers":{"retry-after":"Thu, 01 Jan 2026 01:00:00 GMT"}}])
+        self.assertEqual(result["reason"],"MANDATED_WAIT_EXCEEDS_DEADLINE")
+        result=self.run_fixture(pid,[])
+        self.assertEqual(result["reason"],"MANDATED_WAIT_EXCEEDS_DEADLINE")
+        self.assertEqual(self.service.status(pid)["scope_physical_posts"],1)
+
     def test_four_started_appearances_exhaust_without_reset(self):
         pid=self.plan()
         result=self.run_fixture(pid,[{"error":"TIMEOUT","status":None} for _ in range(4)])
