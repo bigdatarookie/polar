@@ -125,6 +125,31 @@ class LoaderFixtures(unittest.TestCase):
         self.assertEqual(state["counts"]["success"],1)
         self.assertIsNotNone(state["scope_paused"])
 
+    def test_unknown_warning_is_not_reusable_no_match(self):
+        pid=self.plan()
+        result=self.run_fixture(pid,[{"body":[{"warning":"INVENTED_UNRESOLVED_WARNING"}]}])
+        self.assertEqual(result["counts"]["success"],0)
+        self.assertEqual(result["counts"]["no_match"],0)
+
+    def test_physical_budget_survives_plan_change(self):
+        pid=self.plan()
+        old=request("INVENTED-OTHER")
+        for _ in range(160):
+            rid=str(uuid.uuid4())
+            self.store.write("requests/"+rid+".json",{"schema":"polar.import-request-start/1","request_id":rid,
+                "attempt_id":str(uuid.uuid4()),"job_ids":[job_id(old)],"requests":[old],"wire_sha256":sha(canonical([old])),
+                "started_at":timestamp(START),"request_timeout_seconds":45})
+        self.assertEqual(self.run_fixture(pid,[])["reason"],"PHYSICAL_POST_BUDGET")
+        self.assertEqual(self.service.status(pid)["scope_physical_posts"],160)
+
+    def test_original_operation_deadline_not_renewed(self):
+        pid=self.plan(100)
+        result=self.run_fixture(pid,[{"status":503,"duration_seconds":45} for _ in range(25)])
+        self.assertIn(result["reason"],("OPERATION_DEADLINE","OPERATION_DEADLINE_EXCEEDED","MANDATED_WAIT_EXCEEDS_DEADLINE"))
+        before=self.service.status(pid)["scope_physical_posts"]
+        self.run_fixture(pid,[{"status":503,"duration_seconds":45} for _ in range(25)])
+        self.assertEqual(self.service.status(pid)["scope_physical_posts"],before)
+
     def test_success_before_checkpoint_interrupt_reuses_result(self):
         pid=self.plan()
         original=self.store.checkpoint
@@ -206,7 +231,7 @@ class ProducerMigration(unittest.TestCase):
         self.root=Path(self.temp.name).resolve()
         self.store=ImportStore(self.root,64*1024**3,fixture=True)
 
-    def fixture(self,conflict=False,escape=False,bad_position=False):
+    def fixture(self,conflict=False,escape=False,bad_position=False,missing_root=False):
         sample=self.root/"sample";sample.mkdir()
         roster=self.root/"roster";roster.mkdir()
         a,b,c=[request("INVENTED-"+s) for s in "ABC"]
@@ -235,6 +260,8 @@ class ProducerMigration(unittest.TestCase):
             # Both versions are preserved across the two source envelopes.
             jobs={a["idValue"]:own}
         else:jobs[b["idValue"]]=own
+        if missing_root:
+            for entry in jobs.values():entry.pop("capture_root")
         ancestor=wire({"invented":"dated population, not transport jobs"});(self.root/"ancestor.json").write_bytes(ancestor)
         root_hash=manifest(roster,{"job-results.json":wire(jobs),"receipts.json":wire([own_receipt,failed_receipt]),
                                   "responses/batch-0000.json":body,"responses/batch-0001.json":bad},
@@ -267,6 +294,11 @@ class ProducerMigration(unittest.TestCase):
 
     def test_bad_position_rejected_without_guessing(self):
         with self.assertRaises(ImportError):migration(self.fixture(bad_position=True),self.store)
+
+    def test_old_missing_root_resolves_unique_pinned_position(self):
+        result=migration(self.fixture(missing_root=True),self.store)
+        self.assertEqual(result["imported_jobs"],2)
+        self.assertEqual(result["no_match"],1)
 
 
 if __name__=="__main__":unittest.main()

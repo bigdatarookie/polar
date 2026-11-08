@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 ENDPOINT = "https://api.openfigi.com/v3/mapping"
 ADAPTER = "openfigi-ticker-us-unlisted/1"
 PROFILE = "anonymous-per-ip/1"
+ROUTE_POLICY = "4e8032ce5268d9838b027d3ec9c7287c4702a2cc75b5f618b6caad9a279ba4db"
 MAX_FILE = 32*1024**2
 MAX_RESPONSE = 2*1024**2
 MAX_NEW_BYTES = 32*1024**2
@@ -138,4 +139,6 @@ def config(value):
     require(len(set(ids)) == len(ids), "IMPORT_DUPLICATE_JOB")
     exact(value["route_evidence"], {"path", "sha256"})
     hash_value(value["route_evidence"]["sha256"])
+    if value["mode"]=="provider":
+        require(value["route_evidence"]["sha256"]==ROUTE_POLICY,"IMPORT_ROUTE_POLICY_NOT_BOUND")
     return value

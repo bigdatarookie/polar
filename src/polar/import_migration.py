@@ -89,7 +89,25 @@ def migration(config, store):
             entries = decode(files[str(prefix/"job-results.json")])
             require(type(entries) is dict,"IMPORT_MIGRATION_JOBS")
         for symbol,entry in entries.items():
-            capture = roots.get(entry["capture_root"])
+            if "capture_root" in entry:
+                capture = roots.get(entry["capture_root"])
+            else:
+                # Older roster01 omitted the root. Resolve only a unique pinned
+                # member/body/request-position witness, never a ticker heuristic.
+                candidates=[]
+                for candidate in roots.values():
+                    name=entry["source"]
+                    if name not in candidate["files"] or sha(candidate["files"][name])!=entry["source_sha256"]:continue
+                    if candidate["manifest"]["schema"]=="polar.current-class-sample-content/1":
+                        reqs=candidate["sample_requests"]
+                    else:
+                        rec=candidate["receipt_by_source"].get(name)
+                        if rec is None:continue
+                        reqs=rec["request_body"]
+                    pos=entry["job_ordinal"]
+                    if type(pos) is int and 0<=pos<len(reqs) and reqs[pos]==request(symbol):candidates.append(candidate)
+                require(len(candidates)==1,"IMPORT_CAPTURE_ROOT_AMBIGUOUS")
+                capture=candidates[0]
             require(capture is not None,"IMPORT_CAPTURE_ROOT_NOT_ALLOWED")
             source = relative(entry["source"])
             require(source in capture["files"],"IMPORT_SOURCE_NOT_MANIFEST_MEMBER")
@@ -132,6 +150,7 @@ def migration(config, store):
                 version["sources"] = [aliases[k] for k in sorted(aliases)]
             versions[item_hash] = version
     record = {"schema":"polar.import-cache-commit/1","jobs":{k:list(v.values()) for k,v in sorted(jobs.items())},
+              "migration_code_sha256":sha(Path(__file__).read_bytes()),
               "migration":{"config":config,"inventory":inventory,"historical_requests":historical,
                            "historical_job_appearances_minimum":appearances,
                            "historical_attempts_exact":None,"historical_counts_meaning":"KNOWN_RECEIPTS_MINIMUM_NOT_RESET",
