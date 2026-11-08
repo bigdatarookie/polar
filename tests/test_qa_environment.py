@@ -228,18 +228,26 @@ def test_real_export_helper_without_docker(fixture):
     from polar.qa_environment import Commands, exported, verify_source
     import subprocess
     e,cfg,d=fixture
-    # Reuse exact accepted local Git objects. No checkout/index change or image/API call.
-    repository=Path(__file__).resolve().parents[1]
-    pin=subprocess.check_output(['git','-C',str(repository),'rev-parse','HEAD']).decode().strip()
-    tree=subprocess.check_output(['git','-C',str(repository),'rev-parse','HEAD^{tree}']).decode().strip()
-    blob=subprocess.check_output(['git','-C',str(repository),'show',pin+':src/polar/schema.sql'])
-    cfg={**cfg,'repository':str(repository),'commit':pin,'tree':tree,'source_schema_sha256':sha(blob)}
+    # A disposable literal Git repository, independent of mutable checkout HEAD.
+    # No owner repository/index/branch write or image/API call.
+    repository=Path(cfg['repository'])
+    (repository/'src/polar').mkdir(parents=True)
+    (repository/'src/polar/schema.sql').write_bytes(b'synthetic-schema')
+    (repository/'pyproject.toml').write_text('[project]\nname="literal-qa"\n')
+    def git(*args):
+        return subprocess.check_output(['git','-C',str(repository),*args],stderr=subprocess.DEVNULL).decode().strip()
+    git('init','-q');git('add','src/polar/schema.sql','pyproject.toml')
+    git('-c','user.name=QA Fixture','-c','user.email=qa@example.invalid','commit','-qm','literal fixture')
+    pin=git('rev-parse','HEAD');tree=git('rev-parse','HEAD^{tree}')
+    cfg={**cfg,'commit':pin,'tree':tree}
     e.root.mkdir()
     exported(cfg,e.root/'source',Commands())
     result=verify_source(cfg,e.root)
     assert len(result)==64
-    # Evidence retained for this test until pytest's normal temporary-directory lifecycle.
-    assert not (e.root/'source/src/polar/qa_environment.py').exists()
+    manifest=decode(read(e.root/'source/SOURCE-MANIFEST.json'))
+    assert manifest['commit']==pin and manifest['tree']==tree
+    assert {r['path'] for r in manifest['files']}=={'src/polar/schema.sql','pyproject.toml'}
+
 
 
 def test_docker_command_contract_without_daemon(fixture):
