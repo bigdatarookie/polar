@@ -1,5 +1,6 @@
 """Installed fixed-run/replay operations; no scheduler, DB, dynamic strategy or financial PASS."""
 import importlib.metadata
+import json
 import multiprocessing
 import os
 import platform
@@ -46,7 +47,7 @@ class GymService:
     def runtime(self,ref):
         raw=read_ref(ref)
         if sha(raw)!=COMPOSITION_SHA:raise GymError('COMPOSITION_LOCK_MISMATCH')
-        lock=decode(raw)
+        lock=json.loads(raw)  # Exact SHA-pinned build metadata includes physical float timings, never finance inputs.
         import sys
         if not sys.version.startswith('3.13.') or platform.machine()!='aarch64' or platform.system()!='Linux':raise GymError('NATIVE_PLATFORM_MISMATCH')
         for name,version in lock['packages'].items():

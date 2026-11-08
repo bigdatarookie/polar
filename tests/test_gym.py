@@ -150,6 +150,17 @@ def test_huge_exponent_is_bounded_before_fraction_expansion():
     with pytest.raises(GymError,match='BOUND'):fraction('1e999999999')
     with pytest.raises(GymError,match='BOUND'):fraction('1e-999999999')
 
+def test_pinned_runtime_metadata_float_timings_are_not_finance(monkeypatch,tmp_path):
+    import polar.gym_service as service
+    proof={'packages':{},'runtime_files':{},'wall_seconds':1.5}
+    raw=canonical(proof);p=tmp_path/'proof';p.write_bytes(raw)
+    monkeypatch.setattr(service,'COMPOSITION_SHA',sha(raw))
+    monkeypatch.setattr(service.platform,'machine',lambda:'aarch64')
+    monkeypatch.setattr(service.platform,'system',lambda:'Linux')
+    result=GymService(GymStore(tmp_path.resolve(),1024**2)).runtime({'path':str(p.resolve()),'sha256':sha(raw)})
+    assert result['sha256']==sha(raw)
+    with pytest.raises(GymError):decode(raw)
+
 # Native author tests are opt-in, bounded in PREINVOCATION.md; no retained source input.
 @pytest.mark.skipif(os.environ.get('POLAR_GYM_NATIVE_TEST')!='1',reason='requires pinned isolated native image')
 def test_native_invented_pair_and_fresh_replay(data):
