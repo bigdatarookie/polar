@@ -287,3 +287,15 @@ def test_bounded_probe_closed_loopback_reaps_child():
         with pytest.raises(Gap,match='HTTP_PROBE_FAILED'):
             bounded_probe('http://127.0.0.1:'+str(port),time.monotonic()+5)
         assert {p.pid for p in multiprocessing.active_children()}==before
+
+
+def test_failed_result_preserved_across_recovery_and_cleanup(fixture):
+    e,cfg,d=fixture;d.fail='create'
+    e.prepare(cfg)
+    previous=decode(read(e.root/'state.json'))['last_result_ref']
+    failed=read(e.root/previous)
+    d.fail=None
+    a=e.prepare(cfg);clean(e,a)
+    assert read(e.root/previous)==failed
+    assert decode(failed)['status']=='NOT_PREPARED'
+    assert len(list(e.root.glob('result-*.json')))==3

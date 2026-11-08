@@ -394,6 +394,10 @@ class Environment:
                   'operation': owner['operation'], 'config_sha256': owner['config_sha256'],
                   'root': str(self.root), 'resources': dict(state['resources']),
                   'db_readiness': 'NOT_APPLICABLE', 'qa_verdict': 'NOT_RUN', **extra}
+        result['observed_at'] = datetime.now(timezone.utc).isoformat()
+        result_file = 'result-'+str(uuid.uuid4())+'.json'
+        write(self.root/result_file, result, exclusive=True)
+        state['last_result_ref'] = result_file
         state['last_result'] = result
         self.save(state)
         return result

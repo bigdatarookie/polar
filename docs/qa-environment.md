@@ -51,7 +51,8 @@ root, full container/network IDs, endpoint, image/commit/tree, source manifest,
 schema and synthetic fixture hashes, observed OpenAPI hash, and readiness scope.
 Root files are strict JSON: `owner.json` (`polar.qa-environment-owner/1`),
 `config.json` (`polar.qa-environment-config/1`), and `state.json`
-(`polar.qa-environment-state/1`). State retains the latest result, attempt count,
+(`polar.qa-environment-state/1`). Every completed result is retained in an exclusive result-UUID.json file,
+including failed setup/cleanup results. State retains its reference, the latest result, attempt count,
 phase, actual resource IDs, local daemon socket, host observation and next safe
 reconciliation evidence. These describe one environment; they are not an agent
 work queue or controller. Native OpenRig retains work ownership.
