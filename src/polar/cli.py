@@ -47,6 +47,12 @@ def main(argv=None):
         if name == "gym-replay": gym.add_argument("experiment_id")
     subs.add_parser("gym-attempt").add_argument("attempt_id")
     subs.add_parser("gym-report").add_argument("experiment_id")
+    partial = subs.add_parser("hyp003-prepare")
+    partial.add_argument("config_file", type=Path)
+    partial.add_argument("--output-dir", type=Path, required=True)
+    partial = subs.add_parser("hyp003-preparation-report")
+    partial.add_argument("preparation_id")
+    partial.add_argument("--output-dir", type=Path, required=True)
     subs.add_parser("history-experiment").add_argument("config_file", type=Path)
     historical = subs.add_parser("history-register")
     historical.add_argument("directory", type=Path)
@@ -69,6 +75,26 @@ def main(argv=None):
     compare.add_argument("left",type=uuid.UUID)
     compare.add_argument("right",type=uuid.UUID)
     args = parser.parse_args(argv)
+    if args.command.startswith("hyp003-"):
+        from .hyp003_preparation import prepare_partial_input, write_preparation, read_preparation
+        from .hyp003_source import PreparationError, Sources, CONFIG_LIMIT, decode
+        from .history_bundle import HistoryError
+        try:
+            if args.command == "hyp003-prepare":
+                path=args.config_file.absolute()
+                raw,_=Sources().read(path.parent,path.name,CONFIG_LIMIT)
+                prepared=prepare_partial_input(decode(raw))
+                import hashlib
+                prepared['physical']['config_source_sha256']=hashlib.sha256(raw).hexdigest()
+                result=write_preparation(prepared,args.output_dir)
+            else:
+                result=read_preparation(args.output_dir,args.preparation_id)
+            print(json.dumps(result,sort_keys=True,allow_nan=False))
+        except (PreparationError,HistoryError,OSError,ValueError,TypeError) as exc:
+            code=exc.code if isinstance(exc,PreparationError) else "HYP003_INPUT_OR_OUTPUT_UNAVAILABLE"
+            print(json.dumps({"schema":"polar.hyp003-preparation-error/1","status":"ERROR","code":code}),file=sys.stderr)
+            raise SystemExit(1)
+        return
     if args.command.startswith("gym-"):
         from .gym_contract import GymError, MAX_BYTES, decode
         try:
