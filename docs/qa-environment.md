@@ -97,3 +97,19 @@ storage policy remains an operational obligation; the helper does not claim a
 global storage attribution it cannot observe. It adds no fixed project CPU/RAM
 quota. Source export has its own existing per-Git-command bounds. The helper disables
 image healthchecks. Host Python version/executable hash is retained in state.
+
+Command stdout now uses a bounded pipe drain, with at most1MiB retained and one
+discarded overflow-detection byte. Excess triggers immediate owned process-group
+termination and parent reaping; no unrestricted stdout temporary file is created.
+The command deadline also covers descendants holding stdout after parent exit.
+
+The exact image's complete Config.Env is merged with the fixed inert overrides
+used by create_api. Its canonical map hash is persisted, without environment
+values, and must match the container's complete effective environment before
+adoption, start or cleanup. Missing/extra/altered/duplicate entries reject; a
+container with correct labels/image/mounts but wrong environment is not adopted.
+An older root lacking this hash requires exact local-image derivation first;
+unavailable/conflicting image evidence fails closed. Failure receipts may update
+custody evidence, but invalid recovered containers are never started/removed or
+recorded as accepted resource IDs. Runtime/System qualification remains separate;
+this source correction performs no Docker or deployment operation.

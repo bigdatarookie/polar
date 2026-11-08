@@ -3,10 +3,12 @@ import copy
 from pathlib import Path
 import time
 import pytest
-from polar.qa_environment import Environment, Gap, FIXTURE, sha, raw, write, decode, read, config
+from polar.qa_environment import (Environment, Gap, FIXTURE, INERT_ENV, sha, raw, write,
+                                  decode, read, config, environment_map)
 
 IMAGE = 'sha256:'+'a'*64
 NET, API = 'b'*64, 'c'*64
+IMAGE_ENV = ['PATH=/image/bin', 'PYTHONPATH=/image-default']
 
 
 class Commands:
@@ -23,6 +25,7 @@ class Daemon:
     def image(self, image_id):
         if self.volumes:
             raise Gap('IMAGE_VOLUMES_NOT_PREPARED')
+        return sha(raw({**environment_map(IMAGE_ENV), **INERT_ENV}))
 
     def find(self, kind, name):
         row = self.rows.get(kind)
@@ -39,6 +42,7 @@ class Daemon:
             raise Gap('COMMAND_FAILED')
         self.rows['api'] = {'Name': '/'+name, 'Id': API, 'Image': IMAGE,
             'Config': {'Labels': labels, 'User': '10001:10001', 'Entrypoint': ['python'],
+                       'Env': [k+'='+v for k,v in {**environment_map(IMAGE_ENV),**INERT_ENV}.items()],
                        'Cmd': ['-m','uvicorn','polar.api:app','--host','0.0.0.0','--port','8000']},
             'HostConfig': {'ReadonlyRootfs': True, 'Privileged': False, 'NetworkMode': network,
                            'CapDrop': ['ALL'], 'SecurityOpt': ['no-new-privileges'],
@@ -299,3 +303,107 @@ def test_failed_result_preserved_across_recovery_and_cleanup(fixture):
     assert read(e.root/previous)==failed
     assert decode(failed)['status']=='NOT_PREPARED'
     assert len(list(e.root.glob('result-*.json')))==3
+
+
+@pytest.mark.parametrize('fault', ['altered','missing','extra','duplicate'])
+def test_unbound_recovery_environment_rejects_without_resource_mutation(fixture,fault):
+    e,cfg,d=fixture;a=e.prepare(cfg)
+    state=decode(read(e.root/'state.json'));state['resources'].pop('api')
+    write(e.root/'state.json',state)
+    d.rows['api']['State']['Running']=False
+    entries=d.rows['api']['Config']['Env']
+    if fault=='altered':
+        entries[:]=['POLAR_DATABASE_URL=postgresql://owner.invalid/private' if x.startswith('POLAR_DATABASE_URL=') else x for x in entries]
+    if fault=='missing':
+        entries[:]=[x for x in entries if not x.startswith('POLAR_DB_PASSWORD_FILE=')]
+    if fault=='extra':entries.append('POLAR_OWNER_DATA=/owner')
+    if fault=='duplicate':entries.append(entries[0])
+    before=list(d.calls)
+    assert e.prepare(cfg)['status']=='NOT_PREPARED'
+    assert 'api' not in decode(read(e.root/'state.json'))['resources']
+    assert clean(e,a)['status']=='NOT_CLEANED'
+    assert 'api' not in decode(read(e.root/'state.json'))['resources']
+    assert d.calls==before and d.rows['api']['State']['Running'] is False
+
+
+def test_legacy_missing_environment_binding_derived_before_adoption(fixture):
+    e,cfg,d=fixture;a=e.prepare(cfg)
+    state=decode(read(e.root/'state.json'));state.pop('expected_environment_sha256')
+    write(e.root/'state.json',state)
+    assert clean(e,a)['status']=='CLEANED'
+    assert decode(read(e.root/'state.json'))['expected_environment_sha256']==sha(raw({**environment_map(IMAGE_ENV),**INERT_ENV}))
+
+
+def test_exact_image_environment_merge_and_hash_without_docker(fixture):
+    from polar.qa_environment import Docker
+    e,cfg,d=fixture
+    class Image:
+        def run(self,argv):
+            return raw([{'Id':IMAGE,'Config':{'Env':IMAGE_ENV,'Volumes':None}}])
+    expected=Docker(Image(),'unix:///fake.sock').image(IMAGE)
+    assert expected==sha(raw({**environment_map(IMAGE_ENV),**INERT_ENV}))
+    assert INERT_ENV['PYTHONPATH']=='/candidate/src'
+
+
+@pytest.mark.parametrize('bad', [False,0,{},'', ['A=1','A=2'], ['MISSING_EQUALS']])
+def test_malformed_environment_is_not_falsey_absence(bad):
+    with pytest.raises(Gap,match='ENVIRONMENT_INVALID'):environment_map(bad)
+
+
+def test_command_exact_output_bound_and_no_spool(monkeypatch):
+    import sys
+    from polar import qa_environment as module
+    def forbidden(*args,**kwargs):raise AssertionError('STDOUT_SPOOL_FORBIDDEN')
+    monkeypatch.setattr(module.tempfile,'TemporaryFile',forbidden)
+    value=module.Commands().run([sys.executable,'-c','import os;os.write(1,b"x"*1048576)'])
+    assert len(value)==module.LIMIT
+
+
+def test_command_overflow_immediately_reaps_owned_child_without_spool(monkeypatch):
+    import sys,subprocess
+    from polar import qa_environment as module
+    spawned=[];original=subprocess.Popen
+    def capture(*args,**kwargs):
+        child=original(*args,**kwargs);spawned.append(child);return child
+    monkeypatch.setattr(module.subprocess,'Popen',capture)
+    monkeypatch.setattr(module.tempfile,'TemporaryFile',lambda *a,**k: (_ for _ in ()).throw(AssertionError('NO_SPOOL')))
+    with pytest.raises(Gap,match='COMMAND_OUTPUT_BOUND'):
+        module.Commands().run([sys.executable,'-c','import os,time;os.write(1,b"x"*4194304);time.sleep(10)'])
+    assert len(spawned)==1 and spawned[0].returncode is not None and spawned[0].stdout.closed
+
+
+def test_command_nonzero_and_deadline_reap(monkeypatch):
+    import sys,subprocess
+    from polar import qa_environment as module
+    spawned=[];original=subprocess.Popen
+    def capture(*args,**kwargs):
+        child=original(*args,**kwargs);spawned.append(child);return child
+    monkeypatch.setattr(module.subprocess,'Popen',capture)
+    with pytest.raises(Gap,match='COMMAND_FAILED'):
+        module.Commands().run([sys.executable,'-c','raise SystemExit(7)'])
+    command=module.Commands();command.end=time.monotonic()+.15
+    with pytest.raises(Gap,match='COMMAND_DEADLINE'):
+        command.run([sys.executable,'-c','import time;time.sleep(10)'])
+    assert all(p.returncode is not None and p.stdout.closed for p in spawned)
+
+
+def test_command_parent_exit_does_not_evade_pipe_deadline(monkeypatch):
+    import sys,subprocess
+    from polar import qa_environment as module
+    original=subprocess.Popen;spawned=[]
+    def capture(*args,**kwargs):
+        child=original(*args,**kwargs);spawned.append(child);return child
+    monkeypatch.setattr(module.subprocess,'Popen',capture)
+    command=module.Commands();command.end=time.monotonic()+.5
+    code='import subprocess,sys;subprocess.Popen([sys.executable,"-c","import time;time.sleep(10)"])'
+    with pytest.raises(Gap,match='COMMAND_DEADLINE'):
+        command.run([sys.executable,'-c',code])
+    assert len(spawned)==1 and spawned[0].returncode is not None and spawned[0].stdout.closed
+
+
+def test_image_falsey_environment_does_not_become_empty():
+    from polar.qa_environment import Docker
+    class Image:
+        def run(self,argv):return raw([{'Id':IMAGE,'Config':{'Env':False,'Volumes':None}}])
+    with pytest.raises(Gap,match='ENVIRONMENT_INVALID'):
+        Docker(Image(),'unix:///fake.sock').image(IMAGE)

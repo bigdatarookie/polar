@@ -7,6 +7,7 @@ import multiprocessing
 import os
 from pathlib import Path
 import re
+import selectors
 import shutil
 import signal
 import stat
@@ -131,26 +132,67 @@ class Commands:
     def run(self, argv):
         remaining = min(30, self.end-time.monotonic())
         require(remaining > 0, 'INVOCATION_DEADLINE')
-        with tempfile.TemporaryFile() as out:
+        try:
+            p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                 start_new_session=True)
+        except OSError:
+            raise Gap('COMMAND_UNAVAILABLE') from None
+        end = time.monotonic()+remaining
+        output = bytearray()
+        selector = selectors.DefaultSelector()
+        try:
+            selector.register(p.stdout, selectors.EVENT_READ)
+            while True:
+                left = end-time.monotonic()
+                require(left > 0, 'COMMAND_DEADLINE')
+                if not selector.select(min(.1, left)):
+                    continue
+                # Never spool stdout. One extra detection byte is discarded,
+                # and overflow immediately enters owned group termination.
+                chunk = os.read(p.stdout.fileno(), min(65536, LIMIT-len(output)+1))
+                if not chunk:
+                    break
+                require(len(chunk) <= LIMIT-len(output), 'COMMAND_OUTPUT_BOUND')
+                output.extend(chunk)
             try:
-                p = subprocess.Popen(argv, stdout=out, stderr=subprocess.DEVNULL,
-                                     start_new_session=True)
-            except OSError:
-                raise Gap('COMMAND_UNAVAILABLE') from None
-            try:
-                end = time.monotonic()+remaining
-                while p.poll() is None:
-                    require(time.monotonic() < end, 'COMMAND_DEADLINE')
-                    require(os.fstat(out.fileno()).st_size <= LIMIT, 'COMMAND_OUTPUT_BOUND')
-                    time.sleep(.025)
-                require(p.returncode == 0, 'COMMAND_FAILED')
-                out.seek(0); data = out.read(LIMIT+1)
-                require(len(data) <= LIMIT, 'COMMAND_OUTPUT_BOUND')
-                return data
-            finally:
-                if p.poll() is None:
+                code = p.wait(timeout=max(.001, end-time.monotonic()))
+            except subprocess.TimeoutExpired:
+                raise Gap('COMMAND_DEADLINE') from None
+            require(code == 0, 'COMMAND_FAILED')
+            return bytes(output)
+        finally:
+            selector.close()
+            p.stdout.close()
+            # Until wait() we retain the parent's PID even if it exited;
+            # descendants holding stdout cannot evade the group deadline.
+            if p.returncode is None:
+                try:
                     os.killpg(p.pid, signal.SIGKILL)
-                    p.wait()
+                except ProcessLookupError:
+                    pass
+                p.wait()
+
+
+INERT_ENV = {
+    'PYTHONPATH': '/candidate/src', 'PYTHONDONTWRITEBYTECODE': '1',
+    'POLAR_ARTIFACT_ROOT': '/qa-empty',
+    'POLAR_DATABASE_URL': 'postgresql://127.0.0.1:1/qa?connect_timeout=1',
+    'POLAR_DB_PASSWORD_FILE': '/qa-absent',
+    'POLAR_HISTORY_CURSOR_KEY_FILE': '/qa-absent',
+    'POLAR_HISTORY_CALENDAR_DIR': '',
+}
+
+
+def environment_map(entries):
+    require(type(entries) is list and len(entries) <= 1024, 'ENVIRONMENT_INVALID')
+    result = {}
+    for item in entries:
+        require(type(item) is str and len(item) <= 65536 and '=' in item
+                and '\x00' not in item, 'ENVIRONMENT_INVALID')
+        key, value = item.split('=', 1)
+        require(key and len(key) <= 256 and key not in result, 'ENVIRONMENT_INVALID')
+        result[key] = value
+    return result
 
 
 class Docker:
@@ -169,6 +211,10 @@ class Docker:
         require(type(rows) is list and len(rows) == 1 and rows[0]['Id'] == image_id,
                 'IMAGE_NOT_AVAILABLE')
         require(not rows[0]['Config'].get('Volumes'), 'IMAGE_VOLUMES_NOT_PREPARED')
+        image_env = rows[0]['Config'].get('Env')
+        inherited = environment_map([] if image_env is None else image_env)
+        inherited.update(INERT_ENV)
+        return sha(raw(inherited))
 
     def find(self, kind, name):
         args = ['container', 'ls', '-a'] if kind == 'api' else ['network', 'ls']
@@ -200,12 +246,8 @@ class Docker:
                 '--mount', 'type=bind,src='+str(root/'empty')+',dst=/qa-empty,readonly']
         for k, v in sorted(labels.items()):
             args.extend(['--label', k+'='+v])
-        for item in ('PYTHONPATH=/candidate/src', 'PYTHONDONTWRITEBYTECODE=1',
-                     'POLAR_ARTIFACT_ROOT=/qa-empty',
-                     'POLAR_DATABASE_URL=postgresql://127.0.0.1:1/qa?connect_timeout=1',
-                     'POLAR_DB_PASSWORD_FILE=/qa-absent',
-                     'POLAR_HISTORY_CURSOR_KEY_FILE=/qa-absent', 'POLAR_HISTORY_CALENDAR_DIR='):
-            args.extend(['--env', item])
+        for key, value in INERT_ENV.items():
+            args.extend(['--env', key+'='+value])
         self.run(*args, cfg['image_id'], '-m', 'uvicorn', 'polar.api:app',
                  '--host', '0.0.0.0', '--port', '8000')
 
@@ -367,6 +409,8 @@ class Environment:
         if kind == 'net':
             require(row['Driver'] == 'bridge' and row['Internal'] is True, 'NETWORK_CONFLICT')
         else:
+            require(sha(raw(environment_map(row['Config'].get('Env')))) ==
+                    state.get('expected_environment_sha256'), 'CONTAINER_ENVIRONMENT_CONFLICT')
             h = row['HostConfig']
             require(row['Image'] == cfg['image_id'] and row['Config']['User'] == '10001:10001'
                     and row['Config']['Entrypoint'] == ['python']
@@ -438,7 +482,11 @@ class Environment:
                 self.docker = self.docker or Docker(self.commands, state.get('docker_endpoint'))
                 state['docker_endpoint'] = self.docker.endpoint
                 self.save(state)
-                self.docker.image(cfg['image_id'])
+                expected_env = self.docker.image(cfg['image_id'])
+                require(state.get('expected_environment_sha256', expected_env) == expected_env,
+                        'IMAGE_ENVIRONMENT_CONFLICT')
+                state['expected_environment_sha256'] = expected_env
+                self.save(state)
                 if not (self.root/'source').exists():
                     self.exporter(cfg, self.root/'source', self.commands)
                 manifest = verify_source(cfg, self.root)
@@ -500,6 +548,9 @@ class Environment:
                     'CLEANUP_IDENTITY_CONFLICT')
             try:
                 self.docker = self.docker or Docker(self.commands, state.get('docker_endpoint'))
+                if 'expected_environment_sha256' not in state:
+                    state['expected_environment_sha256'] = self.docker.image(cfg['image_id'])
+                    self.save(state)
                 _, net = self.resource(owner, state, cfg, 'net')
                 _, api = self.resource(owner, state, cfg, 'api')
                 # A foreign endpoint on our network blocks ALL deletion.
