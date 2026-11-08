@@ -6,7 +6,7 @@ USER root
 WORKDIR /app
 COPY src /app/src
 COPY pyproject.toml /app/pyproject.toml
-RUN python -c "from pathlib import Path; p=Path('/usr/local/bin/polar'); p.write_text('#!/usr/local/bin/python\nfrom polar.cli import main\nmain()\n'); p.chmod(0o555)"
+RUN python -c "from pathlib import Path; p=Path('/usr/local/bin/polar'); p.write_text('#!/usr/local/bin/python\nfrom polar.cli import main\nif __name__ == \"__main__\": main()\n'); p.chmod(0o555)"
 USER 10001
 ENTRYPOINT ["python", "-m", "polar.cli"]
 CMD ["--help"]
