@@ -20,6 +20,11 @@ def _evaluate(tape):
         except (GymError,ArithmeticError,ValueError):
             values.append(None);unavailable=metric(None,'INVALID','INVALID_NAV')
     if not rows: unavailable=metric(None,'INSUFFICIENT_EVIDENCE','MISSING_NAV_ENDPOINT')
+    # Domain failures outrank missing marks/endpoints; do not turn an invalid row into missing evidence.
+    if any(v is not None and v<=0 for v in values):
+        unavailable=metric(None,'INVALID','INVALID_NAV')
+    elif any(row['positions'].get(s,0) and row['marks'].get(s) is None for row in rows for s in SYMBOLS):
+        unavailable=metric(None,'INSUFFICIENT_EVIDENCE','MISSING_POSITION_MARK')
     for i in range(1,len(rows)):
         a,b=values[i-1:i+1];status='OK';reason=None;r=None
         if a is None or b is None: status='INSUFFICIENT_EVIDENCE';reason='MISSING_NAV_ENDPOINT'
@@ -37,7 +42,8 @@ def _evaluate(tape):
         metrics={name:dict(unavailable) for name in names}
         return {'strategy_id':tape['strategy_id'],'daily_returns':returns,'metrics':metrics,'details':details}
     def put(name,v): metrics[name]=metric(S(D(v)))
-    put('total_return',values[-1]/values[0]-1);put('final_NAV_USD',values[-1])
+    if len(rows)>1:put('total_return',values[-1]/values[0]-1)
+    put('final_NAV_USD',values[-1])
     elapsed=rows[-1]['nominal_ns']-rows[0]['nominal_ns']
     if elapsed<=0: metrics['CAGR']=metric(None,'INVALID','NONPOSITIVE_ELAPSED_TIME')
     else: metrics['CAGR']=metric(S(D(values[-1]/values[0]).__pow__(D(Fraction(31557600*10**9,elapsed)))-Decimal(1)))
@@ -104,7 +110,9 @@ def evaluate(simulation):
                     v=row['exact_fraction'];return Fraction(int(v['numerator']),int(v['denominator']))
                 r=f(z)-f(a)
                 paired.append(dict(start_nominal_ns=a['start_nominal_ns'],end_nominal_ns=a['end_nominal_ns'],exact_fraction=rational(r),decimal50=S(D(r)),status='OK',reason=None))
-            else: paired.append(dict(start_nominal_ns=a['start_nominal_ns'],end_nominal_ns=a['end_nominal_ns'],exact_fraction=None,decimal50=None,status='INSUFFICIENT_EVIDENCE',reason='DEPENDENCY_RETURN'))
+            else:
+                bad=min((v for v in (a,z) if v['status']!='OK'),key=lambda v:priority[v['status']])
+                paired.append(dict(start_nominal_ns=a['start_nominal_ns'],end_nominal_ns=a['end_nominal_ns'],exact_fraction=None,decimal50=None,status=bad['status'],reason='DEPENDENCY_'+bad['reason']))
     return {'schema':'polar.gym-evaluation/1','strategies':results,
             'benchmark_relative':{'order':'MONTHLY_MINUS_BUYHOLD','metrics':deltas,'paired_return_differences':paired},
             'financial_verdict':'INSUFFICIENT_EVIDENCE_ENGINEERING_DEMONSTRATION'}

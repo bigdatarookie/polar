@@ -161,6 +161,15 @@ def test_pinned_runtime_metadata_float_timings_are_not_finance(monkeypatch,tmp_p
     assert result['sha256']==sha(raw)
     with pytest.raises(GymError):decode(raw)
 
+def test_evaluator_single_endpoint_missing_mark_and_paired_invalid():
+    one=evaluate_strategy(tape(['100']))
+    assert one['metrics']['total_return']['reason']=='NO_RETURN_INTERVALS'
+    missing=tape(['100','100']);missing['nav'][1]['positions']['AAPL']=1
+    assert evaluate_strategy(missing)['metrics']['total_return']['reason']=='MISSING_POSITION_MARK'
+    a=tape(['100','0','100']);b=tape(['100',None,'100']);b['strategy_id']=STRATEGIES[1]
+    result=evaluate({'strategies':[a,b]})
+    assert result['benchmark_relative']['paired_return_differences'][0]['status']=='INVALID'
+
 # Native author tests are opt-in, bounded in PREINVOCATION.md; no retained source input.
 @pytest.mark.skipif(os.environ.get('POLAR_GYM_NATIVE_TEST')!='1',reason='requires pinned isolated native image')
 def test_native_invented_pair_and_fresh_replay(data):
