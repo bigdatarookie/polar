@@ -1,0 +1,10 @@
+# Local dependency tag must first be verified against the frozen composition receipt.
+ARG GYM_DEPENDENCIES=polar-local:gym-deps-nautilus-1.231.0
+FROM ${GYM_DEPENDENCIES}
+ENV PYTHONPATH=/app/src PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /app
+COPY src /app/src
+COPY pyproject.toml /app/pyproject.toml
+USER 10001
+ENTRYPOINT ["python", "-m", "polar.cli"]
+CMD ["--help"]
