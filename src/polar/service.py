@@ -52,6 +52,47 @@ class Service:
         store = DescriptiveStore(self.artifacts.root, self.artifacts.limit-db_bytes-1024**2)
         return DescriptiveService(self.history_registry, self.history_calendar_dir, store).run(config)
 
+    def _imports(self, fixture=False):
+        from .import_service import ImportService
+        from .import_store import ImportStore
+        return ImportService(ImportStore(self.artifacts.root,self.artifacts.limit,fixture=fixture))
+
+    def import_plan(self, config):
+        return self._imports(config.get("mode")=="fixture").plan(config)
+
+    def import_cache_import(self, config, fixture=False):
+        from .import_migration import migration
+        return migration(config,self._imports(fixture).store)
+
+    def import_status(self, plan_id):
+        return self._imports(plan_id.startswith("fixture-")).status(plan_id)
+
+    def import_result(self, plan_id, job_id):
+        return self._imports(plan_id.startswith("fixture-")).result(plan_id,job_id)
+
+    def import_execute(self, plan_id, *, fixture=None, network=False, attempt_id=None):
+        return self._imports(plan_id.startswith("fixture-")).execute(plan_id,fixture=fixture,network=network,attempt_id=attempt_id)
+
+    def import_attempt_path(self, plan_id, attempt_id):
+        return self._imports(plan_id.startswith("fixture-")).attempt_path(plan_id,attempt_id)
+
+    def import_attempts(self, plan_id):
+        return self._imports(plan_id.startswith("fixture-")).attempts(plan_id)
+
+    def import_control(self, plan_id, action):
+        return self._imports(plan_id.startswith("fixture-")).control(plan_id,action)
+
+    def import_terminal(self, plan_id, attempt_id, manifest_sha256):
+        from .import_contract import require
+        service = self._imports(plan_id.startswith("fixture-"))
+        service.load(plan_id)
+        manifest,state = service.terminal(attempt_id,manifest_sha256)
+        require(manifest["plan_id"]==plan_id,"IMPORT_TERMINAL_IDENTITY")
+        return {"schema":"polar.import-terminal-read/1","manifest":manifest,"state":state}
+
+    def import_consume(self, plan_id, attempt_id, manifest_sha256, assessment):
+        return self._imports(plan_id.startswith("fixture-")).consume(plan_id,attempt_id,manifest_sha256,assessment)
+
     def ready(self):
         self.registry.check()
         self.artifacts.check()

@@ -37,6 +37,24 @@ def main(argv=None):
     subs.add_parser("register").add_argument("file",type=Path)
     subs.add_parser("inspect-dataset").add_argument("file",type=Path)
     subs.add_parser("history-migrate")
+    subs.add_parser("import-plan").add_argument("file",type=Path)
+    imp = subs.add_parser("import-cache-import")
+    imp.add_argument("file",type=Path);imp.add_argument("--fixture",action="store_true")
+    subs.add_parser("import-status").add_argument("plan_id")
+    subs.add_parser("import-attempts").add_argument("plan_id")
+    imp = subs.add_parser("import-attempt-path");imp.add_argument("plan_id");imp.add_argument("attempt_id")
+    imp = subs.add_parser("import-result");imp.add_argument("plan_id");imp.add_argument("job_id")
+    for name in ("import-execute","import-resume"):
+        imp = subs.add_parser(name);imp.add_argument("plan_id")
+        imp.add_argument("--attempt-id")
+        source = imp.add_mutually_exclusive_group(required=True)
+        source.add_argument("--fixture",type=Path);source.add_argument("--network",action="store_true")
+    imp = subs.add_parser("import-control")
+    imp.add_argument("plan_id");imp.add_argument("action",choices=("pause","resume","stop"))
+    for name in ("import-terminal","import-consume"):
+        imp = subs.add_parser(name);imp.add_argument("plan_id");imp.add_argument("attempt_id")
+        imp.add_argument("--manifest-sha256",required=True)
+        if name=="import-consume": imp.add_argument("--assessment",type=Path,required=True)
     subs.add_parser("history-experiment").add_argument("config_file", type=Path)
     historical = subs.add_parser("history-register")
     historical.add_argument("directory", type=Path)
@@ -59,6 +77,38 @@ def main(argv=None):
     compare.add_argument("left",type=uuid.UUID)
     compare.add_argument("right",type=uuid.UUID)
     args = parser.parse_args(argv)
+    if args.command.startswith("import-"):
+        from .import_contract import ImportError, MAX_FILE, decode
+        def bounded(path):
+            with path.open("rb") as stream: value=stream.read(MAX_FILE+1)
+            if len(value)>MAX_FILE: raise ImportError("IMPORT_INPUT_LIMIT")
+            return decode(value)
+        try:
+            from .config import Settings
+            from .service import Service
+            service = Service(Settings.load())
+            match args.command:
+                case "import-plan": result=service.import_plan(bounded(args.file))
+                case "import-cache-import": result=service.import_cache_import(bounded(args.file),args.fixture)
+                case "import-status": result=service.import_status(args.plan_id)
+                case "import-attempts": result=service.import_attempts(args.plan_id)
+                case "import-attempt-path": result=service.import_attempt_path(args.plan_id,args.attempt_id)
+                case "import-result": result=service.import_result(args.plan_id,args.job_id)
+                case "import-execute" | "import-resume":
+                    result=service.import_execute(args.plan_id,fixture=bounded(args.fixture) if args.fixture else None,
+                                                  network=args.network,attempt_id=args.attempt_id)
+                case "import-control": result=service.import_control(args.plan_id,args.action)
+                case "import-terminal": result=service.import_terminal(args.plan_id,args.attempt_id,args.manifest_sha256)
+                case "import-consume": result=service.import_consume(args.plan_id,args.attempt_id,args.manifest_sha256,
+                                                                     bounded(args.assessment))
+            print(json.dumps(result,sort_keys=True,allow_nan=False))
+            if result.get("status") in ("partial","failed","interrupted"): raise SystemExit(2)
+        except Exception as exc:
+            print(json.dumps({"schema":"polar.import-error/1","status":"ERROR",
+                              "code":exc.code if isinstance(exc,ImportError) else "IMPORT_DEPENDENCY_OR_RECORD_INVALID"}),
+                  file=sys.stderr)
+            raise SystemExit(1)
+        return
     if args.command.startswith("history-"):
         from .history_bundle import HistoryError
         try:
