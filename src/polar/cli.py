@@ -72,6 +72,10 @@ def main(argv=None):
     partial = subs.add_parser("hyp003-preparation-report")
     partial.add_argument("preparation_id")
     partial.add_argument("--output-dir", type=Path, required=True)
+    partial = subs.add_parser("hyp003-availability")
+    partial.add_argument("config_file",type=Path)
+    partial.add_argument("--output-dir",type=Path,required=True)
+    subs.add_parser("hyp003-availability-report").add_argument("output_dir",type=Path)
     subs.add_parser("history-experiment").add_argument("config_file", type=Path)
     historical = subs.add_parser("history-register")
     historical.add_argument("directory", type=Path)
@@ -138,7 +142,14 @@ def main(argv=None):
         from .hyp003_source import PreparationError, Sources, CONFIG_LIMIT, decode
         from .history_bundle import HistoryError
         try:
-            if args.command == "hyp003-prepare":
+            if args.command in ("hyp003-availability","hyp003-availability-report"):
+                from .hyp003_availability import write_availability,read_availability
+                if args.command=="hyp003-availability":
+                    path=args.config_file.absolute()
+                    raw,_=Sources().read(path.parent,path.name,CONFIG_LIMIT)
+                    result=write_availability(decode(raw),args.output_dir)
+                else:result=read_availability(args.output_dir)
+            elif args.command == "hyp003-prepare":
                 path=args.config_file.absolute()
                 raw,_=Sources().read(path.parent,path.name,CONFIG_LIMIT)
                 prepared=prepare_partial_input(decode(raw))

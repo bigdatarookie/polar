@@ -52,16 +52,21 @@ class Service:
         store = DescriptiveStore(self.artifacts.root, self.artifacts.limit-db_bytes-1024**2)
         return DescriptiveService(self.history_registry, self.history_calendar_dir, store).run(config)
 
-    def _imports(self, fixture=False, raw_sip=False):
+    def _imports(self, fixture=False, raw_sip=False, raw_profile='first-unit'):
         from .import_service import ImportService
         from .import_store import ImportStore
-        return ImportService(ImportStore(self.artifacts.root,self.artifacts.limit,fixture=fixture,raw_sip=raw_sip))
+        return ImportService(ImportStore(self.artifacts.root,self.artifacts.limit,fixture=fixture,
+                                        raw_sip=raw_sip,raw_profile=raw_profile))
 
     def _import_plan_service(self,plan_id):
+        if plan_id.startswith(('rawsipaggregate-','rawsipaggregatefixture-')):
+            return self._imports(plan_id.startswith('rawsipaggregatefixture-'),True,'remaining3490')
         return self._imports(plan_id.startswith(("fixture-","rawsipfixture-")),
                              plan_id.startswith(("rawsip-","rawsipfixture-")))
 
     def import_plan(self, config):
+        if config.get('adapter')=='alpaca-raw-sip-remaining/1':
+            return self._imports(config.get('mode')=='fixture',True,'remaining3490').plan(config)
         return self._imports(config.get("mode")=="fixture",config.get("adapter")=="alpaca-raw-sip-first-unit/1").plan(config)
 
     def import_cache_import(self, config, fixture=False):

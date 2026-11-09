@@ -35,9 +35,9 @@ def job_id(value):
     return digest({'adapter':ADAPTER,'request':request(value)})
 
 
-def page(raw):
+def page(raw, *, limit=None):
     """All numeric JSON tokens remain source lexemes, including integers and extras."""
-    require(len(raw)<=POLICY['body_bytes'],'IMPORT_RESPONSE_LIMIT')
+    require(len(raw)<=(POLICY['body_bytes'] if limit is None else limit),'IMPORT_RESPONSE_LIMIT')
     def pairs(items):
         out={}
         for k,v in items:
@@ -59,6 +59,7 @@ def page(raw):
 
 
 def records(service):
+    if getattr(service.store,'_raw_execution_rows',None) is not None:return service.store._raw_execution_rows
     rows=[]
     for name in service.store.list('requests'):
         start=service.store.read(name)
@@ -81,6 +82,7 @@ def records(service):
 
 
 def commits(store):
+    if getattr(store,'_raw_execution_commits',None) is not None:return store._raw_execution_commits
     result={}
     for name in store.list('successes')+store.list('cache-imports'):
         row=store.read(name)
@@ -103,6 +105,16 @@ def commits(store):
                  'sources':row['sources']}
         result.setdefault(jid,[]).append(wrapped)
     return result
+
+
+def save_commit(store,commit):
+    store.write('successes/'+digest(commit)+'.json',commit)
+    cache=getattr(store,'_raw_execution_commits',None)
+    if cache is not None:
+        wrapped={**commit,'response':{'pages':commit['pages']},
+                 'response_sha256':digest(commit['pages']),'sources':commit['sources']}
+        versions=cache.setdefault(commit['job_id'],[])
+        if not any(digest(v['pages'])==digest(commit['pages']) for v in versions):versions.append(wrapped)
 
 
 def status(service,pid):
@@ -134,25 +146,33 @@ def status(service,pid):
 
 def plan(service,value):
     from .import_service import bound_file,code_projection
-    exact(value,('schema','adapter','mode','unit_ref','reuse_ref','seed_refs'))
-    require(value['schema']=='polar.raw-sip-import-config/1' and value['adapter']==ADAPTER
-            and value['mode'] in ('fixture','provider'),'IMPORT_POLICY_MISMATCH')
+    from .import_raw_profile import aggregate_unit,AGGREGATE_POLICY,AGGREGATE_ADAPTER
+    aggregate=service.store.raw_profile=='remaining3490'
+    require(value.get('mode') in ('fixture','provider'),'IMPORT_POLICY_MISMATCH')
     fixture=value['mode']=='fixture'
-    require(fixture==('imports-rawsip-fixture-v1/' in service.store.base),'IMPORT_MODE_MISMATCH')
-    raw=bound_file(value['unit_ref']);unit=decode(raw)
-    reuse=bound_file(value['reuse_ref'])
-    if not fixture:
-        require(sha(raw)==UNIT_SHA and sha(reuse)==REUSE_SHA,'IMPORT_SCOPE_MISMATCH')
-    require(type(unit.get('jobs')) is list and 0<len(unit['jobs'])<=20,'IMPORT_SCOPE_MISMATCH')
+    expected_fixture_prefix='imports-rawsip-aggregate-fixture-v1/' if aggregate else 'imports-rawsip-fixture-v1/'
+    require(fixture==service.store.base.startswith(expected_fixture_prefix),'IMPORT_MODE_MISMATCH')
+    if aggregate:
+        unit=aggregate_unit(value,fixture);policy=AGGREGATE_POLICY
+    else:
+        exact(value,('schema','adapter','mode','unit_ref','reuse_ref','seed_refs'))
+        require(value['schema']=='polar.raw-sip-import-config/1' and value['adapter']==ADAPTER,
+                'IMPORT_POLICY_MISMATCH')
+        raw=bound_file(value['unit_ref']);unit=decode(raw);reuse=bound_file(value['reuse_ref'])
+        if not fixture:require(sha(raw)==UNIT_SHA and sha(reuse)==REUSE_SHA,'IMPORT_SCOPE_MISMATCH')
+        require(type(unit.get('jobs')) is list and 0<len(unit['jobs'])<=20,'IMPORT_SCOPE_MISMATCH')
+        policy=POLICY
     jobs=[{'job_id':job_id(j['request']),'request':j['request'],'relation':j} for j in unit['jobs']]
     require(len({j['job_id'] for j in jobs})==len(jobs),'IMPORT_DUPLICATE_JOB')
     data={'schema':'polar.import-plan/1','config':value,'scope':service.store.base,'jobs':jobs,
-          'source_projection':code_projection(),'unit':unit,'policy':POLICY}
-    pid=('rawsipfixture-' if fixture else 'rawsip-')+digest(data);data['plan_id']=pid
-    require(type(value['seed_refs']) is list and len(value['seed_refs'])<=40,'IMPORT_CACHE_SCHEMA')
+          'source_projection':code_projection(),'unit':unit,'policy':policy}
+    prefix=('rawsipaggregatefixture-' if fixture else 'rawsipaggregate-') if aggregate else (
+            'rawsipfixture-' if fixture else 'rawsip-')
+    pid=prefix+digest(data);data['plan_id']=pid
+    require(type(value['seed_refs']) is list and len(value['seed_refs'])<=policy['jobs']*2,'IMPORT_CACHE_SCHEMA')
     with service.store.locked():
         service.store.admit_storage()
-        service.store.write('policy.json',POLICY)
+        service.store.write('policy.json',policy)
         service.store.write('plans/'+pid+'.json',data)
         # Explicit legacy migration: exact request, complete cursor chain, bound raw bodies.
         for ref in value['seed_refs']:
@@ -167,6 +187,7 @@ def plan(service,value):
                 exact(entry,('body_ref','request_cursor'))
                 require(entry['request_cursor']==cursor,'IMPORT_CACHE_INTEGRITY')
                 body=bound_file(entry['body_ref']);parsed=page(body)
+                require(not (set(parsed['bars'])-{seed['request']['symbols']}),'IMPORT_CACHE_INTEGRITY')
                 entries.append({'page':i,'request_cursor':cursor,'body':service.store.object(body)})
                 cursor=parsed.get('next_page_token');count+=sum(len(r) for r in parsed['bars'].values())
             require(cursor is None,'IMPORT_CACHE_INTEGRITY')
@@ -217,7 +238,7 @@ def disposition(service,start,response):
                         'request':start['request'],'kind':'RAW_COMPLETE' if count else 'RAW_NO_ROWS',
                         'pages':entries,'sources':[{'request_id':start['request_id'],
                                                    'request_start_sha256':digest(start)}]}
-                service.store.write('successes/'+digest(commit)+'.json',commit)
+                save_commit(service.store,commit)
         except ImportError as exc:reason=exc.code;state='permanent_error'
     outcome={'schema':'polar.raw-sip-outcome/1','request_start_sha256':digest(start),
              'state':state,'reason':reason,'next_cursor':cursor}
@@ -311,6 +332,10 @@ def execute(service,pid,*,fixture=None,network=False,attempt_id=None,scope=None)
     from .import_transport import FixtureClock
     from .import_raw_transport import RawFixtureTransport,RawHttpTransport
     plan=service.load(pid);mode=plan['config']['mode'];is_fixture=mode=='fixture'
+    aggregate=service.store.raw_profile=='remaining3490'
+    policy=plan['policy']
+    from .import_raw_profile import AGGREGATE_POLICY
+    require(policy==(AGGREGATE_POLICY if aggregate else POLICY),'IMPORT_POLICY_MISMATCH')
     require(plan['source_projection']==code_projection(),'IMPORT_SOURCE_CHANGED')
     require(is_fixture==(fixture is not None) and network==(not is_fixture),'IMPORT_NETWORK_NOT_AUTHORIZED')
     if is_fixture:
@@ -322,30 +347,44 @@ def execute(service,pid,*,fixture=None,network=False,attempt_id=None,scope=None)
         authority=decode(bound_file(scope))
         exact(authority,('schema','unit_sha256','source_projection','python_sha256','binding_refs',
                          'attempt_id','credential_reference','terminal_owner'))
+        expected_scope=plan['unit']['scope_sha256'] if aggregate else UNIT_SHA
         require(authority['schema']=='polar.raw-sip-execution-authority/1'
-                and authority['unit_sha256']==UNIT_SHA and authority['source_projection']==code_projection()
+                and authority['unit_sha256']==expected_scope and authority['source_projection']==code_projection()
                 and authority['attempt_id']==attempt_id and authority['terminal_owner'],
                 'IMPORT_SCOPE_MISMATCH')
         require(type(authority['binding_refs']) is list and authority['binding_refs'],'IMPORT_SCOPE_MISMATCH')
         for ref in authority['binding_refs']:bound_file(ref)
         import sys
         require(sha(Path(sys.executable).read_bytes())==authority['python_sha256'],'IMPORT_RUNTIME_MISMATCH')
-        require(authority['credential_reference']==plan['unit']['credentials']['reference'],
-                'IMPORT_SCOPE_MISMATCH')
+        if aggregate:
+            completed_ref={k:plan['unit']['aggregate']['completed_unit'][k] for k in ('path','sha256')}
+            completed_raw=bound_file(completed_ref);completed=decode(completed_raw)
+            require(sha(completed_raw)==UNIT_SHA,
+                    'IMPORT_SCOPE_MISMATCH')
+            credential=completed['credentials']['reference']
+        else:credential=plan['unit']['credentials']['reference']
+        require(authority['credential_reference']==credential,'IMPORT_SCOPE_MISMATCH')
         transport=RawHttpTransport(authority['credential_reference'])
     aid=attempt_name(attempt_id or str(uuid.uuid4()));prefix='attempts/'+aid
     with service.store.locked():
         service.store.admit_storage()
         require(not service.store.exists(prefix+'/started.json'),'IMPORT_ATTEMPT_EXISTS')
+        # Immutable metadata/body graphs are validated once at executor entry;
+        # append updates below keep the same evidence-first order. No persistent
+        # cache or checkpoint can substitute for validation on the next resume.
+        service.store._raw_execution_rows=None;service.store._raw_execution_commits=None
+        service.store._read_cache={}
+        service.store._raw_execution_rows=records(service)
+        service.store._raw_execution_commits=commits(service.store)
         for start,response in records(service):
             if response:disposition(service,start,response)  # saved-body crash recovery, no refetch
         if service.store.exists('budget.json'):
             budget=service.store.read('budget.json')
-            require(budget['policy_sha256']==digest(POLICY),'IMPORT_POLICY_MISMATCH')
+            require(budget['policy_sha256']==digest(policy),'IMPORT_POLICY_MISMATCH')
         else:
-            budget={'schema':'polar.raw-sip-budget/1','policy_sha256':digest(POLICY),
+            budget={'schema':'polar.raw-sip-budget/1','policy_sha256':digest(policy),
                     'started_at':timestamp(service.clock.now()),
-                    'deadline':timestamp(service.clock.now()+900)}
+                    'deadline':timestamp(service.clock.now()+policy['wall_seconds'])}
             service.store.write('budget.json',budget)
         if getattr(service.clock,'synthetic',False) and service.store.exists('clock.json'):
             service.clock.sleep(max(0,seconds(service.store.read('clock.json')['at'])-service.clock.now()))
@@ -361,16 +400,19 @@ def execute(service,pid,*,fixture=None,network=False,attempt_id=None,scope=None)
                     current=status(service,pid)['states'][job['job_id']]
                     if current['state'] not in ('pending','partial') or current['reason']:break
                     if service.store.exists('auth-pause.json'):reason='AUTH_OR_RIGHTS_REFUSAL';break
+                    if aggregate and service.store.exists('provider-pause.json'):
+                        reason='PROVIDER_RATE_LIMIT_PAUSED';break
                     control=service.store.read('control.json') if service.store.exists('control.json') else {}
                     if control.get('action') in ('pause','stop'):reason='CONTROL_'+control['action'].upper();break
                     previous=records(service)
                     # Unknown bytes reserve the full body envelope; never treated as free.
-                    charged=sum(r['body']['bytes'] if r else POLICY['body_bytes'] for _,r in previous)
-                    if len(previous)>=40 or charged+POLICY['body_bytes']>POLICY['total_bytes']:
+                    charged=sum(r['body']['bytes'] if r else policy['body_bytes'] for _,r in previous)
+                    if len(previous)>=policy['gets'] or charged+policy['body_bytes']>policy['total_bytes']:
                         reason='OPERATION_REQUEST_OR_BYTE_LIMIT';break
-                    wait=max(0,seconds(previous[-1][0]['started_at'])+1-service.clock.now()) if previous else 0
-                    if wait:service.clock.sleep(min(wait,max(0,deadline-service.clock.monotonic()-4)))
-                    timeout=min(45,deadline-service.clock.monotonic()-4)
+                    wait=max(0,seconds(previous[-1][0]['started_at'])+policy['spacing_seconds']-service.clock.now()) if previous else 0
+                    reserve=policy.get('materialization_reserve_seconds',4)
+                    if wait:service.clock.sleep(min(wait,max(0,deadline-service.clock.monotonic()-reserve)))
+                    timeout=min(policy['request_seconds'],deadline-service.clock.monotonic()-reserve)
                     if timeout<=0 or service.clock.now()>=seconds(budget['deadline']):
                         reason='OPERATION_DEADLINE';break
                     pages=current['pages'];cursor=pages[-1]['outcome']['next_cursor'] if pages else None
@@ -379,14 +421,23 @@ def execute(service,pid,*,fixture=None,network=False,attempt_id=None,scope=None)
                            'request':job['request'],'page':len(pages),'request_cursor':cursor,
                            'started_at':timestamp(service.clock.now()),'timeout_seconds':timeout}
                     service.store.write('requests/'+start['request_id']+'.json',start)
-                    result=transport.get(start,len(previous),timeout)
+                    service.store._raw_execution_rows.append((start,None))
+                    # previous aliases the executor cache and has just grown.
+                    # The durable ordinal, assigned BEFORE append, identifies
+                    # this physical GET in fixture and resumed scopes alike.
+                    result=transport.get(start,start['sequence'],timeout)
                     require(type(result['body']) is bytes and len(result['body'])<=POLICY['body_bytes']+1,
                             'IMPORT_TRANSPORT_LIMIT')
                     body_ref=service.store.object(result.pop('body'))  # body is durable FIRST
                     response={**result,'body':body_ref,'request_start_sha256':digest(start),
                               'completed_at':timestamp(service.clock.now())}
                     service.store.write('responses/'+start['request_id']+'.json',response)
+                    service.store._raw_execution_rows[-1]=(start,response)
                     disposition(service,start,response)
+                    if aggregate and response['status']==429:
+                        service.store.write('provider-pause.json',{
+                            'reason':'PROVIDER_RATE_LIMIT_PAUSED','request_id':start['request_id'],
+                            'headers':response['headers'],'automatic_retry':False})
                     service.store.write('clock.json',{'at':timestamp(service.clock.now())},replace=True)
                     service.store.checkpoint(pid,{'plan_id':pid,'attempt_id':aid,'status':status(service,pid)})
                 if reason:break
@@ -398,13 +449,20 @@ def execute(service,pid,*,fixture=None,network=False,attempt_id=None,scope=None)
             terminal_status=('interrupted' if interrupted else 'complete' if counts['success']==len(plan['jobs'])
                              else 'partial' if counts['success'] or counts['partial'] else 'failed')
             source_manifest=None
-            try:source_manifest=normalized(service,plan,prefix)
+            try:
+                if aggregate:
+                    from .import_raw_bundle import normalized_partitions
+                    source_manifest=normalized_partitions(service,plan,prefix,deadline=deadline-4)
+                else:source_manifest=normalized(service,plan,prefix)
             except (ImportError,OSError) as exc:
+                service.store._terminal_finalization=True
                 terminal_status='partial' if counts['success'] or counts['partial'] else 'failed'
-                reason='SOURCE_ENVELOPE_NOT_MATERIALIZED'
-                service.store.write(prefix+'/source-gap.json',{'reason':reason,
+                gap_reason='SOURCE_ENVELOPE_NOT_MATERIALIZED'
+                if reason is None:reason=gap_reason
+                service.store.write(prefix+'/source-gap.json',{'reason':gap_reason,'operation_reason':reason,
                     'detail':exc.code if isinstance(exc,ImportError) else 'LOCAL_IO_FAILURE',
                     'raw_evidence_retained':True,'next_action':'Review exact envelope/storage bound before retry; no refetch'})
+            service.store._terminal_finalization=True
             if service.clock.now()>seconds(budget['deadline']):
                 terminal_status='partial' if counts['success'] or counts['partial'] else 'failed'
                 reason='OPERATION_DEADLINE_EXCEEDED'
@@ -431,6 +489,8 @@ def execute(service,pid,*,fixture=None,network=False,attempt_id=None,scope=None)
                       'objects':objects,'terminal_state':prefix+'/terminal-state.json',
                       'source_manifest':source_manifest}
             service.store.write(prefix+'/content-manifest.json',manifest)  # terminal marker LAST
+            service.store._raw_execution_rows=None;service.store._raw_execution_commits=None
+            service.store._read_cache=None
         return {'schema':'polar.import-execution/1','plan_id':pid,'attempt_id':aid,'status':terminal_status,
                 'manifest_path':str(service.store.root/service.store.path(prefix+'/content-manifest.json')),
                 'manifest_sha256':digest(manifest),'counts':counts,'reason':reason}

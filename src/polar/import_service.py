@@ -39,7 +39,8 @@ def code_projection():
 
 
 def plan_name(value):
-    require(type(value) is str and value.startswith(("fixture-","import-","rawsip-","rawsipfixture-")),"IMPORT_INVALID_ID")
+    require(type(value) is str and value.startswith(("fixture-","import-","rawsip-","rawsipfixture-",
+                "rawsipaggregate-","rawsipaggregatefixture-")),"IMPORT_INVALID_ID")
     hash_value(value.split("-",1)[1]);return value
 
 
