@@ -18,6 +18,7 @@ NDJSON_LIMIT=128*1024**2
 LINE_LIMIT=256*1024
 TOTAL_LIMIT=512*1024**2
 RAW='polar.partial-raw-pv-source-content/1'
+MULTIYEAR='polar.multiyear-source-content/1'
 METADATA='polar.current-class-roster-content/1'
 SAMPLE='polar.current-class-sample-content/1'
 
@@ -90,10 +91,11 @@ class Sources:
         content=rows if ndjson else b''.join(chunks)
         if not ndjson and name.endswith('.json'):decode(content)
         return content,{'sha256':h,'bytes':size}
-    def add(self,entry,primary):
+    def add(self,entry,primary,*,allow_multiyear=False):
         check(type(entry) is dict and set(entry)<={'adapter','directory','manifest','manifest_sha256','receipt'} and
               {'adapter','directory','manifest_sha256'}<=set(entry),'HYP003_INVALID_INPUT_REFERENCE')
-        schema=entry['adapter'];check(schema in ((RAW,METADATA) if primary else (METADATA,SAMPLE)),'HYP003_UNSUPPORTED_ADAPTER')
+        schema=entry['adapter'];allowed=(RAW,METADATA)+((MULTIYEAR,) if allow_multiyear else ()) if primary else (METADATA,SAMPLE)
+        check(schema in allowed,'HYP003_UNSUPPORTED_ADAPTER')
         directory=Path(entry['directory']);check(directory.is_absolute(),'HYP003_ABSOLUTE_ROOT_REQUIRED')
         name=relative(entry.get('manifest','content-manifest.json'))
         raw,ref=self.read(directory,name,MANIFEST_LIMIT,{'sha256':entry['manifest_sha256']});manifest=decode(raw)
