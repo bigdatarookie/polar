@@ -35,14 +35,33 @@
       "links_ref"
     ],
     "inputs": "0..64 exact RAW envelopes, raw-SIP source collections or explicit polar.multiyear-source-content/1 normalized bundles; links_ref nullable only for legacy RAW/collection paths",
-    "links_ref": "JSON polar.hyp003-source-record-links/1 with links array",
-    "link_closed_fields": [
-      "population_record_id",
-      "source_symbol",
-      "request",
-      "canonical_job_id",
-      "source_plan_job_id"
-    ],
+    "links_ref": {
+      "legacy_RAW_or_collection": {
+        "nullable": true,
+        "null_semantics": "Only the existing documented legacy auto/unknown-link case; never admissible for multiyear input",
+        "schema": "polar.hyp003-source-record-links/1",
+        "links": "array of the legacy closed five-field objects"
+      },
+      "polar.multiyear-source-content/1": {
+        "nullable": false,
+        "schema": "polar.hyp003-multiyear-source-record-links/1",
+        "links": "nonempty array of the multiyear closed three-field objects"
+      }
+    },
+    "link_closed_fields": {
+      "polar.hyp003-source-record-links/1": [
+        "population_record_id",
+        "source_symbol",
+        "request",
+        "canonical_job_id",
+        "source_plan_job_id"
+      ],
+      "polar.hyp003-multiyear-source-record-links/1": [
+        "population_record_id",
+        "source_symbol",
+        "source_manifest_sha256"
+      ]
+    },
     "link_semantics": "source_symbol must equal the selected record's literal_symbol; request nullable means unbound legacy profile; never infer or merge an economic ID"
   },
   "collection": {
