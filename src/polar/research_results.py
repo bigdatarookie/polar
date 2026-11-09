@@ -225,7 +225,7 @@ def public_text(value):
     detector. The trusted publisher must still provide public/sanitized content.
     """
     if isinstance(value, str):
-        if re.search(r"(?i)(?:file://|[A-Z]:[\\/]|(?:^|[\s(=\"'])/\S+)", value):
+        if re.search(r"(?i)(?:file:|[A-Z]:[\\/]|(?:^|[\s(=\"'])/\S+)", value):
             raise ValueError("PUBLIC_RESULT_CONTAINS_PHYSICAL_PATH")
     elif isinstance(value, list):
         for item in value:
