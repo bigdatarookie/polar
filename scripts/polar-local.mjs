@@ -160,7 +160,7 @@ async function main(){
   if(mode==='docker'||mode==='docker-cleanup'){
     const {observedLaunch,observedCleanup}=await import('./polar-docker.mjs');
     const result=(mode==='docker'?observedLaunch:observedCleanup)(path.resolve(args[0]),path.resolve(args[1]));
-    console.log(JSON.stringify(result));if(mode==='docker'&&(result.preparation_status!=='PREPARED'||result.scenario!=='PASS'))process.exitCode=1;
+    console.log(JSON.stringify(result));if(mode==='docker'&&(result.preparation_status!=='PREPARED'||result.scenario!=='PASS'||!['REMOVED','ALREADY_ABSENT','NO_RESOURCES'].includes(result.cleanup?.status)))process.exitCode=1;
     if(mode==='docker-cleanup'&&!['REMOVED','ALREADY_ABSENT','NO_RESOURCES'].includes(result.cleanup?.status))process.exitCode=1;
   }
   else if(mode==='doctor')console.log(JSON.stringify(await doctor(args)));

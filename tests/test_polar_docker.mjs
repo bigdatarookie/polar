@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import {observedLaunch,observedCleanup,packagedSourceFromTar,validatePackagedSourceBinding,preparationMountFromTar} from '../scripts/polar-docker.mjs';
+import cp from 'node:child_process';
+import {validRetentionExpiry,observedLaunch,observedCleanup,packagedSourceFromTar,validatePackagedSourceBinding,preparationMountFromTar} from '../scripts/polar-docker.mjs';
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 const IMAGE='sha256:'+'a'.repeat(64),OTHER='sha256:'+'b'.repeat(64),CID='c'.repeat(64);
 function removeFixture(dir){for(const n of fs.readdirSync(dir)){const p=path.join(dir,n);if(fs.lstatSync(p).isDirectory()){fs.chmodSync(p,0o700);removeFixture(p);}}fs.rmSync(dir,{recursive:true,force:true});}
@@ -16,12 +17,12 @@ function setup(t) {
 const fs=require('fs'),path=require('path');const state=process.env.FAKE_DOCKER_STATE,log=process.env.FAKE_DOCKER_LOG;let s=JSON.parse(fs.readFileSync(state));const a=process.argv.slice(2);fs.appendFileSync(log,JSON.stringify(a)+'\\n');const save=()=>fs.writeFileSync(state,JSON.stringify(s));const emit=x=>process.stdout.write(typeof x==='string'?x:JSON.stringify(x));
 if(a[0]==='info')emit({ID:'synthetic-engine',ServerVersion:'fixture',OSType:'linux',Architecture:'arm64'});
 else if(a[0]==='create'){if(s.exists&&s.rejectDuplicate)process.exit(1);s.exists=true;s.args=a;s.started=false;const observation=path.join(process.env.FAKE_LAUNCH_OUT,'observation');if(fs.existsSync(observation)){s.createDirectoryMode=(fs.statSync(observation).mode&0o7777).toString(8).padStart(4,'0');if(s.visibleConflict){fs.chmodSync(observation,0o755);try{fs.writeFileSync(path.join(observation,'preparation.json'),'foreign');}finally{fs.chmodSync(observation,parseInt(s.createDirectoryMode,8));}}}save();if(s.unknownCreate)process.exit(1);if(s.conflict)fs.writeFileSync(path.join(process.env.FAKE_LAUNCH_OUT,'preparation.json'),'foreign');emit('${CID}');}
-else if(a[0]==='inspect'){if(s.failInspect)process.exit(1);const value=k=>s.args[s.args.indexOf(k)+1];const all=k=>s.args.flatMap((x,i)=>x===k?[s.args[i+1]]:[]);const labels=Object.fromEntries(all('--label').map(x=>{let n=x.indexOf('=');return[x.slice(0,n),x.slice(n+1)]}));const imageAt=s.args.indexOf('--entrypoint')+2;const after=s.args.slice(imageAt);const runtime=after.findIndex(x=>/^sha256:/.test(x));emit([{Id:'${CID}',Image:s.actualImage,Created:'2026-11-08T00:00:00.123456789Z',Config:{Labels:labels,User:value('--user'),Entrypoint:[value('--entrypoint')],Cmd:after.slice(runtime+1),Env:[...all('--env'),'DATABASE_URL=DO_NOT_LEAK_PRIVATE_SENTINEL']},Mounts:all('--mount').map(x=>{const f=Object.fromEntries(x.split(',').map(v=>v.split('=')));return {Type:'bind',Source:f.src,Destination:f.dst,RW:!x.endsWith(',readonly')};}).map(m=>s.forceRetainedRW&&m.Destination==='/retained/original.bin'?{...m,RW:true}:m),State:{Status:s.started?'exited':'created',Running:false,ExitCode:0}}]);}
+else if(a[0]==='inspect'){if(s.failInspect)process.exit(1);const value=k=>s.args[s.args.indexOf(k)+1];const all=k=>s.args.flatMap((x,i)=>x===k?[s.args[i+1]]:[]);const labels=Object.fromEntries(all('--label').map(x=>{let n=x.indexOf('=');return[x.slice(0,n),x.slice(n+1)]}));if(s.wrongOwner)labels['polar.launch.id']='foreign';if(s.wrongLifecycle)labels['polar.lifecycle.sha256']='foreign';const imageAt=s.args.indexOf('--entrypoint')+2;const after=s.args.slice(imageAt);const runtime=after.findIndex(x=>/^sha256:/.test(x));emit([{Id:'${CID}',Image:s.actualImage,Created:'2026-11-08T00:00:00.123456789Z',Config:{Labels:labels,User:value('--user'),Entrypoint:[value('--entrypoint')],Cmd:after.slice(runtime+1),Env:[...all('--env'),'DATABASE_URL=DO_NOT_LEAK_PRIVATE_SENTINEL']},Mounts:all('--mount').map(x=>{const f=Object.fromEntries(x.split(',').map(v=>v.split('=')));return {Type:'bind',Source:f.src,Destination:f.dst,RW:!x.endsWith(',readonly')};}).map(m=>s.forceRetainedRW&&m.Destination==='/retained/original.bin'?{...m,RW:true}:m),State:{Status:s.started?'exited':'created',Running:false,ExitCode:0}}]);}
 else if(a[0]==='image')emit([{Id:s.actualImage,Os:'linux',Architecture:'arm64'}]);
 else if(a[0]==='cp'){if(s.copyFail)process.exit(1);if(a[1].endsWith(':/polar-launch')){if(s.mountCopyFail)process.exit(1);const data=s.mountAltered?'altered':fs.readFileSync(path.join(process.env.FAKE_LAUNCH_OUT,'observation','preparation.json'));process.stdout.write((${tar.toString()})([{name:'polar-launch/',type:'5',mode:s.mountDirMode||s.createDirectoryMode},{name:'polar-launch/preparation.json',data,mode:s.mountFileMode||'0444'}]));}else process.stdout.write(Buffer.from(s.tar,'base64'));}
-else if(a[0]==='start'){const p=path.join(process.env.FAKE_LAUNCH_OUT,'preparation.json');const r=JSON.parse(fs.readFileSync(p));if(r.preparation!=='PREPARED'||r.scenario_started!==false)process.exit(9);if(s.tar){const visible=path.join(process.env.FAKE_LAUNCH_OUT,'observation','preparation.json');if(!fs.readFileSync(p).equals(fs.readFileSync(visible))||(fs.statSync(visible).mode&0o777)!==0o444||(fs.statSync(path.dirname(visible)).mode&0o777)!==0o555)process.exit(10);}s.started=true;s.starts=(s.starts||0)+1;save();fs.writeFileSync(path.join(process.env.FAKE_LAUNCH_OUT,'scenario','marker'),'one');emit('scenario marker');}
-else if(a[0]==='ps')emit(s.exists?'${CID}':'');
-else if(a[0]==='rm'){s.exists=false;save();emit('${CID}');}else process.exit(8);
+else if(a[0]==='start'){const p=path.join(process.env.FAKE_LAUNCH_OUT,'preparation.json');const r=JSON.parse(fs.readFileSync(p));if(r.preparation!=='PREPARED'||r.scenario_started!==false)process.exit(9);if(s.tar){const visible=path.join(process.env.FAKE_LAUNCH_OUT,'observation','preparation.json');if(!fs.readFileSync(p).equals(fs.readFileSync(visible))||(fs.statSync(visible).mode&0o777)!==0o444||(fs.statSync(path.dirname(visible)).mode&0o777)!==0o555)process.exit(10);}s.started=true;s.starts=(s.starts||0)+1;save();fs.writeFileSync(path.join(process.env.FAKE_LAUNCH_OUT,'scenario','marker'),'one');if(s.startTimeout){setTimeout(()=>emit('late'),10000);}else if(s.startFailure)process.exit(1);else emit('scenario marker');}
+else if(a[0]==='ps'){if(s.rmAttempted&&s.failAfterRmQuery)process.exit(1);emit(s.exists?'${CID}':'');}
+else if(a[0]==='rm'){s.rmAttempted=true;if(!s.retainAfterRm)s.exists=false;save();emit('${CID}');}else process.exit(8);
 `;
   fs.writeFileSync(path.join(root,'docker'),fake,{mode:0o755});
   const previous={PATH:process.env.PATH,FAKE_DOCKER_STATE:process.env.FAKE_DOCKER_STATE,FAKE_DOCKER_LOG:process.env.FAKE_DOCKER_LOG,FAKE_LAUNCH_OUT:process.env.FAKE_LAUNCH_OUT};
@@ -170,3 +171,110 @@ test('receipt mount links and extra members are rejected',()=>{
     {name:'polar-launch/preparation.json',data:'{}',mode:'0444'},
     {name:'polar-launch/extra',data:'x'}]),sha('{}')),/PREPARATION_MOUNT_FILE_SET/);
 });
+
+test('cleanup refuses rm success when exact ID remains',t=>{
+  const f=setup(t);f.engine({retainAfterRm:true});const r=observedLaunch(f.config,f.out);
+  assert.equal(r.scenario,'PASS');assert.equal(r.cleanup.status,'UNVERIFIED_RETAINED');
+  assert.equal(r.cleanup.reason,'CONTAINER_STILL_PRESENT_AFTER_REMOVE');
+  assert.equal(r.cleanup.recovery.owner,'CALLER_OR_NAMED_RECOVERY');
+  assert.equal(JSON.parse(fs.readFileSync(f.state)).exists,true);
+  assert.equal(observedCleanup(f.config,f.out).cleanup.status,'UNVERIFIED_RETAINED');
+});
+test('cleanup does not claim absence when post-rm query fails',t=>{
+  const f=setup(t);f.engine({failAfterRmQuery:true});const r=observedLaunch(f.config,f.out);
+  assert.equal(r.cleanup.status,'UNVERIFIED_RETAINED');
+  assert.equal(r.cleanup.reason,'CLEANUP_IDENTITY_OR_ENGINE_ERROR');
+});
+test('cleanup refuses foreign owner or lifecycle labels before deletion',t=>{
+  const f=setup(t);f.engine({wrongOwner:true});const r=observedLaunch(f.config,f.out);
+  assert.equal(r.cleanup.status,'UNVERIFIED_RETAINED');assert(!f.calls().some(a=>a[0]==='rm'));
+  f.engine({wrongOwner:false,wrongLifecycle:true});
+  assert.equal(observedCleanup(f.config,f.out).cleanup.status,'UNVERIFIED_RETAINED');
+  assert(!f.calls().some(a=>a[0]==='rm'));
+});
+function explicitLifecycle(f,retained=false) {
+  f.spec.lifecycle={project:'polar',task:'qitem-invented-lifecycle',attempt:f.spec.launch_id,
+    owner:'platform-qa@polar-rig',cleanup_owner:'platform-sre@polar-rig',
+    terminal:retained?'RETAINED_EXCEPTION':'TRANSIENT',intended_lifetime_ms:60000,
+    retention:retained?{reason:'invented rollback control',release_condition:'owner releases fixture',expires_at:null}:null};
+  f.write();
+}
+test('lifecycle metadata is config-bound and observed in created labels and receipt',t=>{
+  const f=setup(t);explicitLifecycle(f);const r=observedLaunch(f.config,f.out);
+  assert.equal(r.cleanup.status,'REMOVED');
+  const resources=f.read('resources.json'),prep=f.read('preparation.json');
+  assert.equal(resources.lifecycle.task,'qitem-invented-lifecycle');
+  assert.equal(prep.lifecycle.cleanup_owner,'platform-sre@polar-rig');
+  assert(Number.isFinite(Date.parse(resources.intended_cleanup_by)));
+  const create=f.calls().find(a=>a[0]==='create');
+  assert(create.includes('polar.resource.owner=platform-qa@polar-rig'));
+  assert(create.includes('polar.resource.cleanup_owner=platform-sre@polar-rig'));
+  assert(r.cleanup.absence_observed_at);
+});
+test('lifecycle malformed metadata creates no resource and retains validation failure',t=>{
+  const f=setup(t);explicitLifecycle(f);f.spec.lifecycle.owner='bad\nowner';f.write();
+  const r=observedLaunch(f.config,f.out);
+  assert.equal(r.reason,'INVALID_LIFECYCLE');assert(!f.calls().some(a=>a[0]==='create'));
+});
+test('retention exception names owner/reason/release and is never claimed removed',t=>{
+  const f=setup(t);explicitLifecycle(f,true);const r=observedLaunch(f.config,f.out);
+  assert.equal(r.cleanup.status,'RETAINED_EXCEPTION');
+  assert.equal(r.cleanup.recovery.owner,'platform-sre@polar-rig');
+  assert.equal(r.cleanup.lifecycle.retention.release_condition,'owner releases fixture');
+  assert(!f.calls().some(a=>a[0]==='rm'));
+  assert.equal(observedCleanup(f.config,f.out).cleanup.status,'RETAINED_EXCEPTION');
+});
+test('retention without release condition or expiry fails before create',t=>{
+  const f=setup(t);explicitLifecycle(f,true);f.spec.lifecycle.retention.release_condition=null;f.write();
+  const r=observedLaunch(f.config,f.out);assert.equal(r.reason,'INVALID_LIFECYCLE');
+  assert(!f.calls().some(a=>a[0]==='create'));
+});
+test('scenario failure still reaches exact absence verification',t=>{
+  const f=setup(t);f.engine({startFailure:true});
+  const r=observedLaunch(f.config,f.out);
+  assert.equal(r.scenario,'FAIL');assert.equal(r.cleanup.status,'REMOVED');
+});
+test('bounded scenario command timeout reaches exact owned cleanup',t=>{
+  const f=setup(t);f.spec.scenario_timeout_ms=100;f.write();f.engine({startTimeout:true});
+  const r=observedLaunch(f.config,f.out);
+  assert.equal(r.scenario,'FAIL');assert.equal(r.command_error,'BOUNDED_SCENARIO_COMMAND_ERROR');
+  assert.equal(r.cleanup.status,'REMOVED');
+});
+test('new lifecycle marker cannot be silently downgraded to legacy recovery',t=>{
+  const f=setup(t);f.engine({failInspect:true});observedLaunch(f.config,f.out);
+  const resources=f.read('resources.json');delete resources.lifecycle;
+  fs.writeFileSync(path.join(f.out,'resources.json'),JSON.stringify(resources));f.engine({failInspect:false});
+  const before=f.calls().filter(a=>a[0]==='rm').length;
+  assert.equal(observedCleanup(f.config,f.out).cleanup.status,'UNVERIFIED_RETAINED');
+  assert.equal(f.calls().filter(a=>a[0]==='rm').length,before);
+});
+
+test('legacy two-label resources remain recoverable without lifecycle reinterpretation',t=>{
+  const f=setup(t);f.engine({failInspect:true});observedLaunch(f.config,f.out);
+  const binding=f.read('binding.json'),resources=f.read('resources.json');
+  delete binding.lifecycle_required;delete resources.lifecycle;delete resources.intended_cleanup_by;
+  fs.writeFileSync(path.join(f.out,'binding.json'),JSON.stringify(binding));
+  fs.writeFileSync(path.join(f.out,'resources.json'),JSON.stringify(resources));
+  const state=JSON.parse(fs.readFileSync(f.state));state.failInspect=false;
+  state.args=state.args.filter((arg,i,args)=>!(arg==='--label'&&args[i+1]?.startsWith('polar.resource.'))
+    &&!(arg==='--label'&&args[i+1]?.startsWith('polar.lifecycle.'))
+    &&!arg.startsWith('polar.resource.')&&!arg.startsWith('polar.lifecycle.'));
+  fs.writeFileSync(f.state,JSON.stringify(state));
+  assert.equal(observedCleanup(f.config,f.out).cleanup.status,'REMOVED');
+});
+test('CLI operation cannot return success when cleanup residual remains',t=>{
+  const f=setup(t);f.engine({retainAfterRm:true});
+  const run=cp.spawnSync(process.execPath,[new URL('../scripts/polar-local.mjs',import.meta.url).pathname,
+    'docker',f.config,f.out],{encoding:'utf8',timeout:15000});
+  assert.equal(run.status,1);const result=JSON.parse(run.stdout);
+  assert.equal(result.scenario,'PASS');assert.equal(result.cleanup.status,'UNVERIFIED_RETAINED');
+});
+
+
+for(const [value,expected] of [
+  ['2026-02-30T00:00:00.000Z',false],['2026-04-31T00:00:00.000Z',false],
+  ['2026-02-29T00:00:00.000Z',false],['2100-02-29T00:00:00.000Z',false],
+  ['2024-02-29T00:00:00.000Z',true],['2000-02-29T00:00:00.000Z',true],
+  ['2026-02-28T23:59:59.999Z',true]]) {
+  test('retention expiry calendar '+value,()=>assert.equal(validRetentionExpiry(value),expected));
+}

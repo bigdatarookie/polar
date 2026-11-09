@@ -51,3 +51,45 @@ Exports regular tracked full `src/` and package/Compose metadata directly from G
 Frozen predecessor fc71aae failed independent QA: a callback wrote after the timer-race result. That FAIL remains unchanged. Version1.2 changes the callback contract and receipt ordering; it does not claim hard process containment.
 
 Author evidence is local-only under OpenRig state/platform/local-launcher. Initial11 timestamp cases and BusyBox1.37 success0/expiry143 passed. Actual Chrome156.0.8078.80 one-page smoke and action callback passed; observed survivors empty and explicit profile removed. These author checks do not self-accept this tooling. Independent QA-led PR review remains required; product UI/System/financial acceptance is separate.
+
+### Observed-container cleanup and lifecycle metadata
+
+The observed launcher reports REMOVED only after a successful bounded full-ID
+absence query following removal. A successful rm command alone is insufficient.
+If the object remains or the engine/identity observation fails, cleanup reports
+UNVERIFIED_RETAINED with an exact container ID and recovery owner/action.
+Unknown create outcomes retain the intended unique name for owned reconciliation.
+The docker CLI returns nonzero for unverified cleanup even if the scenario itself
+passed; the scenario fact is preserved separately.
+
+Existing config1/2/3 accepts an optional lifecycle object with these exact fields:
+project, task, attempt, owner, cleanup_owner, terminal, intended_lifetime_ms,
+retention. Identifiers are bounded safe strings; terminal is TRANSIENT or
+RETAINED_EXCEPTION. The intended lifetime is finite, at least the scenario command
+timeout, and representable as a date. It is recovery metadata, not a new resource
+quota, timer, automatic expiry/deletion or per-run approval. Receipts state an
+intended_cleanup_by time. Callers must bind actual existing recovery custody before
+launch when interruption could bypass the synchronous finally block.
+
+Transient retention is null. An explicit retained exception requires retention
+{reason, release_condition, expires_at}, with at least one nonnull release condition
+or ISO UTC expiry. It always names owner and cleanup_owner. Cleanup reports
+RETAINED_EXCEPTION, never REMOVED, and does not delete that resource automatically.
+The named owner must reconcile and explicitly release it through the existing
+exact-owned operational path when its condition is met; this helper does not
+claim autonomous condition evaluation or expiry enforcement.
+
+Explicit lifecycle metadata is hashed with the config/output binding and observed
+in newly created container labels plus resources/preparation receipts. A marker
+prevents silently dropping new metadata to downgrade cleanup to a legacy path.
+Old configs and old two-label resources remain readable and recoverable without
+requiring new lifecycle fields. New resources launched from old configs expose
+derived metadata with LEGACY_CALLER_UNKNOWN rather than guessing an old task/owner;
+the default intended recovery period is the scenario timeout plus90seconds.
+Reading old receipts never rewrites them or claims modern attribution.
+
+The separate QA environment already re-observes absence after deleting each owned
+resource and is unchanged here. Its intentional partial-prepare retention/reuse
+contract remains; operations must have a named bounded recovery owner instead of
+indefinite unowned retention. No new controller, resource registry or scheduler is
+introduced. Actual service, volumes and images are never cleanup targets here.
