@@ -12,13 +12,22 @@ from .import_contract import (MAX_FILE, require, canonical, decode, digest, sha,
 
 
 class ImportStore(HistoryStore):
-    def __init__(self, root, limit, fixture=False, raw_sip=False):
+    def __init__(self, root, limit, fixture=False, raw_sip=False, raw_profile='first-unit'):
         super().__init__(root, limit)
         self.raw_sip=raw_sip
+        require(raw_profile in ('first-unit','remaining3490'),'IMPORT_POLICY_MISMATCH')
+        self.raw_profile=raw_profile
+        self._read_cache=None
+        self._lock_held=False
+        self._terminal_finalization=False
         self.base = ("imports-fixture-v1/" if fixture else "imports-v1/")+scope_id()
         if raw_sip:
             from .import_raw_sip import UNIT_SHA
             self.base=("imports-rawsip-fixture-v1/" if fixture else "imports-rawsip-v1/")+UNIT_SHA
+            if raw_profile=='remaining3490':
+                from .import_raw_profile import AGGREGATE_SHA
+                self.base=('imports-rawsip-aggregate-fixture-v1/' if fixture else
+                           'imports-rawsip-aggregate-v1/')+AGGREGATE_SHA
 
     @contextmanager
     def locked(self):
@@ -27,8 +36,15 @@ class ImportStore(HistoryStore):
         try:
             try: fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
             except BlockingIOError: require(False,"IMPORT_EXECUTOR_BUSY")
+            self._scope_bytes=sum(p.stat().st_size for p in directory.rglob('*') if p.is_file())
+            self._lock_held=True
+            self._terminal_finalization=False
             yield
         finally:
+            self._read_cache=None
+            self._lock_held=False
+            self._raw_execution_commits=None
+            self._raw_execution_rows=None
             os.close(fd)  # actual kernel lock, never blindly delete a stale PID file
 
     def path(self,name):
@@ -43,8 +59,11 @@ class ImportStore(HistoryStore):
         return read_file(safe_root(self.root), self.path(name), limit=MAX_FILE)
 
     def read(self,name):
+        cached=name.startswith(('requests/','responses/','outcomes/','successes/','cache-imports/','plans/'))
+        if cached and self._read_cache is not None and name in self._read_cache:return self._read_cache[name]
         value = decode(self.raw(name))
         require(canonical(value) == self.raw(name),"IMPORT_NONCANONICAL_RECORD")
+        if cached and self._read_cache is not None:self._read_cache[name]=value
         return value
 
     def write(self,name,value,*,replace=False):
@@ -61,6 +80,20 @@ class ImportStore(HistoryStore):
         if target.exists() and not replace:
             require(self.raw(name) == raw,"IMPORT_IMMUTABLE_CONFLICT")
             return
+        previous=target.stat().st_size if target.exists() else 0
+        if self.raw_sip and self.raw_profile=='remaining3490':
+            from .import_raw_profile import AGGREGATE_POLICY
+            if not self._lock_held:
+                # The existing control channel intentionally remains writable
+                # from another process while the executor holds its lock.
+                require(name=='control.json' or name.startswith('controls/'),'IMPORT_EXECUTOR_LOCK_REQUIRED')
+                directory_root=self.root/self.base
+                self._scope_bytes=sum(p.stat().st_size for p in directory_root.rglob('*') if p.is_file())
+            ceiling=AGGREGATE_POLICY['additional_bytes']
+            if self._lock_held and not self._terminal_finalization:
+                ceiling-=AGGREGATE_POLICY['terminal_reserve_bytes']
+            require(hasattr(self,'_scope_bytes') and self._scope_bytes+len(raw)-previous
+                    <=ceiling,'IMPORT_SCOPE_STORAGE_LIMIT')
         temporary = directory/(".partial-"+str(uuid.uuid4()))
         try:
             with temporary.open("xb") as output:
@@ -71,6 +104,8 @@ class ImportStore(HistoryStore):
             else:
                 os.link(temporary,target,follow_symlinks=False)
             fsync_directory(directory)
+            if hasattr(self,'_scope_bytes'):self._scope_bytes+=len(raw)-previous
+            if self._read_cache is not None:self._read_cache.pop(name,None)
         finally:
             if temporary.exists(): temporary.unlink()
 
