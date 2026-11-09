@@ -585,3 +585,28 @@ def test_relay_fixed_upstream_routes_and_body_bound(monkeypatch):
     monkeypatch.setattr(Response,'read',lambda self,size:b'x'*(relay.LIMIT+1))
     with pytest.raises(ValueError,match='BODY_BOUND'):relay.fetch(upstream,'/openapi.json')
     assert calls[-1]=='closed'
+
+
+@pytest.mark.parametrize('host_port',['49001','0',None])
+def test_relay_non_ephemeral_config_blocks_start_and_cleanup(fixture,host_port):
+    e,cfg,d=fixture;original=d.create_proxy
+    def changed(*args):
+        original(*args)
+        d.rows['proxy']['HostConfig']['PortBindings']['8000/tcp'][0]['HostPort']=host_port
+    d.create_proxy=changed
+    result=e.prepare(cfg)
+    assert result['status']=='NOT_PREPARED' and result['reason']=='PORT_CONFLICT'
+    assert not any(call[0]=='start' for call in d.calls)
+    before=list(d.calls)
+    assert clean(e,result)['status']=='NOT_CLEANED'
+    assert d.calls==before
+
+
+def test_fixed_relay_host_port_reuse_blocks_all_mutation(fixture):
+    e,cfg,d=fixture;result=e.prepare(cfg)
+    d.rows['proxy']['HostConfig']['PortBindings']['8000/tcp'][0]['HostPort']='49001'
+    before=list(d.calls)
+    refused=e.prepare(cfg)
+    assert refused['status']=='NOT_PREPARED' and refused['reason']=='PORT_CONFLICT'
+    assert clean(e,result)['status']=='NOT_CLEANED'
+    assert d.calls==before

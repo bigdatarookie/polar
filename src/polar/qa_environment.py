@@ -483,7 +483,8 @@ class Environment:
                 require(not any(row['NetworkSettings'].get('Ports',{}).values()),'PORT_CONFLICT')
             else:
                 require(set(binds) == {'8000/tcp'} and len(binds['8000/tcp']) == 1
-                        and binds['8000/tcp'][0]['HostIp'] == '127.0.0.1', 'PORT_CONFLICT')
+                        and binds['8000/tcp'][0]['HostIp'] == '127.0.0.1'
+                        and (kind!='proxy' or binds['8000/tcp'][0].get('HostPort')==''), 'PORT_CONFLICT')
             if relay:
                 expected={'polar-qa-'+uuid.UUID(owner['operation']).hex+'-'+k:state['resources'].get(k)
                           for k in (NETWORKS if kind=='proxy' else ('net',))}
