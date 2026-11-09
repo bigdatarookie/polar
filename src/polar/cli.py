@@ -122,9 +122,9 @@ def main(argv=None):
                     with args.file.open("rb") as stream:raw=stream.read(1024**2+1)
                     if len(raw)>1024**2:raise Obs158Error("OBS158_CONFIG_BOUND")
                     config=decode(raw)
-                    result=(service.obs158_replay(config,args.experiment_id) if operation=="replay"
-                            else getattr(service,"obs158_"+operation)(config))
-                else:result=getattr(service,"obs158_"+operation)(
+                    result=(service.replay(config,args.experiment_id) if operation=="replay"
+                            else getattr(service,operation)(config))
+                else:result=getattr(service,operation)(
                     args.attempt_id if operation=="attempt" else args.experiment_id)
             print(json.dumps(result,sort_keys=True,allow_nan=False))
             if result.get("status") in ("FAILED","UNFINALIZED"):raise SystemExit(1)
