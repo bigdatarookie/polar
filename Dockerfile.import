@@ -1,0 +1,16 @@
+# Inspect this local dependency tag against the full image ID before building.
+ARG IMPORT_DEPENDENCY_IMAGE=polar-loader-deps:95fb6e9dbf7d
+FROM ${IMPORT_DEPENDENCY_IMAGE}
+LABEL polar.import.dependency-image-id="sha256:95fb6e9dbf7d8a5880bc918b10af886a09e77025b7f840f2414bdc6258270324"
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/candidate/src
+WORKDIR /candidate
+COPY src src
+COPY pyproject.toml requirements.lock hyp007-build-reference.json .
+ARG CODE_REVISION=UNRECORDED
+ENV POLAR_CODE_REVISION=$CODE_REVISION
+LABEL org.opencontainers.image.revision=$CODE_REVISION
+USER 0:0
+RUN printf '#!/usr/local/bin/python\nfrom polar.cli import main\nmain()\n' > /usr/local/bin/polar && chmod 755 /usr/local/bin/polar
+USER 10001:10001
+ENTRYPOINT ["polar"]
+CMD ["--help"]
