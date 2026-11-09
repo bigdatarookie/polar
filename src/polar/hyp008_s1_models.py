@@ -59,7 +59,8 @@ class NativeBinding:
         root=Path(__file__).resolve().parent;source=binding['observed_files']
         actual={str(path):{'bytes':path.stat().st_size,'sha256':digest(path.read_bytes())}
                 for path in root.rglob('*') if path.is_file() and path.suffix in ('.py','.json','.sql')}
-        require(all(source.get(path)==ref for path,ref in actual.items()),'LOADED_SOURCE_BYTES')
+        require(type(source) is dict and set(source)==set(actual)
+                and all(source[path]==ref for path,ref in actual.items()),'LOADED_SOURCE_BYTES')
         require(str(root)=='/app/src/polar','SOURCE_ORIGIN')
         locks={name:read_lock(Path(self.defaults_directory)/name,sha) for name,sha in DEFAULT_HASHES.items()}
         build=locks['BUILD-MANIFEST.json']
