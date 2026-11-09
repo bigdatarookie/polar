@@ -164,12 +164,14 @@ def retain_failure(output_root,receipt_sha,stage,exc):
     """Bounded invented-control diagnostics; no locals, environment or input dump."""
     text=''.join(traceback.format_exception(type(exc),exc,exc.__traceback__,limit=32))
     encoded=text.encode('utf-8',errors='replace');limit=16384
+    traceback_text=encoded[:limit].decode('utf-8',errors='ignore')
+    if len(traceback_text.encode('utf-8'))>limit:raise ValueError('TRACEBACK_UTF8_BOUND')
     value={'schema':'polar.obs158-native-cent-failure/1','status':'FAIL',
            'scope':'INVENTED_NATIVE_CENT_CONTROL_ONLY',
            'pre_scenario_receipt_sha256':receipt_sha,
            'entrypoint_stage':stage,
            'exception_type':type(exc).__name__[:256],
-           'traceback':encoded[:limit].decode('utf-8',errors='replace'),
+           'traceback':traceback_text,
            'traceback_truncated':len(encoded)>limit,
            'engine_run_and_fill_completion':'UNKNOWN_UNTIL_SEPARATELY_EVIDENCED'}
     raw=(json.dumps(value,sort_keys=True,allow_nan=False)+'\n').encode()
