@@ -1,17 +1,67 @@
 {
-  "schema": "polar.hyp003-availability-wire-definition/1",
+  "schema": "polar.hyp003-availability-wire-definition/2",
   "config": {
     "schema": "polar.hyp003-availability-config/1",
-    "closed_fields": ["schema", "mode", "population_ref", "grid_ref", "inputs"],
-    "mode": ["INVENTED", "RETAINED"],
-    "ref": {"closed_fields": ["path", "sha256"], "path": "absolute local file", "sha256": "exact bytes SHA256"},
+    "closed_fields": [
+      "schema",
+      "mode",
+      "population_ref",
+      "grid_ref",
+      "inputs"
+    ],
+    "mode": [
+      "INVENTED",
+      "RETAINED"
+    ],
+    "ref": {
+      "closed_fields": [
+        "path",
+        "sha256"
+      ],
+      "path": "absolute local file",
+      "sha256": "exact bytes SHA256"
+    },
     "population_ref": "NDJSON records; unique population_record_id plus literal_symbol; preserve all original record fields and input order",
     "grid_ref": "JSON object all: ordered unique ISO civil dates, plus preserved warmup/study/note metadata",
-    "retained_scope": {"population_rows": 3514, "reference_dates": 1008, "source_record_date_slots": 3542112},
-    "input_closed_fields": ["directory", "manifest", "manifest_sha256", "links_ref"],
-    "inputs": "0..64 exact RAW-compatible envelopes or raw-SIP source collections; links_ref nullable",
-    "links_ref": "JSON polar.hyp003-source-record-links/1 with links array",
-    "link_closed_fields": ["population_record_id", "source_symbol", "request", "canonical_job_id", "source_plan_job_id"],
+    "retained_scope": {
+      "population_rows": 3514,
+      "reference_dates": 1008,
+      "source_record_date_slots": 3542112
+    },
+    "input_closed_fields": [
+      "directory",
+      "manifest",
+      "manifest_sha256",
+      "links_ref"
+    ],
+    "inputs": "0..64 exact RAW envelopes, raw-SIP source collections or explicit polar.multiyear-source-content/1 normalized bundles; links_ref nullable only for legacy RAW/collection paths",
+    "links_ref": {
+      "legacy_RAW_or_collection": {
+        "nullable": true,
+        "null_semantics": "Only the existing documented legacy auto/unknown-link case; never admissible for multiyear input",
+        "schema": "polar.hyp003-source-record-links/1",
+        "links": "array of the legacy closed five-field objects"
+      },
+      "polar.multiyear-source-content/1": {
+        "nullable": false,
+        "schema": "polar.hyp003-multiyear-source-record-links/1",
+        "links": "nonempty array of the multiyear closed three-field objects"
+      }
+    },
+    "link_closed_fields": {
+      "polar.hyp003-source-record-links/1": [
+        "population_record_id",
+        "source_symbol",
+        "request",
+        "canonical_job_id",
+        "source_plan_job_id"
+      ],
+      "polar.hyp003-multiyear-source-record-links/1": [
+        "population_record_id",
+        "source_symbol",
+        "source_manifest_sha256"
+      ]
+    },
     "link_semantics": "source_symbol must equal the selected record's literal_symbol; request nullable means unbound legacy profile; never infer or merge an economic ID"
   },
   "collection": {
@@ -19,7 +69,18 @@
     "source_members": "parts/NNNNN/content-manifest.json plus explicit global job-status-index.ndjson",
     "packet_schema": "polar.partial-raw-pv-source-content/1",
     "bars_member_max_bytes": 16777216,
-    "job_index_fields": ["global_job_ordinal", "canonical_job_id", "source_plan_job_id", "population_record_id", "request", "transport_state", "reason", "first_partition", "last_partition", "rows"],
+    "job_index_fields": [
+      "global_job_ordinal",
+      "canonical_job_id",
+      "source_plan_job_id",
+      "population_record_id",
+      "request",
+      "transport_state",
+      "reason",
+      "first_partition",
+      "last_partition",
+      "rows"
+    ],
     "source_reference": "bars/<literalAlias>; legacy bars.<literalAlias> is independently recognized literally, never split on punctuation"
   },
   "output": {
@@ -28,16 +89,63 @@
     "revision": "hyp003availability- plus digest of canonical manifest excluding revision",
     "identity": "all population/grid/source/member/code hashes; input directories are not semantic IDs",
     "objects": "relative path to exact bytes and sha256; manifest excludes its own object reference",
-    "members": ["population-index.ndjson", "profiles.json", "reference-dates.json", "availability/NNNNN.ndjson", "rows/NNNNN/NNNNN.ndjson", "unlinked/NNNNNNNN.ndjson"],
-    "availability_fields": ["population_record_id", "reference_date", "state", "profile_states", "observations"],
+    "members": [
+      "population-index.ndjson",
+      "profiles.json",
+      "reference-dates.json",
+      "availability/NNNNN.ndjson",
+      "rows/NNNNN/NNNNN.ndjson",
+      "unlinked/NNNNNNNN.ndjson"
+    ],
+    "availability_fields": [
+      "population_record_id",
+      "reference_date",
+      "state",
+      "profile_states",
+      "observations"
+    ],
     "availability_order": "population input order, then supplied grid array order",
-    "states": ["OBSERVED_SOURCE_ROWS", "CONFLICTING", "COMPLETE_EMPTY", "MISSING_WITHIN_COMPLETE_REQUEST", "PARTIAL_OR_UNKNOWN", "UNREQUESTED"],
+    "states": [
+      "OBSERVED_SOURCE_ROWS",
+      "CONFLICTING",
+      "COMPLETE_EMPTY",
+      "MISSING_WITHIN_COMPLETE_REQUEST",
+      "PARTIAL_OR_UNKNOWN",
+      "UNREQUESTED"
+    ],
     "state_scope": "available supplied source evidence, never prices/zero fill, tradeable availability, venue coverage, economic admission or fitness",
-    "profile_binding": ["VERIFIED_PRODUCER_JOB", "DECLARED_NOT_VERIFIED"],
+    "profile_binding": [
+      "VERIFIED_PRODUCER_JOB",
+      "DECLARED_NOT_VERIFIED"
+    ],
     "profile_state": "individual received/empty/partial/unknown/failed/unrequested source status, outside request interval or unknown profile interval; preserve each revision/profile separately",
-    "pointer_status": ["VERIFIED_EXACT_BODY_POSITION", "REFERENCED_ONLY", "INVALID_SOURCE_POINTER"],
+    "pointer_status": [
+      "VERIFIED_EXACT_BODY_POSITION",
+      "REFERENCED_ONLY",
+      "INVALID_SOURCE_POINTER"
+    ],
     "raw_values": "not copied into availability cells; exact-value hashes, existing quality results and source member/row/body/array/ordinal references are retained",
     "unknown_clocks": "remain null; any supplied clocks remain source-declared, not upgraded",
-    "nonclaims": {"economic_universe": "UNRESOLVED", "calendar": "REFERENCE_DATES_ONLY", "causal_availability": "NOT_QUALIFIED", "features": "NOT_RUN", "financial": "NOT_RUN"}
+    "nonclaims": {
+      "economic_universe": "UNRESOLVED",
+      "calendar": "REFERENCE_DATES_ONLY",
+      "causal_availability": "NOT_QUALIFIED",
+      "features": "NOT_RUN",
+      "financial": "NOT_RUN"
+    }
+  },
+  "multiyear": {
+    "source_schema": "polar.multiyear-source-content/1",
+    "links_schema": "polar.hyp003-multiyear-source-record-links/1",
+    "link_closed_fields": [
+      "population_record_id",
+      "source_symbol",
+      "source_manifest_sha256"
+    ],
+    "link_semantics": "Required exact manifest revision and literal alias unique in supplied source-record population; no economic identity inference or producer job fabrication",
+    "profiles": "source-profiles.json exact parameters/request_ordinal/chunk_index/civil inclusive interval; retain original source_profile; profile transport UNKNOWN and DECLARED_NOT_VERIFIED",
+    "pointer": "Top-level source_array literal bars.+entire alias, source_body_sha256, zero-based source_row_ordinal and request_ordinal checked against original source_objects; no raw body outside declared normalized bundle read",
+    "additive_observation_field": "source_metadata retains request/chunk/aggregation/quality/mapping/economic-ID/causal-K/raw-pointer declarations; null observed clocks stay null",
+    "scope": "Existing generic HYP003 preparation does not admit this adapter; availability only. No transport/job/completeness/calendar/financial upgrade."
   }
 }

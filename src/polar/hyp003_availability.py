@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .codec import canonical, digest
 from .hyp003_source import (Sources, object_value, decode, check, RAW, JSON_LIMIT,
-                            NDJSON_LIMIT, LINE_LIMIT, safe_root, relative)
+                            NDJSON_LIMIT, LINE_LIMIT, safe_root, relative, MULTIYEAR)
 from .hyp003_preparation import quality
 from .history_store import fsync_directory
 from .import_contract import ImportError as RawImportError
@@ -37,8 +37,8 @@ def packets(entry):
     name=relative(entry['manifest'])
     raw,_=Sources().read(root,name,JSON_LIMIT,{'sha256':entry['manifest_sha256']})
     manifest=decode(raw)
-    if manifest.get('schema')==RAW:
-        yield {'adapter':RAW,'directory':str(root),'manifest':name,
+    if manifest.get('schema') in (RAW,MULTIYEAR):
+        yield {'adapter':manifest['schema'],'directory':str(root),'manifest':name,
                'manifest_sha256':entry['manifest_sha256']},None
         return
     check(manifest.get('schema')=='polar.raw-sip-source-collection/1'
@@ -126,6 +126,86 @@ def producer_links(jobs,parents):
     return entries
 
 
+def multiyear_bindings(info,explicit,by_id,profiles,coverage,links_sha):
+    """Declared alias/revision evidence; no synthesized producer job or transport."""
+    version=info['ref']['sha256'];aliases=defaultdict(list)
+    check(type(explicit) is list and explicit,'HYP003_MULTIYEAR_LINKS_REQUIRED')
+    linked={}
+    for link in explicit:
+        check(type(link) is dict and set(link)=={'population_record_id','source_symbol','source_manifest_sha256'},
+              'HYP003_AVAILABILITY_LINKS')
+        rid=link['population_record_id'];symbol=link['source_symbol']
+        check(type(rid) is str and type(symbol) is str and rid in by_id and symbol==by_id[rid]['literal_symbol']
+              and sum(row['literal_symbol']==symbol for row in by_id.values())==1
+              and symbol not in linked,'HYP003_AVAILABILITY_RECORD_JOIN')
+        check(link['source_manifest_sha256']==version,'HYP003_MULTIYEAR_REVISION_LINK')
+        linked[symbol]=rid
+    declarations=object_value(info,'source-profiles.json');quality_report=object_value(info,'quality.json')
+    objects=info['manifest'].get('source_objects')
+    check(type(declarations) is list and 1<=len(declarations)<=10000 and type(objects) is list and len(objects)<=10000 and isinstance(quality_report,dict)
+          and type(quality_report.get('chunks')) is list,
+          'HYP003_MULTIYEAR_PROFILE')
+    body_by_request={}
+    for ref in objects:
+        check(type(ref) is dict and set(ref)=={'request_ordinal','bytes','sha256'}
+              and type(ref['request_ordinal']) is int and ref['request_ordinal']>=0
+              and type(ref['bytes']) is int and 0<=ref['bytes']<=JSON_LIMIT
+              and ref['request_ordinal'] not in body_by_request,'HYP003_MULTIYEAR_PROFILE')
+        # hash spelling checked without admitting any unlisted body path.
+        from .hyp003_source import hash_value
+        hash_value(ref['sha256']);body_by_request[ref['request_ordinal']]=ref
+    chunks=quality_report.get('chunks',[]) if isinstance(quality_report,dict) else []
+    seen=set();declared={}
+    for profile in declarations:
+        check(type(profile) is dict,'HYP003_MULTIYEAR_PROFILE')
+        ordinal=profile.get('request_ordinal');symbol=profile.get('symbol');request=profile.get('parameters')
+        check(type(ordinal) is int and ordinal>=0 and ordinal not in seen
+              and type(symbol) is str and type(request) is dict
+              and type(profile.get('chunk_index')) is int and profile['chunk_index']>=0
+              and request.get('symbols')==symbol and type(request.get('start')) is str
+              and type(request.get('end')) is str,'HYP003_MULTIYEAR_PROFILE')
+        seen.add(ordinal)
+        start=profile.get('start');end=profile.get('end')
+        check(type(start) is str and type(end) is str and start<=end
+              and date.fromisoformat(start).isoformat()==start and date.fromisoformat(end).isoformat()==end
+              and request['start']==start+'T00:00:00Z' and request['end']==end+'T23:59:59Z',
+              'HYP003_MULTIYEAR_PROFILE')
+        declared[ordinal]=profile
+        if symbol not in linked:continue
+        rid=linked[symbol];pid=digest({'request':request,'source_revision':version,'request_ordinal':ordinal})
+        basis={k:v for k,v in request.items() if k not in ('start','end')}
+        profiles[pid]={'request':request,'compatibility_basis_sha256':digest(basis),
+                       'source_profile':profile,'interval_end_inclusive':True}
+        states=[chunk.get('source_coverage_status') for chunk in chunks
+                if isinstance(chunk,dict) and chunk.get('request_ordinal')==ordinal]
+        fact={'source_manifest_sha256':version,'collection_sha256':None,'profile_id':pid,
+              'profile_binding':'DECLARED_NOT_VERIFIED','canonical_job_id':None,'source_plan_job_id':None,
+              'transport_state':'UNKNOWN','links_sha256':links_sha,
+              'source_link_basis':'EXPLICIT_LITERAL_ALIAS_AND_SOURCE_REVISION',
+              'source_request_ordinal':ordinal,'source_body_ref':body_by_request.get(ordinal),
+              'producer_coverage_states':states}
+        coverage[rid].append(fact);aliases[symbol].append((rid,fact))
+    check(set(body_by_request)<=seen and set(linked)<=set(p['symbol'] for p in declarations),
+          'HYP003_MULTIYEAR_PROFILE')
+    info['_multiyear_profiles']=declared;info['_multiyear_bodies']=body_by_request
+    return aliases
+
+
+def multiyear_row(info,row):
+    ordinal=row.get('request_ordinal');profile=info['_multiyear_profiles'].get(ordinal)
+    ref=info['_multiyear_bodies'].get(ordinal)
+    check(type(ordinal) is int and profile is not None and ref is not None
+          and row.get('source_symbol')==profile['symbol']
+          and row.get('chunk_index')==profile.get('chunk_index')
+          and row.get('source_body_sha256')==ref['sha256'],'HYP003_MULTIYEAR_ROW_PROFILE')
+    metadata={key:row.get(key) for key in ('request_ordinal','chunk_index','aggregation_label',
+              'quality_reasons','mapping_status','economic_security_id','causal_K',
+              'source_array','source_row_ordinal','source_body_sha256')}
+    pointer={'source_array':row.get('source_array'),'source_row_ordinal':row.get('source_row_ordinal'),
+             'source_body_sha256':row.get('source_body_sha256')}
+    return {**row,'source_reference':pointer},metadata
+
+
 def write_availability(config, output_dir):
     check(len(canonical(config))<=64*1024,'HYP003_CONFIG_LIMIT')
     check(type(config) is dict and set(config)=={'schema','mode','population_ref','grid_ref','inputs'}
@@ -175,57 +255,66 @@ def write_availability(config, output_dir):
         total+=len(raw)
 
     for entry in config['inputs']:
-        explicit=[];links_sha=None
+        explicit=[];links_sha=None;links_schema=None
         if entry.get('links_ref') is not None:
             value,links=reference(entry['links_ref'],JSON_LIMIT);value=decode(value)
-            check(value.get('schema')=='polar.hyp003-source-record-links/1'
+            check(value.get('schema') in ('polar.hyp003-source-record-links/1','polar.hyp003-multiyear-source-record-links/1')
                   and type(value.get('links')) is list,'HYP003_AVAILABILITY_LINKS')
-            explicit=value['links'];links_sha=links['sha256']
+            explicit=value['links'];links_sha=links['sha256'];links_schema=value['schema']
         for source,collection_sha in packets(entry):
-            admitted=Sources();info=admitted.add(source,True);input_bytes+=admitted.total
+            admitted=Sources();info=admitted.add(source,True,allow_multiyear=True);input_bytes+=admitted.total
             check(input_bytes<=TOTAL_LIMIT,'HYP003_AVAILABILITY_INPUT_LIMIT')
-            version=info['ref']['sha256'];plan=object_value(info,'source-plan.json')
+            version=info['ref']['sha256']
             check(version not in seen_versions,'HYP003_DUPLICATE_PRIMARY_INPUT');seen_versions.add(version)
-            jobs=plan.get('unit',{}).get('jobs',[])
-            parents=object_value(info,'parent-coverage-ledger.ndjson')
-            producer=producer_links(jobs,parents)
-            auto=[identity for identity,_ in producer if identity['population_record_id'] in by_id
-                  and sum(other==identity for other,_ in producer)==1]
-            links=explicit or auto;aliases=defaultdict(list)
-            for link in links:
-                check(type(link) is dict and set(link)=={'population_record_id','source_symbol','request',
-                        'canonical_job_id','source_plan_job_id'},'HYP003_AVAILABILITY_LINKS')
-                rid=link['population_record_id'];check(rid in by_id
-                    and link['source_symbol']==by_id[rid]['literal_symbol'],'HYP003_AVAILABILITY_RECORD_JOIN')
-                request=link['request'];check(request is None or isinstance(request,dict),'HYP003_AVAILABILITY_PROFILE')
-                if request is not None:
-                    check(type(request.get('start')) is str and type(request.get('end')) is str
-                          and request.get('symbols')==link['source_symbol']
-                          and request['start']<request['end'],'HYP003_AVAILABILITY_PROFILE')
-                # Both ID namespaces, literal alias, record and exact request
-                # must resolve to ONE producer job/parent entry. Never replace
-                # a caller's mismatched ID with a convenient parent value.
-                matched=[parent for identity,parent in producer if identity==link]
-                related=[identity for identity,_ in producer
-                         if identity['population_record_id']==rid
-                         and identity['source_symbol']==link['source_symbol']]
-                check(not related or len(matched)==1,'HYP003_AVAILABILITY_PRODUCER_LINK_MISMATCH')
-                verified=len(matched)==1
-                basis={k:v for k,v in request.items() if k not in ('start','end')} if request else None
-                profile_id=digest({'request':request,'unbound_source':None if request else version})
-                profiles[profile_id]={'request':request,'compatibility_basis_sha256':digest(basis) if basis else None}
-                # A record alone proves no request-specific transport outcome.
-                # Unresolved legacy declarations must not borrow completion.
-                parent=matched[0] if verified else {}
-                fact={'source_manifest_sha256':version,'collection_sha256':collection_sha,
-                      'profile_id':profile_id,'profile_binding':'VERIFIED_PRODUCER_JOB' if verified else 'DECLARED_NOT_VERIFIED',
-                      'canonical_job_id':link['canonical_job_id'],
-                      'source_plan_job_id':link['source_plan_job_id'],
-                      'transport_state':parent.get('raw_data_state','UNKNOWN'),
-                      'links_sha256':links_sha}
-                coverage[rid].append(fact);aliases[link['source_symbol']].append((rid,fact))
+            multiyear=info['manifest']['schema']==MULTIYEAR
+            if multiyear:
+                check(links_schema=='polar.hyp003-multiyear-source-record-links/1','HYP003_MULTIYEAR_LINKS_REQUIRED')
+                aliases=multiyear_bindings(info,explicit,by_id,profiles,coverage,links_sha)
+            else:
+                check(links_schema in (None,'polar.hyp003-source-record-links/1'),'HYP003_AVAILABILITY_LINKS')
+                plan=object_value(info,'source-plan.json')
+                jobs=plan.get('unit',{}).get('jobs',[])
+                parents=object_value(info,'parent-coverage-ledger.ndjson')
+                producer=producer_links(jobs,parents)
+                auto=[identity for identity,_ in producer if identity['population_record_id'] in by_id
+                      and sum(other==identity for other,_ in producer)==1]
+                links=explicit or auto;aliases=defaultdict(list)
+                for link in links:
+                    check(type(link) is dict and set(link)=={'population_record_id','source_symbol','request',
+                            'canonical_job_id','source_plan_job_id'},'HYP003_AVAILABILITY_LINKS')
+                    rid=link['population_record_id'];check(rid in by_id
+                        and link['source_symbol']==by_id[rid]['literal_symbol'],'HYP003_AVAILABILITY_RECORD_JOIN')
+                    request=link['request'];check(request is None or isinstance(request,dict),'HYP003_AVAILABILITY_PROFILE')
+                    if request is not None:
+                        check(type(request.get('start')) is str and type(request.get('end')) is str
+                              and request.get('symbols')==link['source_symbol']
+                              and request['start']<request['end'],'HYP003_AVAILABILITY_PROFILE')
+                    # Both ID namespaces, literal alias, record and exact request
+                    # must resolve to ONE producer job/parent entry. Never replace
+                    # a caller's mismatched ID with a convenient parent value.
+                    matched=[parent for identity,parent in producer if identity==link]
+                    related=[identity for identity,_ in producer
+                             if identity['population_record_id']==rid
+                             and identity['source_symbol']==link['source_symbol']]
+                    check(not related or len(matched)==1,'HYP003_AVAILABILITY_PRODUCER_LINK_MISMATCH')
+                    verified=len(matched)==1
+                    basis={k:v for k,v in request.items() if k not in ('start','end')} if request else None
+                    profile_id=digest({'request':request,'unbound_source':None if request else version})
+                    profiles[profile_id]={'request':request,'compatibility_basis_sha256':digest(basis) if basis else None}
+                    # A record alone proves no request-specific transport outcome.
+                    # Unresolved legacy declarations must not borrow completion.
+                    parent=matched[0] if verified else {}
+                    fact={'source_manifest_sha256':version,'collection_sha256':collection_sha,
+                          'profile_id':profile_id,'profile_binding':'VERIFIED_PRODUCER_JOB' if verified else 'DECLARED_NOT_VERIFIED',
+                          'canonical_job_id':link['canonical_job_id'],
+                          'source_plan_job_id':link['source_plan_job_id'],
+                          'transport_state':parent.get('raw_data_state','UNKNOWN'),
+                          'links_sha256':links_sha}
+                    coverage[rid].append(fact);aliases[link['source_symbol']].append((rid,fact))
             grouped=defaultdict(list)
             for position,row in enumerate(object_value(info,'bars.ndjson')):
+                metadata=None
+                if multiyear:row,metadata=multiyear_row(info,row)
                 row_count+=1;pointer=pointer_state(info,row);validation=quality(row)
                 tokens=row.get('raw_fields_exact_tokens',{})
                 if not isinstance(tokens,dict):tokens={}
@@ -248,7 +337,9 @@ def write_availability(config, output_dir):
                     'validation':validation,'field_positions':fields,
                     'clocks':{k:row.get(k) for k in ('event_open_at','event_close_at','observed_published_at',
                                                    'observed_historical_available_at','estimated_K')}}
+                if multiyear:observation['source_metadata']=metadata
                 targets=aliases.get(row.get('source_symbol'),[])
+                if multiyear:targets=[t for t in targets if t[1]['source_request_ordinal']==row['request_ordinal']]
                 if not targets:unlinked.append(observation)
                 for rid,fact in targets:grouped[rid].append({**observation,'profile_id':fact['profile_id']})
             for rid,observations in grouped.items():spool(rid,observations)
@@ -285,7 +376,8 @@ def write_availability(config, output_dir):
             for fact in coverage[rid]:
                 req=profiles[fact['profile_id']]['request']
                 state=('PROFILE_INTERVAL_UNKNOWN' if req is None else
-                       'OUTSIDE_REQUEST_INTERVAL' if not req['start'][:10]<=day<req['end'][:10] else
+                       'OUTSIDE_REQUEST_INTERVAL' if not (req['start'][:10]<=day and
+                           (day<=req['end'][:10] if profiles[fact['profile_id']].get('interval_end_inclusive') else day<req['end'][:10])) else
                        fact['transport_state'])
                 profile_states.append({'profile_id':fact['profile_id'],
                     'source_manifest_sha256':fact['source_manifest_sha256'],'state':state})
