@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
 import {retainedPlan,stageRetained,verifyRetained,observedMounts} from './polar-retained-mounts.mjs';
 
-export const VERSION='polar-observed-launch/2.3';
+export const VERSION='polar-observed-launch/2.4';
 const hash=b=>crypto.createHash('sha256').update(b).digest('hex');
 const now=()=>new Date().toISOString();
 const check=(v,code)=>assert(v,code);
@@ -38,7 +38,7 @@ function docker(args,timeout=15000) {
 const jsonDocker=args=>JSON.parse(docker(args));
 const same=(a,b)=>canonical(a)===canonical(b);
 function validate(s) {
-  exact(s,['schema','launch_id','candidate','image_id','runtime_image_id','platform','user','entrypoint','environment','refs','build_fields','scenario_timeout_ms',...(s.schema==='polar.observed-launch-config/3'?['retained']:[])]);
+  exact(s,['schema','launch_id','candidate','image_id','runtime_image_id','platform','user','entrypoint','environment','refs','build_fields','scenario_timeout_ms',...(s.schema==='polar.observed-launch-config/3'?['retained']:[]),...(Object.hasOwn(s,'lifecycle')?['lifecycle']:[])]);
   check(['polar.observed-launch-config/1','polar.observed-launch-config/2','polar.observed-launch-config/3'].includes(s.schema)&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(s.launch_id),'INVALID_LAUNCH');
   exact(s.candidate,['commit','tree']);check(Object.values(s.candidate).every(x=>/^[a-f0-9]{40}$/.test(x)),'INVALID_CANDIDATE');
   check(/^sha256:[a-f0-9]{64}$/.test(s.image_id),'IMMUTABLE_IMAGE_ID_REQUIRED');
@@ -51,6 +51,7 @@ function validate(s) {
   const allowed={TZ:/^[A-Za-z_/+-]{1,64}$/,LANG:/^[A-Za-z0-9_.-]{1,32}$/,PYTHONDONTWRITEBYTECODE:/^1$/,PYTHONUNBUFFERED:/^1$/,POLAR_CODE_REVISION:/^[a-f0-9]{40}$/};
   for(const [k,v] of Object.entries(s.environment))check(allowed[k]&&typeof v==='string'&&allowed[k].test(v),'UNSAFE_ENVIRONMENT');
   exact(s.refs,['source_build','harness','input','expectations','config','review']);
+  lifecycle(s); // Optional additive identity; legacy configs retain their interpretation.
   const refs={};
   for(const [k,v] of Object.entries(s.refs)) {
     exact(v,['path','sha256']);check(typeof v.path==='string'&&/^[a-f0-9]{64}$/.test(v.sha256),'INVALID_REFERENCE');
@@ -152,15 +153,68 @@ function observePreparationMount(id,expectedHash) {
   check(!r.error&&r.status===0,'PREPARATION_MOUNT_COPY_FAILED');
   return {...preparationMountFromTar(r.stdout,expectedHash),observed_container_id:id,observed_at:now()};
 }
-function ownedContainer(id,s,bindingHash) {
+function lifecycle(s) {
+  if(!Object.hasOwn(s,'lifecycle'))return {schema:'polar.resource-lifecycle/1',project:'polar',
+    task:'legacy-'+s.launch_id,attempt:s.launch_id,owner:'LEGACY_CALLER_UNKNOWN',
+    cleanup_owner:'CALLER_OR_NAMED_RECOVERY',terminal:'TRANSIENT',
+    intended_lifetime_ms:s.scenario_timeout_ms+90000,retention:null,origin:'DERIVED_LEGACY_METADATA'};
+  const v=s.lifecycle;
+  exact(v,['project','task','attempt','owner','cleanup_owner','terminal','intended_lifetime_ms','retention']);
+  for(const key of ['project','task','attempt','owner','cleanup_owner'])
+    check(typeof v[key]==='string'&&/^[A-Za-z0-9_@.:/-]{1,128}$/.test(v[key]),'INVALID_LIFECYCLE');
+  check(['TRANSIENT','RETAINED_EXCEPTION'].includes(v.terminal)&&Number.isSafeInteger(v.intended_lifetime_ms)
+    &&v.intended_lifetime_ms>=s.scenario_timeout_ms&&v.intended_lifetime_ms<=8640000000000000-Date.now(),'INVALID_LIFECYCLE');
+  if(v.terminal==='TRANSIENT')check(v.retention===null,'INVALID_LIFECYCLE');
+  else {
+    exact(v.retention,['reason','release_condition','expires_at']);
+    check(typeof v.retention.reason==='string'&&v.retention.reason.length>0&&v.retention.reason.length<=512,
+      'INVALID_LIFECYCLE');
+    check(v.retention.release_condition===null||(typeof v.retention.release_condition==='string'
+      &&v.retention.release_condition.length>0&&v.retention.release_condition.length<=512),'INVALID_LIFECYCLE');
+    check(v.retention.expires_at===null||(typeof v.retention.expires_at==='string'
+      &&/^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d\\.\\d{3}Z$/.test(v.retention.expires_at)
+      &&Number.isFinite(Date.parse(v.retention.expires_at))),'INVALID_LIFECYCLE');
+    check(v.retention.release_condition!==null||v.retention.expires_at!==null,'INVALID_LIFECYCLE');
+  }
+  return {schema:'polar.resource-lifecycle/1',...v,origin:'EXPLICIT_CONFIG_BINDING'};
+}
+function lifecycleLabels(s) {
+  const value=lifecycle(s);
+  return {'polar.lifecycle.sha256':hash(canonical(value)),
+    ...Object.fromEntries(['project','task','attempt','owner','cleanup_owner','terminal']
+      .map(k=>['polar.resource.'+k,value[k]]))};
+}
+function ownedContainer(id,s,bindingHash,annotated=false) {
   check(/^[a-f0-9]{64}$/.test(id),'INVALID_CONTAINER_ID');
   const c=jsonDocker(['inspect','--type','container',id])[0];
-  check(c.Id===id&&c.Config.Labels?.['polar.launch.id']===s.launch_id&&c.Config.Labels?.['polar.launch.binding']===bindingHash,'CONTAINER_OWNERSHIP_CONFLICT');return c;
+  check(c.Id===id&&c.Config.Labels?.['polar.launch.id']===s.launch_id&&c.Config.Labels?.['polar.launch.binding']===bindingHash,'CONTAINER_OWNERSHIP_CONFLICT');
+  if(annotated)check(Object.entries(lifecycleLabels(s)).every(([k,v])=>c.Config.Labels?.[k]===v),
+    'CONTAINER_OWNERSHIP_CONFLICT');
+  return c;
 }
-function cleanup(id,s,bindingHash,creationAttempted) {
-  if(!id)return {status:creationAttempted?'UNKNOWN_CREATE_OUTCOME':'NO_RESOURCES',container_name:creationAttempted?'polar-observed-'+s.launch_id:null};
-  try{const ids=docker(['ps','--all','--quiet','--no-trunc','--filter','id='+id]).trim();if(!ids)return {status:'ALREADY_ABSENT',container_id:id};check(ids===id,'CONTAINER_OWNERSHIP_CONFLICT');ownedContainer(id,s,bindingHash);docker(['rm','--force',id]);return {status:'REMOVED',container_id:id};}
-  catch{return {status:'UNVERIFIED_RETAINED',container_id:id};}
+function cleanup(id,s,bindingHash,creationAttempted,annotated=false) {
+  let cleanupOwner='CALLER_OR_NAMED_RECOVERY';
+  try{if(s)cleanupOwner=lifecycle(s).cleanup_owner;}catch{} // Invalid configs create no resources.
+  const recovery={owner:cleanupOwner,
+    action:'Use exact original config/output docker-cleanup; reconcile before further deletion.',
+    container_name:s?'polar-observed-'+s.launch_id:null};
+  if(!id)return {status:creationAttempted?'UNKNOWN_CREATE_OUTCOME':'NO_RESOURCES',
+    ...(creationAttempted?{recovery}:{}),container_name:creationAttempted?recovery.container_name:null};
+  try {
+    const query=()=>docker(['ps','--all','--quiet','--no-trunc','--filter','id='+id]).trim();
+    const before=query();
+    if(!before)return {status:'ALREADY_ABSENT',container_id:id,absence_observed_at:now()};
+    check(before===id,'CONTAINER_OWNERSHIP_CONFLICT');
+    ownedContainer(id,s,bindingHash,annotated);
+    if(annotated&&lifecycle(s).terminal==='RETAINED_EXCEPTION')
+      return {status:'RETAINED_EXCEPTION',container_id:id,lifecycle:lifecycle(s),recovery};
+    docker(['rm','--force',id]);
+    const after=query();
+    if(after)return {status:'UNVERIFIED_RETAINED',container_id:id,
+      reason:'CONTAINER_STILL_PRESENT_AFTER_REMOVE',recovery};
+    return {status:'REMOVED',container_id:id,absence_observed_at:now()};
+  } catch {return {status:'UNVERIFIED_RETAINED',container_id:id,
+    reason:'CLEANUP_IDENTITY_OR_ENGINE_ERROR',recovery};}
 }
 function observation(c,image,s) {
   const env={};for(const item of c.Config.Env||[]){const at=item.indexOf('=');const key=item.slice(0,at);if(Object.hasOwn(s.environment,key))env[key]=item.slice(at+1);}
@@ -178,7 +232,7 @@ function observation(c,image,s) {
 }
 
 export function observedLaunch(configFile,out) {
-  const started=now();let s,refs,retained=null,bindingHash=null,id=null,prepRef=null,root=false,creationAttempted=false;
+  const started=now();let s,refs,retained=null,bindingHash=null,id=null,prepRef=null,root=false,creationAttempted=false,annotated=false;
   let preparation={schema:'polar.observed-preparation/1',producer:{version:VERSION,sha256:hash(fs.readFileSync(fileURLToPath(import.meta.url)))},
     created_at:started,scenario_started:false,preparation:'NOT_PREPARED',reason:null,expected:null,observed:null,engine:null};
   let result={schema:'polar.observed-execution/1',scenario:'NOT_RUN',scenario_started:false,cleanup:{status:'NO_RESOURCES'}};
@@ -199,7 +253,7 @@ export function observedLaunch(configFile,out) {
     s=JSON.parse(regular(configFile).toString());
     publish(path.join(out,'owner.json'),{schema:'polar.launch-owner/1',launch_id:typeof s.launch_id==='string'&&/^[a-f0-9-]{36}$/.test(s.launch_id)?s.launch_id:null});
     refs=validate(s);bindingHash=hash(canonical({config:s,output_root:out}));
-    publish(path.join(out,'binding.json'),{binding_sha256:bindingHash});
+    publish(path.join(out,'binding.json'),{binding_sha256:bindingHash,lifecycle_required:true});
     const staged=path.join(out,'bindings');fs.mkdirSync(staged,{mode:0o700});
     for(const [k,v] of Object.entries(refs)){
       fs.writeFileSync(path.join(staged,k),v.raw,{flag:'wx',mode:0o444});
@@ -224,6 +278,7 @@ export function observedLaunch(configFile,out) {
       fs.chmodSync(observationDir,0o555);
     }
     const args=['create','--pull=never','--name','polar-observed-'+s.launch_id,'--label','polar.launch.id='+s.launch_id,'--label','polar.launch.binding='+bindingHash,'--network','none','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--user',s.user,'--platform',s.platform,'--entrypoint',s.entrypoint];
+    for(const [k,v] of Object.entries(lifecycleLabels(s)))args.push('--label',k+'='+v);
     for(const [k,v] of Object.entries(s.environment))args.push('--env',k+'='+v);
     const mounts=[];
     for(const [k,v] of Object.entries(refs))mounts.push({source:path.join(staged,k),target:v.path,writable:false});
@@ -235,12 +290,15 @@ export function observedLaunch(configFile,out) {
     }
     for(const m of mounts)args.push('--mount','type=bind,src='+m.source+',dst='+m.target+(m.writable?'':',readonly'));
     args.push(s.runtime_image_id,...preparation.expected.command);
-    publish(path.join(out,'resources.json'),{container_name:'polar-observed-'+s.launch_id,launch_id:s.launch_id,binding_sha256:bindingHash});
+    const resourceLifecycle=lifecycle(s);
+    publish(path.join(out,'resources.json'),{container_name:'polar-observed-'+s.launch_id,launch_id:s.launch_id,binding_sha256:bindingHash,
+      lifecycle:resourceLifecycle,intended_cleanup_by:new Date(Date.parse(started)+resourceLifecycle.intended_lifetime_ms).toISOString()});
+    preparation.lifecycle=resourceLifecycle;annotated=true;
     creationAttempted=true;
     id=docker(args).trim();check(/^[a-f0-9]{64}$/.test(id),'INVALID_CONTAINER_ID');
     publish(path.join(out,'container.json'),{container_id:id,launch_id:s.launch_id,binding_sha256:bindingHash});
     preparation.owned_resources={container_id:id,container_name:'polar-observed-'+s.launch_id};
-    const c=ownedContainer(id,s,bindingHash);
+    const c=ownedContainer(id,s,bindingHash,true);
     preparation.observed={container_id:c.Id,image_id:c.Image,image_identity_type:'docker-local-image-id',os:null,architecture:null,observed_at:now()};
     const image=jsonDocker(['image','inspect',c.Image])[0];check(image.Id===c.Image,'IMAGE_OBSERVATION_MISSING');
     preparation.observed=observation(c,image,s);preparation.compared_at=now();
@@ -253,7 +311,7 @@ export function observedLaunch(configFile,out) {
     if(sourceRequired) {
       const build=JSON.parse(regular(path.join(staged,'source_build')));
       const observedFiles=observePackagedSource(id,build.source_files);
-      const still=ownedContainer(id,s,bindingHash);check(still.State.Status==='created'&&still.Image===c.Image,'RUNTIME_BINDING_MISMATCH');
+      const still=ownedContainer(id,s,bindingHash,true);check(still.State.Status==='created'&&still.Image===c.Image,'RUNTIME_BINDING_MISMATCH');
       preparation.source_binding={...preparation.source_binding,kind:'packaged-source-observed-from-same-stopped-container',packaged_source_independently_observed:true,eligible_extensions:['.py','.json','.sql'],source_root:SOURCE_ROOT,observed_container_id:id,observed_files:observedFiles};
     }
     preparation.preparation='PREPARED';preparation.reason='EXPECTED_OBSERVED_MATCH';preparation.published_at=now();
@@ -271,7 +329,7 @@ export function observedLaunch(configFile,out) {
       // Host chmod is not evidence of container-visible mode projection.
       // Keep this observation outside the receipt it hashes: no self-hash cycle.
       result.prestart_receipt_mount=observePreparationMount(id,visibleRef.sha256);
-      const still=ownedContainer(id,s,bindingHash);
+      const still=ownedContainer(id,s,bindingHash,true);
       check(still.State.Status==='created'&&still.Image===c.Image,'RUNTIME_BINDING_MISMATCH');
       check(result.prestart_receipt_mount.matches.directory_mode,'PREPARATION_DIRECTORY_MODE_MISMATCH');
       check(result.prestart_receipt_mount.matches.file_mode,'PREPARATION_FILE_MODE_MISMATCH');
@@ -279,7 +337,7 @@ export function observedLaunch(configFile,out) {
     }
     if(retained) {
       verifyRetained(retained);
-      const still=ownedContainer(id,s,bindingHash);check(still.State.Status==='created'&&still.Image===c.Image,'RUNTIME_BINDING_MISMATCH');
+      const still=ownedContainer(id,s,bindingHash,true);check(still.State.Status==='created'&&still.Image===c.Image,'RUNTIME_BINDING_MISMATCH');
       observedMounts(still,mounts);
     }
     prepRef=publish(path.join(out,'preparation.json'),preparation);
@@ -290,10 +348,10 @@ export function observedLaunch(configFile,out) {
     result.finished_at=now();result.scenario=(!run.error&&run.status===0)?'PASS':'FAIL';
     result.transport_exit=run.status;result.command_error=run.error?'BOUNDED_SCENARIO_COMMAND_ERROR':null;
     result.stdout_bytes=Buffer.byteLength(run.stdout||'');result.stderr_bytes=Buffer.byteLength(run.stderr||'');
-    const done=ownedContainer(id,s,bindingHash);result.container_exit=done.State.ExitCode;
+    const done=ownedContainer(id,s,bindingHash,true);result.container_exit=done.State.ExitCode;
     if(done.State.Running||done.State.ExitCode!==0)result.scenario='FAIL';
   } catch(e) {
-    const codes=new Set(['PREPARATION_MOUNT_ARCHIVE_BOUND','PREPARATION_MOUNT_CONTENT_MISMATCH','PREPARATION_MOUNT_ARCHIVE_INVALID','PREPARATION_MOUNT_FILE_SET','PREPARATION_MOUNT_COPY_FAILED','PREPARATION_DIRECTORY_MODE_MISMATCH','PREPARATION_FILE_MODE_MISMATCH','SOURCE_MAP_BOUND','SOURCE_PATH_INVALID','SOURCE_FILE_BOUND','SOURCE_REFERENCE_OVERLAP','SOURCE_ENTRYPOINT_OVERLAP','SOURCE_ARCHIVE_BOUND','SOURCE_ARCHIVE_INVALID','SOURCE_NONREGULAR','SOURCE_FILE_SET_MISMATCH','SOURCE_HASH_MISMATCH','SOURCE_COPY_FAILED','INVALID_FIELDS','INVALID_LAUNCH','INVALID_CANDIDATE','IMMUTABLE_IMAGE_ID_REQUIRED','IMMUTABLE_RUNTIME_IMAGE_ID_REQUIRED','INVALID_PLATFORM','INVALID_CONFIGURED_USER','INVALID_ENTRYPOINT','INVALID_DEADLINE','INVALID_ENVIRONMENT','UNSAFE_ENVIRONMENT','INVALID_REFERENCE','REFERENCE_HASH_MISMATCH','REFERENCE_PATH_COLLISION','INVALID_BUILD_FIELDS','SOURCE_BUILD_BINDING_MISMATCH','UNSAFE_OUTPUT_ROOT','OUTPUT_CONFLICT','OUTPUT_IDENTITY_CONFLICT','RECEIPT_CONFLICT','ENGINE_IDENTITY_MISSING','ENGINE_COMMAND_FAILED','INVALID_CONTAINER_ID','CONTAINER_OWNERSHIP_CONFLICT','IMAGE_OBSERVATION_MISSING','RUNTIME_BINDING_MISMATCH','STAGED_REFERENCE_CHANGED']);
+    const codes=new Set(['INVALID_LIFECYCLE','PREPARATION_MOUNT_ARCHIVE_BOUND','PREPARATION_MOUNT_CONTENT_MISMATCH','PREPARATION_MOUNT_ARCHIVE_INVALID','PREPARATION_MOUNT_FILE_SET','PREPARATION_MOUNT_COPY_FAILED','PREPARATION_DIRECTORY_MODE_MISMATCH','PREPARATION_FILE_MODE_MISMATCH','SOURCE_MAP_BOUND','SOURCE_PATH_INVALID','SOURCE_FILE_BOUND','SOURCE_REFERENCE_OVERLAP','SOURCE_ENTRYPOINT_OVERLAP','SOURCE_ARCHIVE_BOUND','SOURCE_ARCHIVE_INVALID','SOURCE_NONREGULAR','SOURCE_FILE_SET_MISMATCH','SOURCE_HASH_MISMATCH','SOURCE_COPY_FAILED','INVALID_FIELDS','INVALID_LAUNCH','INVALID_CANDIDATE','IMMUTABLE_IMAGE_ID_REQUIRED','IMMUTABLE_RUNTIME_IMAGE_ID_REQUIRED','INVALID_PLATFORM','INVALID_CONFIGURED_USER','INVALID_ENTRYPOINT','INVALID_DEADLINE','INVALID_ENVIRONMENT','UNSAFE_ENVIRONMENT','INVALID_REFERENCE','REFERENCE_HASH_MISMATCH','REFERENCE_PATH_COLLISION','INVALID_BUILD_FIELDS','SOURCE_BUILD_BINDING_MISMATCH','UNSAFE_OUTPUT_ROOT','OUTPUT_CONFLICT','OUTPUT_IDENTITY_CONFLICT','RECEIPT_CONFLICT','ENGINE_IDENTITY_MISSING','ENGINE_COMMAND_FAILED','INVALID_CONTAINER_ID','CONTAINER_OWNERSHIP_CONFLICT','IMAGE_OBSERVATION_MISSING','RUNTIME_BINDING_MISMATCH','STAGED_REFERENCE_CHANGED']);
     const retainedCodes=new Set(['RETAINED_FIELDS','RETAINED_PATH','RETAINED_FILE_BOUND','RETAINED_TOTAL_BOUND','RETAINED_TARGET_OVERLAP','RETAINED_REFERENCE_OVERLAP','RETAINED_FILE_CHANGED','RETAINED_HASH_MISMATCH','RETAINED_MOUNT_MISMATCH','ARTIFACT_ROOT_IDENTITY','ARTIFACT_ROOT_PERMISSIONS','ARTIFACT_OUTPUT_OVERLAP']);
     const code=codes.has(e.message)||retainedCodes.has(e.message)?e.message:'PREPARATION_IO_OR_RECORD_ERROR';
     if(!root)return {schema:'polar.observed-execution/1',preparation_status:'NOT_PREPARED',reason:code,scenario:'NOT_RUN',scenario_started:false,cleanup:{status:'NO_RESOURCES_CREATED'}};
@@ -301,7 +359,7 @@ export function observedLaunch(configFile,out) {
     else result.scenario='FAIL';
     result.reason=code;
   } finally {
-    if(root){result.cleanup=cleanup(id,s,bindingHash,creationAttempted);result.preparation=prepRef;result.finished_at=now();result.preparation_status=preparation.preparation;
+    if(root){result.cleanup=cleanup(id,s,bindingHash,creationAttempted,annotated);result.preparation=prepRef;result.finished_at=now();result.preparation_status=preparation.preparation;
       try{publish(path.join(out,'result.json'),result);}catch{result.result_publication_error='IMMUTABLE_RESULT_CONFLICT';}}
   }
   return result;
@@ -314,14 +372,18 @@ function cleanupObserved(configFile,out) {
   check(JSON.parse(regular(path.join(out,'owner.json'))).launch_id===s.launch_id&&JSON.parse(regular(path.join(out,'binding.json'))).binding_sha256===bindingHash,'OUTPUT_IDENTITY_CONFLICT');
   const resources=JSON.parse(regular(path.join(out,'resources.json')));
   check(resources.launch_id===s.launch_id&&resources.binding_sha256===bindingHash,'OUTPUT_IDENTITY_CONFLICT');
+  const marker=JSON.parse(regular(path.join(out,'binding.json'))).lifecycle_required===true;
+  const annotated=Object.hasOwn(resources,'lifecycle');
+  check(!marker||annotated,'OUTPUT_IDENTITY_CONFLICT');
+  if(annotated)check(same(resources.lifecycle,lifecycle(s)),'OUTPUT_IDENTITY_CONFLICT');
   let id=null;
   if(fs.existsSync(path.join(out,'container.json')))id=JSON.parse(regular(path.join(out,'container.json'))).container_id;
   else {
     const ids=docker(['ps','--all','--quiet','--no-trunc','--filter','name=^/'+resources.container_name+'$']).trim().split('\n').filter(Boolean);
     check(ids.length<=1,'CONTAINER_OWNERSHIP_CONFLICT');id=ids[0]||null;
-    if(id)ownedContainer(id,s,bindingHash);
+    if(id)ownedContainer(id,s,bindingHash,annotated);
   }
-  const value={schema:'polar.observed-cleanup/1',launch_id:s.launch_id,observed_at:now(),cleanup:id?cleanup(id,s,bindingHash,true):{status:'ALREADY_ABSENT'}};
+  const value={schema:'polar.observed-cleanup/1',launch_id:s.launch_id,observed_at:now(),cleanup:id?cleanup(id,s,bindingHash,true,annotated):{status:'ALREADY_ABSENT',absence_observed_at:now()}};
   const ref=publish(path.join(out,'cleanup-'+crypto.randomUUID()+'.json'),value);return {...value,receipt:ref};
 }
 export function observedCleanup(configFile,out) {
