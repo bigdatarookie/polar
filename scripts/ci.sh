@@ -22,6 +22,7 @@ cleanup() {
   local code=$?
   trap - EXIT INT TERM
   local failed=0 remaining
+  [[ -z "$DB_ID" ]] || docker logs "$DB_ID" >"$REPORT_DIR/postgres.log" 2>&1 || true
   for id in "$TEST_ID" "$DB_ID"; do
     if [[ -n "$id" ]]; then
       docker rm -f "$id" >>"$REPORT_DIR/container-cleanup.log" 2>&1 || failed=1
@@ -48,11 +49,11 @@ NETWORK_ID=$(docker network create --label polar.resource.project=polar --label 
 DB_ID=$(docker run -d --tmpfs /var/lib/postgresql/data --network "$NETWORK_ID" --network-alias ci-db --label polar.resource.project=polar --label "polar.resource.task=$RUN_ID" -e POSTGRES_USER=polar -e POSTGRES_PASSWORD=polar_ci -e POSTGRES_DB=polar_test_ci postgres:17.11-alpine@sha256:3540c0362c809df084ffac0ae69fe794515f9de92692f02178bcdce0ef0302ac)
 READY=0
 for attempt in $(seq 1 60); do
-  if docker exec "$DB_ID" pg_isready -U polar -d polar_test_ci >/dev/null 2>&1; then READY=1; break; fi
+  if docker exec "$DB_ID" pg_isready -h 127.0.0.1 -U polar -d polar_test_ci >/dev/null 2>&1; then READY=1; break; fi
   sleep 1
 done
 [[ "$READY" == 1 ]] || { docker logs "$DB_ID" >"$REPORT_DIR/postgres.log" 2>&1; exit 1; }
-docker exec "$DB_ID" psql -U polar -d polar_test_ci -c 'CREATE DATABASE polar_test_dataset_ci' >"$REPORT_DIR/database-setup.log" 2>&1
+docker exec "$DB_ID" psql -U polar -h 127.0.0.1 -d polar_test_ci -c 'CREATE DATABASE polar_test_dataset_ci' >"$REPORT_DIR/database-setup.log" 2>&1
 GIT_MOUNTS=()
 GIT_COMMON=$(git -C "$SOURCE_ROOT" rev-parse --path-format=absolute --git-common-dir)
 case "$GIT_COMMON" in "$SOURCE_ROOT"/*) ;; *) GIT_MOUNTS+=(--mount "type=bind,src=$GIT_COMMON,dst=$GIT_COMMON,readonly") ;; esac
