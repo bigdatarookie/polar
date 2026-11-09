@@ -40,7 +40,7 @@ try:
     # Selected adapter tests never silently replace the native-engine control.
     if a.test and not any(x in ['tests','tests/test_gym.py'] or x.startswith('tests/test_gym.py::test_native_invented_pair') for x in a.test):
         code=max(code,run('native',[sys.executable,'-m','pytest','-ra','-q','-p','no:cacheprovider','--junitxml=/reports/native.xml','tests/test_gym.py::test_native_invented_pair_and_fresh_replay']))
-    js=sorted(str(x) for x in pathlib.Path('tests').glob('*.mjs'))
+    js=sorted({str(x) for pattern in ['test_*.mjs','*.test.mjs'] for x in pathlib.Path('tests').glob(pattern)})
     if js:code=max(code,run('node',['node','--test',*js],600))
     status=code
 except Exception as e:
