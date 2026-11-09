@@ -9,7 +9,7 @@ concurrency:
   cancel-in-progress: false
 env:
   PILOT_BASELINE_SHA: "ad20035efdd972778c0b1f48f43bf51f935a48d1"
-  PILOT_NEGATIVE_CONTROL: "true"
+  PILOT_NEGATIVE_CONTROL: "false"
 jobs:
   package-tests:
     runs-on: ubuntu-24.04
