@@ -132,3 +132,54 @@ Prospective fake-engine coverage retains the bind-root mode observed at create
 instead of supplying a constant0555, and checks restrictive umask and failed
 publication restoration. These fixtures are not a substitute for the separately
 authorized actual consumer qualification after independent review.
+# Retained files and persistent artifact output (config3)
+
+`polar.observed-launch-config/3` extends the same observed launch/cleanup path.
+Config1/config2 retain their fields and behavior. Config3 additionally requires:
+
+```json
+{
+  "retained": {
+    "read_only": [
+      {"path":"/absolute/source/file","target":"/original/container/file","sha256":"64_HEX_SHA256","bytes":123}
+    ],
+    "artifact_root": {"path":"/private/task/artifacts","device":"DEVICE_NUMBER","inode":"INODE_NUMBER"}
+  }
+}
+```
+
+The caller creates and reconciles the persistent root once, under a private
+caller-owned parent. Record device/inode from `stat(...,{bigint:true})`; the root
+must be a caller-owned real directory writable by the configured unprivileged
+container user (the current portable check requires the other-write bit).
+The launcher never creates, chmods, resets or deletes that root or its ledger.
+The separate physical launch output must not overlap it. Runner authorization
+and the operational owner remain responsible for the same scientific family,
+original ledger and retained-start limit across physical launches and repairs.
+This tool adds no counter store or experiment policy.
+
+Selected input files are streamed in 64-KiB chunks into private, sealed per-launch
+staging, checked against exact byte count/SHA256, then mounted individually RO at
+their original absolute targets. No host directory/home/credential-store mount
+is added. The caller must supply only its authorized private read set. An exact
+existing six-ref alias reuses that already verified mount; conflicting aliases,
+duplicate/overlapping targets and application/entrypoint/preparation/output
+overlays fail closed. The bounds are 512 files, 256 MiB per file and 1 GiB total
+per invocation; these are streaming/path-complexity bounds, not a new task storage
+entitlement. The shared host storage policy still applies to staging plus output.
+
+`/polar-artifacts` is the sole additional RW target. The existing harness argument
+contract is unchanged: pass this root and the declared finite storage size to the
+existing runner/CLI through its reviewed config. No new environment variables,
+network access, engine or command dispatcher are introduced. The automatic
+pre-start receipt includes original file references/hashes, persistent-root
+identity and the exact effective bind-mount graph observed from the same stopped
+container. Image, packaged source and readable preparation-receipt checks remain.
+The root identity and staged bytes are rechecked before start. An unexpected
+mount/direction/identity or changed content prevents scenario start. Cleanup still
+removes only the observed owned container and keeps all host artifacts/inputs.
+
+Independent qualification should use invented files and a stdlib writer across
+two physical launches to observe RO inputs, UID/readability, persistent writes,
+automatic binding and exact cleanup. No retained data or native engine is needed
+to qualify this mount seam. Source tests are not that actual Docker proof.

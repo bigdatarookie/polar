@@ -5,8 +5,9 @@ import cp from 'node:child_process';
 import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
+import {retainedPlan,stageRetained,verifyRetained,observedMounts} from './polar-retained-mounts.mjs';
 
-export const VERSION='polar-observed-launch/2.2';
+export const VERSION='polar-observed-launch/2.3';
 const hash=b=>crypto.createHash('sha256').update(b).digest('hex');
 const now=()=>new Date().toISOString();
 const check=(v,code)=>assert(v,code);
@@ -37,8 +38,8 @@ function docker(args,timeout=15000) {
 const jsonDocker=args=>JSON.parse(docker(args));
 const same=(a,b)=>canonical(a)===canonical(b);
 function validate(s) {
-  exact(s,['schema','launch_id','candidate','image_id','runtime_image_id','platform','user','entrypoint','environment','refs','build_fields','scenario_timeout_ms']);
-  check(['polar.observed-launch-config/1','polar.observed-launch-config/2'].includes(s.schema)&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(s.launch_id),'INVALID_LAUNCH');
+  exact(s,['schema','launch_id','candidate','image_id','runtime_image_id','platform','user','entrypoint','environment','refs','build_fields','scenario_timeout_ms',...(s.schema==='polar.observed-launch-config/3'?['retained']:[])]);
+  check(['polar.observed-launch-config/1','polar.observed-launch-config/2','polar.observed-launch-config/3'].includes(s.schema)&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(s.launch_id),'INVALID_LAUNCH');
   exact(s.candidate,['commit','tree']);check(Object.values(s.candidate).every(x=>/^[a-f0-9]{40}$/.test(x)),'INVALID_CANDIDATE');
   check(/^sha256:[a-f0-9]{64}$/.test(s.image_id),'IMMUTABLE_IMAGE_ID_REQUIRED');
   check(/^sha256:[a-f0-9]{64}$/.test(s.runtime_image_id),'IMMUTABLE_RUNTIME_IMAGE_ID_REQUIRED');
@@ -63,7 +64,7 @@ function validate(s) {
     let value=build;for(const key of keys)value=value?.[key];
     check(value===(k==='image_id'?s.image_id:s.candidate[k]),'SOURCE_BUILD_BINDING_MISMATCH');
   }
-  if(s.schema==='polar.observed-launch-config/2') {
+  if(s.schema!=='polar.observed-launch-config/1') {
     validatePackagedSourceBinding(build.source_files,refs,s.entrypoint);
   }
   return refs;
@@ -177,7 +178,7 @@ function observation(c,image,s) {
 }
 
 export function observedLaunch(configFile,out) {
-  const started=now();let s,refs,bindingHash=null,id=null,prepRef=null,root=false,creationAttempted=false;
+  const started=now();let s,refs,retained=null,bindingHash=null,id=null,prepRef=null,root=false,creationAttempted=false;
   let preparation={schema:'polar.observed-preparation/1',producer:{version:VERSION,sha256:hash(fs.readFileSync(fileURLToPath(import.meta.url)))},
     created_at:started,scenario_started:false,preparation:'NOT_PREPARED',reason:null,expected:null,observed:null,engine:null};
   let result={schema:'polar.observed-execution/1',scenario:'NOT_RUN',scenario_started:false,cleanup:{status:'NO_RESOURCES'}};
@@ -200,8 +201,13 @@ export function observedLaunch(configFile,out) {
     refs=validate(s);bindingHash=hash(canonical({config:s,output_root:out}));
     publish(path.join(out,'binding.json'),{binding_sha256:bindingHash});
     const staged=path.join(out,'bindings');fs.mkdirSync(staged,{mode:0o700});
-    for(const [k,v] of Object.entries(refs)){fs.writeFileSync(path.join(staged,k),v.raw,{flag:'wx',mode:0o444});delete v.raw;}
+    for(const [k,v] of Object.entries(refs)){
+      fs.writeFileSync(path.join(staged,k),v.raw,{flag:'wx',mode:0o444});
+      if(s.schema==='polar.observed-launch-config/3')fs.chmodSync(path.join(staged,k),0o444);
+      delete v.raw;
+    }
     fs.chmodSync(staged,0o555);
+    if(s.schema==='polar.observed-launch-config/3')retained=stageRetained(retainedPlan(s.retained,refs,s.entrypoint,out),out,staged);
     const output=path.join(out,'scenario');fs.mkdirSync(output,{mode:0o777});fs.chmodSync(output,0o777);
     preparation.expected={launch_id:s.launch_id,binding_sha256:bindingHash,candidate:s.candidate,image_id:s.image_id,image_identity_type:'docker-local-image-id',platform:s.platform,
       configured_user:s.user,entrypoint:[s.entrypoint],command:[s.refs.harness.path,s.refs.input.path,s.refs.expectations.path,s.refs.config.path,'/polar-output'],safe_environment:s.environment,refs};
@@ -209,7 +215,7 @@ export function observedLaunch(configFile,out) {
     const info=jsonDocker(['info','--format','{{json .}}']);
     preparation.engine={id:info.ID,server_version:info.ServerVersion,os:info.OSType,architecture:info.Architecture};
     check(typeof info.ID==='string'&&info.ID.length>0,'ENGINE_IDENTITY_MISSING');
-    const sourceRequired=s.schema==='polar.observed-launch-config/2';
+    const sourceRequired=s.schema!=='polar.observed-launch-config/1';
     const observationDir=path.join(out,'observation');
     if(sourceRequired) {
       fs.mkdirSync(observationDir,{mode:0o555});
@@ -219,9 +225,16 @@ export function observedLaunch(configFile,out) {
     }
     const args=['create','--pull=never','--name','polar-observed-'+s.launch_id,'--label','polar.launch.id='+s.launch_id,'--label','polar.launch.binding='+bindingHash,'--network','none','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--user',s.user,'--platform',s.platform,'--entrypoint',s.entrypoint];
     for(const [k,v] of Object.entries(s.environment))args.push('--env',k+'='+v);
-    for(const [k,v] of Object.entries(refs))args.push('--mount','type=bind,src='+path.join(staged,k)+',dst='+v.path+',readonly');
-    if(sourceRequired)args.push('--mount','type=bind,src='+observationDir+',dst=/polar-launch,readonly');
-    args.push('--mount','type=bind,src='+output+',dst=/polar-output',s.runtime_image_id,...preparation.expected.command);
+    const mounts=[];
+    for(const [k,v] of Object.entries(refs))mounts.push({source:path.join(staged,k),target:v.path,writable:false});
+    if(sourceRequired)mounts.push({source:observationDir,target:'/polar-launch',writable:false});
+    mounts.push({source:output,target:'/polar-output',writable:true});
+    if(retained) {
+      for(const ref of retained.files)if(!ref.existing_reference)mounts.push({source:ref.staged,target:ref.target,writable:false});
+      mounts.push({source:retained.artifact.path,target:'/polar-artifacts',writable:true});
+    }
+    for(const m of mounts)args.push('--mount','type=bind,src='+m.source+',dst='+m.target+(m.writable?'':',readonly'));
+    args.push(s.runtime_image_id,...preparation.expected.command);
     publish(path.join(out,'resources.json'),{container_name:'polar-observed-'+s.launch_id,launch_id:s.launch_id,binding_sha256:bindingHash});
     creationAttempted=true;
     id=docker(args).trim();check(/^[a-f0-9]{64}$/.test(id),'INVALID_CONTAINER_ID');
@@ -232,6 +245,10 @@ export function observedLaunch(configFile,out) {
     const image=jsonDocker(['image','inspect',c.Image])[0];check(image.Id===c.Image,'IMAGE_OBSERVATION_MISSING');
     preparation.observed=observation(c,image,s);preparation.compared_at=now();
     check(Object.values(preparation.observed.matches).every(Boolean),'RUNTIME_BINDING_MISMATCH');
+    if(retained) {
+      preparation.retained_binding={read_only_files:retained.files.map(({staged,...ref})=>ref),total_bytes:retained.total_bytes,artifact_root:retained.artifact,
+        producer_sha256:hash(fs.readFileSync(new URL('./polar-retained-mounts.mjs',import.meta.url))),observation:observedMounts(c,mounts)};
+    }
     for(const [k,v] of Object.entries(refs))check(hash(regular(path.join(staged,k)))===v.sha256,'STAGED_REFERENCE_CHANGED');
     if(sourceRequired) {
       const build=JSON.parse(regular(path.join(staged,'source_build')));
@@ -260,6 +277,11 @@ export function observedLaunch(configFile,out) {
       check(result.prestart_receipt_mount.matches.file_mode,'PREPARATION_FILE_MODE_MISMATCH');
       check(result.prestart_receipt_mount.matches.content,'PREPARATION_MOUNT_CONTENT_MISMATCH');
     }
+    if(retained) {
+      verifyRetained(retained);
+      const still=ownedContainer(id,s,bindingHash);check(still.State.Status==='created'&&still.Image===c.Image,'RUNTIME_BINDING_MISMATCH');
+      observedMounts(still,mounts);
+    }
     prepRef=publish(path.join(out,'preparation.json'),preparation);
     if(visibleRef)check(visibleRef.sha256===prepRef.sha256&&hash(regular(prepRef.path))===visibleRef.sha256,'RECEIPT_CONFLICT');
     // A receipt is committed before starting the SAME observed full container ID.
@@ -272,7 +294,8 @@ export function observedLaunch(configFile,out) {
     if(done.State.Running||done.State.ExitCode!==0)result.scenario='FAIL';
   } catch(e) {
     const codes=new Set(['PREPARATION_MOUNT_ARCHIVE_BOUND','PREPARATION_MOUNT_CONTENT_MISMATCH','PREPARATION_MOUNT_ARCHIVE_INVALID','PREPARATION_MOUNT_FILE_SET','PREPARATION_MOUNT_COPY_FAILED','PREPARATION_DIRECTORY_MODE_MISMATCH','PREPARATION_FILE_MODE_MISMATCH','SOURCE_MAP_BOUND','SOURCE_PATH_INVALID','SOURCE_FILE_BOUND','SOURCE_REFERENCE_OVERLAP','SOURCE_ENTRYPOINT_OVERLAP','SOURCE_ARCHIVE_BOUND','SOURCE_ARCHIVE_INVALID','SOURCE_NONREGULAR','SOURCE_FILE_SET_MISMATCH','SOURCE_HASH_MISMATCH','SOURCE_COPY_FAILED','INVALID_FIELDS','INVALID_LAUNCH','INVALID_CANDIDATE','IMMUTABLE_IMAGE_ID_REQUIRED','IMMUTABLE_RUNTIME_IMAGE_ID_REQUIRED','INVALID_PLATFORM','INVALID_CONFIGURED_USER','INVALID_ENTRYPOINT','INVALID_DEADLINE','INVALID_ENVIRONMENT','UNSAFE_ENVIRONMENT','INVALID_REFERENCE','REFERENCE_HASH_MISMATCH','REFERENCE_PATH_COLLISION','INVALID_BUILD_FIELDS','SOURCE_BUILD_BINDING_MISMATCH','UNSAFE_OUTPUT_ROOT','OUTPUT_CONFLICT','OUTPUT_IDENTITY_CONFLICT','RECEIPT_CONFLICT','ENGINE_IDENTITY_MISSING','ENGINE_COMMAND_FAILED','INVALID_CONTAINER_ID','CONTAINER_OWNERSHIP_CONFLICT','IMAGE_OBSERVATION_MISSING','RUNTIME_BINDING_MISMATCH','STAGED_REFERENCE_CHANGED']);
-    const code=codes.has(e.message)?e.message:'PREPARATION_IO_OR_RECORD_ERROR';
+    const retainedCodes=new Set(['RETAINED_FIELDS','RETAINED_PATH','RETAINED_FILE_BOUND','RETAINED_TOTAL_BOUND','RETAINED_TARGET_OVERLAP','RETAINED_REFERENCE_OVERLAP','RETAINED_FILE_CHANGED','RETAINED_HASH_MISMATCH','RETAINED_MOUNT_MISMATCH','ARTIFACT_ROOT_IDENTITY','ARTIFACT_ROOT_PERMISSIONS','ARTIFACT_OUTPUT_OVERLAP']);
+    const code=codes.has(e.message)||retainedCodes.has(e.message)?e.message:'PREPARATION_IO_OR_RECORD_ERROR';
     if(!root)return {schema:'polar.observed-execution/1',preparation_status:'NOT_PREPARED',reason:code,scenario:'NOT_RUN',scenario_started:false,cleanup:{status:'NO_RESOURCES_CREATED'}};
     if(!prepRef){preparation.preparation='NOT_PREPARED';preparation.reason=code;preparation.published_at=now();try{prepRef=publish(path.join(out,'preparation.json'),preparation);}catch{result.receipt_error='IMMUTABLE_RECEIPT_PUBLICATION_FAILED';}}
     else result.scenario='FAIL';

@@ -16,7 +16,7 @@ function setup(t) {
 const fs=require('fs'),path=require('path');const state=process.env.FAKE_DOCKER_STATE,log=process.env.FAKE_DOCKER_LOG;let s=JSON.parse(fs.readFileSync(state));const a=process.argv.slice(2);fs.appendFileSync(log,JSON.stringify(a)+'\\n');const save=()=>fs.writeFileSync(state,JSON.stringify(s));const emit=x=>process.stdout.write(typeof x==='string'?x:JSON.stringify(x));
 if(a[0]==='info')emit({ID:'synthetic-engine',ServerVersion:'fixture',OSType:'linux',Architecture:'arm64'});
 else if(a[0]==='create'){if(s.exists&&s.rejectDuplicate)process.exit(1);s.exists=true;s.args=a;s.started=false;const observation=path.join(process.env.FAKE_LAUNCH_OUT,'observation');if(fs.existsSync(observation)){s.createDirectoryMode=(fs.statSync(observation).mode&0o7777).toString(8).padStart(4,'0');if(s.visibleConflict){fs.chmodSync(observation,0o755);try{fs.writeFileSync(path.join(observation,'preparation.json'),'foreign');}finally{fs.chmodSync(observation,parseInt(s.createDirectoryMode,8));}}}save();if(s.unknownCreate)process.exit(1);if(s.conflict)fs.writeFileSync(path.join(process.env.FAKE_LAUNCH_OUT,'preparation.json'),'foreign');emit('${CID}');}
-else if(a[0]==='inspect'){if(s.failInspect)process.exit(1);const value=k=>s.args[s.args.indexOf(k)+1];const all=k=>s.args.flatMap((x,i)=>x===k?[s.args[i+1]]:[]);const labels=Object.fromEntries(all('--label').map(x=>{let n=x.indexOf('=');return[x.slice(0,n),x.slice(n+1)]}));const imageAt=s.args.indexOf('--entrypoint')+2;const after=s.args.slice(imageAt);const runtime=after.findIndex(x=>/^sha256:/.test(x));emit([{Id:'${CID}',Image:s.actualImage,Created:'2026-11-08T00:00:00.123456789Z',Config:{Labels:labels,User:value('--user'),Entrypoint:[value('--entrypoint')],Cmd:after.slice(runtime+1),Env:[...all('--env'),'DATABASE_URL=DO_NOT_LEAK_PRIVATE_SENTINEL']},State:{Status:s.started?'exited':'created',Running:false,ExitCode:0}}]);}
+else if(a[0]==='inspect'){if(s.failInspect)process.exit(1);const value=k=>s.args[s.args.indexOf(k)+1];const all=k=>s.args.flatMap((x,i)=>x===k?[s.args[i+1]]:[]);const labels=Object.fromEntries(all('--label').map(x=>{let n=x.indexOf('=');return[x.slice(0,n),x.slice(n+1)]}));const imageAt=s.args.indexOf('--entrypoint')+2;const after=s.args.slice(imageAt);const runtime=after.findIndex(x=>/^sha256:/.test(x));emit([{Id:'${CID}',Image:s.actualImage,Created:'2026-11-08T00:00:00.123456789Z',Config:{Labels:labels,User:value('--user'),Entrypoint:[value('--entrypoint')],Cmd:after.slice(runtime+1),Env:[...all('--env'),'DATABASE_URL=DO_NOT_LEAK_PRIVATE_SENTINEL']},Mounts:all('--mount').map(x=>{const f=Object.fromEntries(x.split(',').map(v=>v.split('=')));return {Type:'bind',Source:f.src,Destination:f.dst,RW:!x.endsWith(',readonly')};}).map(m=>s.forceRetainedRW&&m.Destination==='/retained/original.bin'?{...m,RW:true}:m),State:{Status:s.started?'exited':'created',Running:false,ExitCode:0}}]);}
 else if(a[0]==='image')emit([{Id:s.actualImage,Os:'linux',Architecture:'arm64'}]);
 else if(a[0]==='cp'){if(s.copyFail)process.exit(1);if(a[1].endsWith(':/polar-launch')){if(s.mountCopyFail)process.exit(1);const data=s.mountAltered?'altered':fs.readFileSync(path.join(process.env.FAKE_LAUNCH_OUT,'observation','preparation.json'));process.stdout.write((${tar.toString()})([{name:'polar-launch/',type:'5',mode:s.mountDirMode||s.createDirectoryMode},{name:'polar-launch/preparation.json',data,mode:s.mountFileMode||'0444'}]));}else process.stdout.write(Buffer.from(s.tar,'base64'));}
 else if(a[0]==='start'){const p=path.join(process.env.FAKE_LAUNCH_OUT,'preparation.json');const r=JSON.parse(fs.readFileSync(p));if(r.preparation!=='PREPARED'||r.scenario_started!==false)process.exit(9);if(s.tar){const visible=path.join(process.env.FAKE_LAUNCH_OUT,'observation','preparation.json');if(!fs.readFileSync(p).equals(fs.readFileSync(visible))||(fs.statSync(visible).mode&0o777)!==0o444||(fs.statSync(path.dirname(visible)).mode&0o777)!==0o555)process.exit(10);}s.started=true;s.starts=(s.starts||0)+1;save();fs.writeFileSync(path.join(process.env.FAKE_LAUNCH_OUT,'scenario','marker'),'one');emit('scenario marker');}
@@ -54,6 +54,54 @@ function sourceFixture(t,entries=[{name:'polar/example.py',data:code}]) {
   const f=setup(t);f.spec.schema='polar.observed-launch-config/2';
   const build=JSON.parse(fs.readFileSync(f.spec.refs.source_build.path));build.source_files=sourceFiles();const raw=JSON.stringify(build);fs.writeFileSync(f.spec.refs.source_build.path,raw);f.spec.refs.source_build.sha256=sha(raw);f.write();f.engine({tar:tar(entries).toString('base64')});return f;
 }
+function retainedFixture(t) {
+  const f=sourceFixture(t);f.spec.schema='polar.observed-launch-config/3';
+  const artifacts=path.join(f.root,'artifacts');fs.mkdirSync(artifacts);fs.chmodSync(artifacts,0o777);
+  fs.writeFileSync(path.join(artifacts,'family-ledger'),'preserve across launches');
+  const st=fs.statSync(artifacts,{bigint:true}),input=path.join(f.root,'retained-input');fs.writeFileSync(input,'invented retained bytes');
+  f.spec.retained={artifact_root:{path:artifacts,device:st.dev.toString(),inode:st.ino.toString()},read_only:[
+    {path:input,target:'/retained/original.bin',sha256:sha('invented retained bytes'),bytes:23},
+    {path:f.spec.refs.input.path,target:f.spec.refs.input.path,sha256:f.spec.refs.input.sha256,bytes:fs.statSync(f.spec.refs.input.path).size}
+  ]};f.write();return {...f,artifacts,input};
+}
+test('config3 binds retained files and persistent ledger in the same observed container',t=>{
+  const f=retainedFixture(t),result=observedLaunch(f.config,f.out);assert.equal(result.scenario,'PASS');
+  const prep=f.read('preparation.json');assert.equal(prep.retained_binding.observation.all_mounts_exact,true);
+  assert.equal(prep.retained_binding.read_only_files.length,2);
+  const mounts=f.calls().find(a=>a[0]==='create').filter(a=>a.startsWith('type=bind'));
+  assert.equal(mounts.filter(m=>m.includes('dst='+f.spec.refs.input.path+',')).length,1);
+  assert(mounts.some(m=>m.endsWith('dst=/retained/original.bin,readonly')));
+  assert(mounts.some(m=>m.endsWith('dst=/polar-artifacts')));
+  assert.equal(fs.readFileSync(path.join(f.artifacts,'family-ledger'),'utf8'),'preserve across launches');
+  const prior=f.calls().length;assert.equal(observedLaunch(f.config,f.out).reconciled,true);assert.equal(f.calls().length,prior);
+  assert.equal(observedCleanup(f.config,f.out).cleanup.status,'ALREADY_ABSENT');
+  assert.equal(fs.readFileSync(path.join(f.artifacts,'family-ledger'),'utf8'),'preserve across launches');
+});
+test('fresh physical launch reuses exactly the same persistent root without resetting it',t=>{
+  const f=retainedFixture(t);assert.equal(observedLaunch(f.config,f.out).scenario,'PASS');
+  const other=path.join(f.root,'second-launch');f.spec.launch_id=crypto.randomUUID();f.write();process.env.FAKE_LAUNCH_OUT=other;
+  assert.equal(observedLaunch(f.config,other).scenario,'PASS');
+  assert.equal(JSON.parse(fs.readFileSync(f.state)).starts,2);
+  assert.equal(fs.readFileSync(path.join(f.artifacts,'family-ledger'),'utf8'),'preserve across launches');
+});
+test('changed retained bytes fail before engine work and preserve the family ledger',t=>{
+  const f=retainedFixture(t);fs.writeFileSync(f.input,'wrong but same-size txt');
+  const result=observedLaunch(f.config,f.out);assert.equal(result.preparation_status,'NOT_PREPARED');
+  assert.equal(result.scenario,'NOT_RUN');assert.equal(f.calls().length,0);
+  assert.equal(fs.readFileSync(path.join(f.artifacts,'family-ledger'),'utf8'),'preserve across launches');
+});
+test('observed writable retained input fails before start and only exact container is cleaned',t=>{
+  const f=retainedFixture(t);f.engine({forceRetainedRW:true});const result=observedLaunch(f.config,f.out);
+  assert.equal(result.reason,'RETAINED_MOUNT_MISMATCH');assert.equal(result.scenario,'NOT_RUN');
+  assert(!f.calls().some(a=>a[0]==='start'));assert.equal(result.cleanup.status,'REMOVED');
+  assert(fs.existsSync(path.join(f.artifacts,'family-ledger')));
+});
+test('config3 seals all reference files readably even under a restrictive umask',t=>{
+  const f=retainedFixture(t),previous=process.umask(0o077);let result;
+  try{result=observedLaunch(f.config,f.out);}finally{process.umask(previous);}
+  assert.equal(result.scenario,'PASS');
+  for(const name of Object.keys(f.spec.refs))assert.equal(fs.statSync(path.join(f.out,'bindings',name)).mode&0o777,0o444);
+});
 test('packaged source from same stopped container and identical readable receipt precede start',t=>{const f=sourceFixture(t);const result=observedLaunch(f.config,f.out);assert.equal(result.scenario,'PASS');const p=f.read('preparation.json');assert.equal(p.source_binding.packaged_source_independently_observed,true);assert.equal(p.source_binding.observed_container_id,CID);assert.deepEqual(p.source_binding.observed_files,sourceFiles());const calls=f.calls();assert.deepEqual(calls.find(x=>x[0]==='cp'),['cp',CID+':/app/src/polar','-']);assert(calls.findIndex(x=>x[0]==='cp')<calls.findIndex(x=>x[0]==='start'));assert(calls.find(x=>x[0]==='create').some(x=>x.endsWith('dst=/polar-launch,readonly')));assert.equal(observedLaunch(f.config,f.out).reconciled,true);assert.equal(observedCleanup(f.config,f.out).cleanup.status,'ALREADY_ABSENT');});
 for(const [label,entries,reason] of [
  ['changed',[{name:'polar/example.py',data:'changed'}],'SOURCE_HASH_MISMATCH'],
