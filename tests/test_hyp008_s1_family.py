@@ -91,7 +91,7 @@ def test_linear_failure_stops_history_and_all_predictions(monkeypatch):
     monkeypatch.setattr(models,'historical',lambda *a:pytest.fail('historical must not start'))
     result=models.fixed_family(('a','b'),(Z,Z),(bits(0),bits(2)),{'q':Z},
         {'q':{'ids':[f'w{i}' for i in range(52)],'bits':[bits(0)]*52}},
-        {'q':bits(1)},masks(),object(),calls.append)
+        {'q':bits(1)},masks(),N(verify=lambda:{}),calls.append)
     assert calls==['TREE_START','LINEAR_START']
     assert result['status']=='PLANNED_FAMILY_UNAVAILABLE'
     assert result['stages']['HISTORICAL_PASS']=='NOT_RUN'

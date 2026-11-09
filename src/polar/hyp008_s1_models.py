@@ -138,6 +138,7 @@ def fixed_family(training_ids,training_z,training_y,score_z,history_windows,targ
             and len(training_ids)==len(training_z)==len(training_y)
             and type(targets) is dict and set(targets)==set(masks['P'])
             and all(type(row) is tuple and len(row)==5 for row in score_z.values()),'FIXED_TRAINING_TARGET_ROWS')
+    binding.verify()  # Reject missing/incorrect runtime/default locks before stage charges.
     artifacts={};stages={name:'NOT_RUN' for name in ('TREE','LINEAR','HISTORICAL_PASS')}
     forecasts={k:{} for k in METHODS};current='TREE'
     try:
