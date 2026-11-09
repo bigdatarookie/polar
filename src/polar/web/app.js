@@ -216,6 +216,24 @@ function historyReferenceNote(){
   if(!ref||!displayedHistoryControls().benchmark)return historyContext?.seriesUnavailable||'Backend reference unavailable; no client normalization is substituted.';
   return ref.status+' · '+ref.family+' · fixed full-revision anchor '+(ref.anchor_session||'none')+' · '+ref.common_valid_sessions+' common valid sessions. '+(ref.family==='RAW_PRICE_RELATIVE'?'Raw price-only; no action-correct wealth.':'Provider-adjusted close proxy; not independently reconstructed total return.')+' No funded NAV or Sharpe.';
 }
+function diagnosticPanel(parent,key,label,text){
+  const box=element('details',undefined,'diagnostic-disclosure');box.id='diagnostics-'+key;box.open=state.diagnostics?.[key]===true;
+  box.append(element('summary',label));panelNote(box,text);box.ontoggle=()=>{state.diagnostics[key]=box.open;saveWorkspace();};parent.append(box);
+}
+function overlaySamples(parent,keys){
+  const group=element('div',undefined,'overlay-samples');
+  for(const [key,label] of keys){const style=overlayStroke(key,palette()),item=element('span',undefined,'overlay-sample'),line=element('i');
+    line.setAttribute('aria-hidden','true');line.style.height=style.width+'px';line.style.background=strokeBackground(style);
+    item.dataset.series=key;item.append(line,document.createTextNode(label));group.append(item);}
+  parent.append(group);
+}
+function compactOverlayStatus(key){
+  if(!state[key])return 'Off';if(loading)return 'Updating · previous display retained';
+  if(!historyDisplayed())return key==='sma'&&legacySmaAvailable()?'Retained test only':'Unavailable';
+  if(historyContext?.seriesUnavailable)return 'Unavailable · see calculation details';
+  const name=key==='bollinger'?'bb_middle':key;
+  return historyContext?.series?.metadata.series_metadata[name]?.status||'Unavailable';
+}
 function indicatorCard(parent,key,title,shortName,period){
   const card=element('section',undefined,'indicator-card');
   const usable=key==='sma'&&legacySmaAvailable();
@@ -229,7 +247,8 @@ function indicatorCard(parent,key,title,shortName,period){
     input.onchange=()=>{const raw=input.value.trim().replace(',','.').replace(/^0+(?=\d)/,'');const cap=decimalDelta(raw,'10');if(raw.length>40||!/^\d+(?:\.\d{1,18})?$/.test(raw)||!/[1-9]/.test(raw)||cap===null||(cap[0]!=='-'&&/[1-9]/.test(cap))){input.setAttribute('aria-invalid','true');error.textContent='Enter a positive multiplier up to 10, with at most18 decimal places. Input retained.';return;}state.indicators.bollinger.deviation=raw;input.setAttribute('aria-invalid','false');error.textContent='Requested multiplier '+raw;refreshHistoryOverlays();};
   }
   const note=historyDisplayed()?historyIndicatorNote(key):usable?'Legacy test-only SMA20 display transform. Not a qualified real-history indicator.':key==='sma'&&state.dataMode==='retained-test'&&period===20?'Insufficient gap-free retained test observations for SMA20.':'Not rendered: accepted backend calculation/warmup result unavailable.';
-  panelNote(settings,note);card.append(settings);parent.append(card);
+  overlaySamples(settings,key==='bollinger'?[['bb_upper','Upper'],['bb_middle','Middle'],['bb_lower','Lower']]:[[key,shortName]]);
+  panelNote(settings,compactOverlayStatus(key));diagnosticPanel(settings,key,'Calculation details',note);card.append(settings);parent.append(card);
 }
 function setDataMode(mode){
   if(mode===state.dataMode)return;
@@ -259,13 +278,13 @@ function renderRail() {
     const benchmark=element('div',undefined,'indicator-card');checkbox(benchmark,'benchmark-toggle','Buy-and-hold · price reference','Requested raw price-relative context only; not funded NAV or certified total return.','benchmark',false);if(historyDisplayed()){
       const label=element('label','Reference basis','indicator-deviation'),select=element('select');select.id='reference-family';
       for(const [value,text] of [['RAW_PRICE_RELATIVE','Raw price relative'],['PROVIDER_ADJUSTED_CLOSE_INDEX','Provider-adjusted close proxy']]){const option=element('option',text);option.value=value;select.append(option);}select.value=state.referenceFamily||'RAW_PRICE_RELATIVE';select.onchange=()=>{state.referenceFamily=select.value;refreshHistoryOverlays();};label.append(select);benchmark.append(label);
-    }panelNote(benchmark,historyDisplayed()?historyReferenceNote():'Not rendered: accepted backend reference values/basis are unavailable. No client replacement is calculated.');body.append(benchmark);
+    }overlaySamples(benchmark,[['asset_reference','Asset'],['benchmark_reference','VTI']]);diagnosticPanel(benchmark,'reference','Reference details',historyDisplayed()?historyReferenceNote():'Not rendered: accepted backend reference values/basis are unavailable. No client replacement is calculated.');body.append(benchmark);
     const context=element('div',undefined,'context-note');context.append(element('b','Settings are retained'),element('p','Periods change requested backend parameters, not the active asset or range. All pages/values/statuses commit together; previous coherent display is retained while updating.'));body.append(context);return;
   }
   if(historyDisplayed()) {
     panelNote(body,historyContext?.instrument?(getAsset().symbol+' · stored history'):'Choose registered stored history.');
     panelNote(body,'NO_STRATEGY_RESULT · this history has no attributed orders, NAV or Sharpe. Nothing is inferred from price movement.');
-    if(historyContext?.revision){const info=element('div',undefined,'context-note');info.append(element('b','Pinned source'),element('p',historyContext.revision.dataset_revision),element('p','Calendar '+(historyContext.bars?.coverage.calendar_status||historyContext.revision.calendar_status||'UNVERIFIED')+' · PIT '+(historyContext.revision.fitness?.causal_PIT_fitness||'INSUFFICIENT_EVIDENCE')));body.append(info);}return;
+    if(historyContext?.revision)diagnosticPanel(body,'source','Pinned source details',historyContext.revision.dataset_revision+' · Calendar '+(historyContext.bars?.coverage.calendar_status||historyContext.revision.calendar_status||'UNVERIFIED')+' · PIT '+(historyContext.revision.fitness?.causal_PIT_fitness||'INSUFFICIENT_EVIDENCE'));return;
   }
   panelNote(body,dataset?getAsset().symbol+' · '+getStrategy().name:'Choose an available retained dataset and run.');
   if(!detail?.report) {panelNote(body,detail?'Report unavailable · '+detail.run.state:loading?'Loading retained records…':loadError?'Unavailable · '+loadError:'No retained run selected.');return;}
@@ -336,6 +355,7 @@ function syncToolbar() {
   setLineLegend('asset-ref-legend',historyDisplayed()&&controls.benchmark&&!!series,getAsset().symbol+' · index100','equity-key');
   const benchmark=historyContext?.assets.find(a=>a.instrument_id===reference?.benchmark_instrument_id);
   setLineLegend('benchmark-legend',historyDisplayed()&&controls.benchmark&&!!series,(benchmark?.display_symbol||'Benchmark')+' · index100','benchmark-key');
+  $('#volume-toggle').setAttribute('aria-pressed',String(state.volume));$('#data-diagnostics').open=state.diagnostics?.raw===true;
   $('.volume-title').textContent=historyDisplayed()?'Volume · '+(historyContext?.revision?.basis.volume_unit||'split-adjusted shares'):'Volume unavailable · not supplied';
   $('#footer-context').textContent=historyDisplayed()?(dataset?getAsset().symbol+' · '+dataset.dataset_revision.slice(0,20)+'… · '+(historyContext?.instrument?.chart_fitness||historyContext?.revision?.fitness.chart_fitness||'NOT_READY'):'Stored history workspace'):dataset?getAsset().symbol+' · '+dataset.dataset_id.slice(0,15)+'… · '+(detail?.run.state||'No run')+' / '+(detail?.report?.status||'No report'):'Retained test workspace';
   $('#datasets-page').textContent=historyDisplayed()?(catalog.length+' mapped assets · pinned revision'):(catalog.length?'Datasets '+(datasetOffset+1)+'–'+(datasetOffset+catalog.length):'No datasets on page');
@@ -344,12 +364,10 @@ function syncToolbar() {
 }
 function renderAll() {document.documentElement.dataset.theme=resolvedTheme();renderPending();syncModes();renderRail();renderRows();renderRecord();syncToolbar();renderChart();drawMeasurement();showRaw(state.inspect);}
 function chartLayout(){
-  const h=$('#chart').clientHeight,w=$('#chart').clientWidth,narrow=innerWidth<701,control=displayedHistoryControls();
-  const rsi=historyDisplayed()&&!!historyContext?.series&&control.rsi,reference=historyDisplayed()&&!!historyContext?.series&&control.benchmark;
-  const left=narrow?43:57,right=reference?(narrow?43:60):(narrow?15:22),grid=[];
-  if(rsi){const gap=24,usable=Math.max(70,h-130),price=Math.floor(usable*.58),volume=Math.floor(usable*.18);grid.push({left,right,top:24,height:price},{left,right,top:24+price+gap,height:volume},{left,right,top:24+price+volume+2*gap,height:usable-price-volume});}
-  else grid.push({left,right,top:24,height:Math.max(1,h-147)},{left,right,top:h-87,height:43});
-  return {grid,left,right,rsi,reference,priceBox:{x:left,y:24,width:w-left-right,height:grid[0].height}};
+  const control=displayedHistoryControls();
+  return chartGeometry({height:$('#chart').clientHeight,width:$('#chart').clientWidth,narrow:innerWidth<701,
+    rsi:historyDisplayed()&&!!historyContext?.series&&control.rsi,
+    reference:historyDisplayed()&&!!historyContext?.series&&control.benchmark,volume:state.volume});
 }
 function renderChart() {
   if(!chart)return;hideCandleBoundary();const c=palette(),bars=view.bars,narrow=innerWidth<701,layout=chartLayout(),control=displayedHistoryControls(),real=historyDisplayed();
@@ -357,8 +375,8 @@ function renderChart() {
   message.textContent=real?(loading?'Loading registered history…':loadError?'History unavailable · '+loadError:dataset?'No observed OHLCV in the selected window. No values were padded.':'No registered chart-ready stored history. No synthetic data was substituted.'):loading?'Loading retained records…':loadError?'Backend unavailable · '+loadError:!dataset?'No retained datasets':['NO_DATA','INVALID'].includes(detail?.report?.status)?'Retained report: '+detail.report.status+(detail.report.diagnostic?' · '+detail.report.diagnostic:''):detail&&!detail.report?'Report unavailable · '+detail.run.state:'No plottable observations; source values are unavailable.';
   const series=[{id:'asset',name:real?'Raw vendor OHLC':'Retained asset OHLC',type:'candlestick',data:bars.map(b=>['open','close','low','high'].map(k=>real?(b.price_status==='OBSERVED'?numberOrNull(b[k]):null):indexValue(b[k],view.baseClose))),itemStyle:{color:c.up,color0:c.down,borderColor:c.up,borderColor0:c.down},emphasis:{disabled:true},barMaxWidth:15,z:2}];
   if(real){
-    series.push({id:'volume',name:'Split-adjusted volume',type:'bar',xAxisIndex:1,yAxisIndex:1,data:bars.map(b=>b.volume_status==='OBSERVED'?numberOrNull(b.volume):null),itemStyle:{color:c.muted,opacity:.55},barMaxWidth:15,z:1});
-    const add=(key,name,color,width=1.7,type='solid',xAxisIndex=0,yAxisIndex=0)=>series.push({id:key,name,type:'line',xAxisIndex,yAxisIndex,data:(view.cPoints||[]).map(point=>numberOrNull(historySeriesValue(point,key))),connectNulls:false,showSymbol:false,smooth:false,lineStyle:{color,width,type},emphasis:{disabled:true},z:4});
+    if(state.volume)series.push({id:'volume',name:'Split-adjusted volume',type:'bar',xAxisIndex:1,yAxisIndex:1,data:bars.map(b=>b.volume_status==='OBSERVED'?numberOrNull(b.volume):null),itemStyle:{color:c.muted,opacity:.55},barMaxWidth:15,z:1});
+    const add=(key,name,color,width=1.7,type='solid',xAxisIndex=0,yAxisIndex=0)=>series.push({id:key,name,type:'line',xAxisIndex,yAxisIndex,data:(view.cPoints||[]).map(point=>numberOrNull(historySeriesValue(point,key))),connectNulls:false,showSymbol:false,smooth:false,lineStyle:overlayStroke(key,c),emphasis:{disabled:true},z:4});
     const params=historyContext?.series?.metadata.parameters;
     if(control.sma&&params)add('sma','SMA'+params.sma_period,c.sma,1.8,'dotted');
     if(control.ema&&params)add('ema','EMA'+params.ema_period,c.action,1.8,'dashed');
@@ -371,12 +389,12 @@ function renderChart() {
     if(state.markers&&numberOrNull(view.baseClose)>0)series.push({id:'fills',name:'Actual signed fills',type:'scatter',symbol:'triangle',symbolSize:7,data:view.markers.filter(f=>f.plotIndex>=0).map(f=>({value:[bars[f.plotIndex].time,indexValue(f.price,view.baseClose)],fill:f})),itemStyle:{color:c.equity},z:6});
   }
   const x={type:'category',data:bars.map(b=>b.time),boundaryGap:true,axisTick:{show:false},axisLine:{lineStyle:{color:c.rule}},axisLabel:{color:c.muted,fontSize:narrow?9:10,formatter:shortDate}};
-  const xAxis=[{...x,gridIndex:0,axisLabel:{show:false}},{...x,gridIndex:1,axisLabel:layout.rsi?{show:false}:x.axisLabel}];if(layout.rsi)xAxis.push({...x,gridIndex:2});
-  const yAxis=[{type:'value',gridIndex:0,scale:true,splitNumber:narrow?3:5,axisLabel:{color:c.muted,fontSize:narrow?8:10},splitLine:{lineStyle:{color:c.rule,opacity:.55}}},{type:'value',gridIndex:1,show:real,splitNumber:2,axisLabel:{hideOverlap:true,color:c.muted,fontSize:8,formatter:n=>n>=1e6?(n/1e6).toFixed(1)+'m':n>=1e3?(n/1e3).toFixed(0)+'k':String(n)},splitLine:{show:false}},{type:'value',gridIndex:0,position:'right',scale:true,show:layout.reference,splitNumber:3,axisLabel:{color:c.benchmark,fontSize:8,formatter:n=>Math.abs(n)>=1000?(n/1000).toFixed(1)+'k':String(Number(n.toFixed(1)))},splitLine:{show:false}}];
+  const xAxis=[{...x,gridIndex:0,axisLabel:!layout.rsi&&!layout.volume?x.axisLabel:{show:false}},{...x,gridIndex:1,show:layout.volume,axisLabel:layout.rsi||!layout.volume?{show:false}:x.axisLabel}];if(layout.rsi)xAxis.push({...x,gridIndex:2});
+  const yAxis=[{type:'value',gridIndex:0,scale:true,splitNumber:narrow?3:5,axisLabel:{color:c.muted,fontSize:narrow?8:10},splitLine:{lineStyle:{color:c.rule,opacity:.55}}},{type:'value',gridIndex:1,show:real&&layout.volume,splitNumber:2,axisLabel:{hideOverlap:true,color:c.muted,fontSize:8,formatter:n=>n>=1e6?(n/1e6).toFixed(1)+'m':n>=1e3?(n/1e3).toFixed(0)+'k':String(n)},splitLine:{show:false}},{type:'value',gridIndex:0,position:'right',scale:true,show:layout.reference,splitNumber:3,axisLabel:{color:c.benchmark,fontSize:8,formatter:n=>Math.abs(n)>=1000?(n/1000).toFixed(1)+'k':String(Number(n.toFixed(1)))},splitLine:{show:false}}];
   if(layout.rsi)yAxis.push({type:'value',gridIndex:2,min:0,max:100,interval:50,axisLabel:{color:c.muted,fontSize:8},splitLine:{lineStyle:{color:c.rule,opacity:.55}}});
   const axes=layout.rsi?[0,1,2]:[0,1];
   rendering=true;chart.setOption({animation:false,backgroundColor:c.surface,textStyle:{fontFamily:'Golos Text',color:c.ink},grid:layout.grid,xAxis,yAxis,dataZoom:[{id:'inside',type:'inside',xAxisIndex:axes,startValue:state.lo,endValue:state.hi,filterMode:real?'filter':'none',rangeMode:['value','value'],zoomOnMouseWheel:false,moveOnMouseWheel:false,moveOnMouseMove:true,disabled:!available},{id:'slider',type:'slider',xAxisIndex:axes,startValue:state.lo,endValue:state.hi,filterMode:real?'filter':'none',rangeMode:['value','value'],left:layout.left,right:layout.right,bottom:4,height:15,moveHandleSize:0,showDataShadow:false,showDetail:false,borderColor:c.rule,backgroundColor:c.surface,fillerColor:resolvedTheme()==='dark'?'#bb9ae720':'#7145a315',handleStyle:{color:c.surface,borderColor:c.action},brushSelect:false,disabled:!available}],tooltip:{show:true,trigger:'item',confine:true,backgroundColor:c.surface,borderColor:c.rule,textStyle:{color:c.ink,fontSize:10,fontFamily:'Golos Text'},formatter:p=>{if(state.measurement||!p.data?.fill)return '';const f=p.data.fill;return element('div',(Number(f.quantity)<0?'SELL ':'BUY ')+f.quantity+' shares · '+usd(f.price)+' · fee '+f.fee+' · '+fmtDate(f.fill_at)+' · receipt '+fmtDate(f.receipt_at));}},series},{notMerge:true});rendering=false;
-  const volume=$('.volume-title');Object.assign(volume.style,{left:(layout.left+2)+'px',top:(layout.grid[1].top-18)+'px',bottom:'auto'});
+  const volume=$('.volume-title');volume.hidden=!layout.volume;Object.assign(volume.style,{left:(layout.left+2)+'px',top:(layout.grid[1].top-18)+'px',bottom:'auto'});
   const caption=$('#rsi-caption');if(caption){caption.hidden=!layout.rsi;caption.textContent='RSI'+(historyContext?.series?.metadata.parameters.rsi_period||'')+' · 0–100';if(layout.rsi)Object.assign(caption.style,{left:(layout.left+2)+'px',top:(layout.grid[2].top-14)+'px'});}
   requestAnimationFrame(drawMeasurement);
 }
@@ -386,12 +404,15 @@ function derivedReadout(i){
   const fields=[];for(const [flag,keys] of [['sma',['sma']],['ema',['ema']],['bollinger',['bb_lower','bb_middle','bb_upper']],['rsi',['rsi']],['benchmark',['asset_reference','benchmark_reference']]])if(control[flag])for(const key of keys){const item=point?.statuses?.[key],value=historySeriesValue(point,key);fields.push(key+(key==='sma'||key==='ema'||key==='rsi'?'('+params[key+'_period']+')':'')+' '+(value!==null?value:'Unavailable · '+(item?.reason||item?.status||'NO_POINT')));}
   return fields.length?'\nBackend · '+fields.join(' · '):'';
 }
+function setRawReadout(text){$('#raw-readout').textContent=text;$('#diagnostic-summary').textContent=text.split('\n')[0];}
 function showRaw(i) {
-  const b=view.bars[i], n=view.equity[i];if(b?.missingBar){$('#raw-readout').textContent='Reference date '+b.session_date+' · no source OHLCV row. No candle/volume was fabricated.'+derivedReadout(i);state.inspect=i;return;}if(b&&historyDisplayed()){$('#raw-readout').textContent='Session '+b.session_date+' · '+getAsset().symbol+' · '+b.price_status+' · calendar '+(historyContext?.bars?.coverage.calendar_status||'UNVERIFIED')+'\nO '+usd(b.open)+' · H '+usd(b.high)+' · L '+usd(b.low)+' · C '+usd(b.close)+'\nAdjusted close '+usd(b.adjusted_close)+' · volume '+(b.volume??'Unavailable')+' '+(historyContext?.revision?.basis.volume_unit||'split-adjusted shares')+'\nEvent clock '+(b.event_at?fmtDate(b.event_at):'not supplied')+' · no strategy result'+derivedReadout(i);state.inspect=i;return;}if(!b){$('#raw-readout').textContent=loading?'Loading…':loadError?'Values unavailable · '+loadError:'No retained source observations.';return;}state.inspect=i;
-  $('#raw-readout').textContent=fmtDate(b.time)+' – '+fmtDate(b.endTime)+' · '+getAsset().symbol+' · '+b.price_status+' ['+b.originalStatuses.join(', ')+'] · '+b.coverage.observed+'/'+b.coverage.supplied+' supplied sessions; calendar completeness not asserted\nO '+usd(b.open)+' · H '+usd(b.high)+' · L '+usd(b.low)+' · C '+usd(b.close)+' · volume unavailable\nNAV '+usd(n.value)+' at '+fmtDate(n.at)+' · cash '+usd(n.cash)+' · shares '+(n.shares??'Unavailable')+' · '+n.status;
+  const b=view.bars[i], n=view.equity[i];if(b?.missingBar){setRawReadout('Reference date '+b.session_date+' · no source OHLCV row. No candle/volume was fabricated.'+derivedReadout(i));state.inspect=i;return;}if(b&&historyDisplayed()){setRawReadout('Session '+b.session_date+' · '+getAsset().symbol+' · '+b.price_status+' · calendar '+(historyContext?.bars?.coverage.calendar_status||'UNVERIFIED')+'\nO '+usd(b.open)+' · H '+usd(b.high)+' · L '+usd(b.low)+' · C '+usd(b.close)+'\nAdjusted close '+usd(b.adjusted_close)+' · volume '+(b.volume??'Unavailable')+' '+(historyContext?.revision?.basis.volume_unit||'split-adjusted shares')+'\nEvent clock '+(b.event_at?fmtDate(b.event_at):'not supplied')+' · no strategy result'+derivedReadout(i));state.inspect=i;return;}if(!b){setRawReadout(loading?'Loading…':loadError?'Values unavailable · '+loadError:'No retained source observations.');return;}state.inspect=i;
+  setRawReadout(fmtDate(b.time)+' – '+fmtDate(b.endTime)+' · '+getAsset().symbol+' · '+b.price_status+' ['+b.originalStatuses.join(', ')+'] · '+b.coverage.observed+'/'+b.coverage.supplied+' supplied sessions; calendar completeness not asserted\nO '+usd(b.open)+' · H '+usd(b.high)+' · L '+usd(b.low)+' · C '+usd(b.close)+' · volume unavailable\nNAV '+usd(n.value)+' at '+fmtDate(n.at)+' · cash '+usd(n.cash)+' · shares '+(n.shares??'Unavailable')+' · '+n.status);
 }
 function windowGeometry() {const box=plotBox(),r=$('#chart').getBoundingClientRect();return {lo:state.lo,hi:state.hi,count:view.bars.length?state.hi-state.lo+1:0,first:view.bars[state.lo]?.time,last:view.bars[state.hi]?.time,canvas:{left:r.left,top:r.top,width:r.width,height:r.height},grid:box};}
 function initUI() {
+  $('#data-diagnostics').ontoggle=()=>{state.diagnostics.raw=$('#data-diagnostics').open;saveWorkspace();};
+  $('#volume-toggle').onclick=()=>{state.volume=!state.volume;keepScroll(()=>{syncToolbar();renderChart();drawMeasurement();});saveWorkspace();tell(state.volume?'Volume shown':'Volume hidden · space returned to candles');};
   const rsiCaption=element('span','','rsi-title');rsiCaption.id='rsi-caption';rsiCaption.hidden=true;$('#chart-stage').append(rsiCaption);$('#raw-readout').tabIndex=0;$('#raw-readout').setAttribute('aria-label','Raw source and calculated indicator values');
   $$('[data-mode]').forEach(b=>b.onclick=()=>{state.mode=b.dataset.mode;renderRail();syncModes();if(innerWidth<701)openTools();saveWorkspace();});
   $$('[data-sort]').forEach(b=>b.onclick=()=>{if(state.sortBy===b.dataset.sort)state.sortDir=state.sortDir==='desc'?'asc':'desc';else{state.sortBy=b.dataset.sort;state.sortDir='desc';}keepScroll(renderRows);saveWorkspace();});
