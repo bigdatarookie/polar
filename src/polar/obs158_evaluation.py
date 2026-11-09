@@ -72,7 +72,8 @@ def _fill_metrics(tape,initial):
                 if exact is not None:
                     require(cents==cent_round_micro(int(exact*1000000)),'SETTLEMENT_MODEL_MISMATCH')
                 totals['settled']+=settled
-        except (Obs158Error,ValueError):flag('settled','INVALID','INVALID_SETTLED_NOTIONAL')
+        except (Obs158Error,ValueError):
+            settled=None;flag('settled','INVALID','INVALID_SETTLED_NOTIONAL')
         if exact is None:
             failure=bad['exact'];flag('settled',failure['status'],'DEPENDENCY_'+failure['reason'])
         if exact is None or settled is None:
@@ -104,7 +105,9 @@ def _endpoint(row,aliases):
     try:
         if row.get('cash_cents') is None:
             return None,metric(None,'INSUFFICIENT_EVIDENCE','MISSING_ACCOUNT_CASH'),None
-        cash=integer(row['cash_cents']);positions=row['positions'];marks=row.get('marks',{})
+        cash=integer(row['cash_cents']);positions=row['positions'];marks=row.get('marks')
+        if marks is None:marks={}
+        require(type(marks) is dict,'INVALID_MARK_RECORD')
         require(type(positions) is dict and set(positions)==set(aliases),'POSITION_ALIAS_MISMATCH')
         components=[];rounded_total=cash
         for alias in aliases:
@@ -195,7 +198,7 @@ def _account(tape,grid,aliases):
 def evaluate_obs158(simulation,converted,aliases):
     """Only the two fixed account tapes and all253nominal endpoints are admitted."""
     grid=converted['sample_grid']
-    require(len(aliases)==158 and aliases==sorted(set(aliases)) and len(grid)==253
+    require(len(aliases)==158 and list(aliases)==sorted(set(aliases)) and len(grid)==253
             and len({g['nominal_ns'] for g in grid})==253
             and all(a['nominal_ns']<b['nominal_ns'] for a,b in zip(grid,grid[1:])),
             'INVALID_FIXED_EVALUATION_GRID')
@@ -222,7 +225,8 @@ def evaluate_obs158(simulation,converted,aliases):
                            'decimal50':S(D(change)) if change is not None else None,
                            'status':failure['status'] if failure else 'OK',
                            'reason':'DEPENDENCY_'+failure['reason'] if failure else None})
-        return {'schema':'polar.obs158-evaluation/1','strategies':results,
+        return {'schema':'polar.obs158-evaluation/1','metric_order':list((*POINTS,*CONCENTRATIONS,*FILL_FIELDS)),
+                'strategies':results,
                 'paired':{'order':'OBS158_EW_MONTHLY_V1_MINUS_OBS158_EW_BH_V1',
                           'metrics':deltas,'price_ledger_interval_change_differences':paired},
                 'financial_status':'INSUFFICIENT_EVIDENCE','evidence_scope':SCOPE,

@@ -1,0 +1,15 @@
+# SRE must verify this local tag resolves to the qualified fcfb9d9c... image.
+ARG OBS158_DEPENDENCIES=polar-local:gym-deps-nautilus-1.231.0
+FROM ${OBS158_DEPENDENCIES}
+ENV PYTHONPATH=/app/src PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+USER root
+WORKDIR /app
+COPY src /app/src
+COPY pyproject.toml /app/pyproject.toml
+# Task-owned build context addition: exact existing qualification metadata only.
+# It is outside the application source map and contains no dataset or credentials.
+COPY obs158-composition-proof.json /app/runtime/obs158-composition-proof.json
+RUN python -c "import hashlib; from pathlib import Path; proof=Path('/app/runtime/obs158-composition-proof.json'); assert hashlib.sha256(proof.read_bytes()).hexdigest()=='5d7f0be23af9b5c179645cddb9270cd4e16617d730a1a32a455d659d854c0bd6'; proof.chmod(0o444); p=Path('/usr/local/bin/polar'); p.write_text('#!/usr/local/bin/python\nfrom polar.cli import main\nif __name__ == \"__main__\": main()\n'); p.chmod(0o555)"
+USER 10001
+ENTRYPOINT ["python", "-m", "polar.cli"]
+CMD ["--help"]

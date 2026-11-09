@@ -89,6 +89,17 @@ class Service:
     def gym_report(self, experiment_id):
         return self._gym().report(experiment_id)
 
+    def _obs158(self):
+        from .obs158_service import Obs158Service
+        from .obs158_store import Obs158Store
+        return Obs158Service(Obs158Store(self.artifacts.root,self.artifacts.limit))
+
+    def obs158_preflight(self,config):return self._obs158().preflight(config)
+    def obs158_run(self,config):return self._obs158().run(config)
+    def obs158_replay(self,config,experiment_id):return self._obs158().replay(config,experiment_id)
+    def obs158_attempt(self,attempt_id):return self._obs158().attempt(attempt_id)
+    def obs158_report(self,experiment_id):return self._obs158().report(experiment_id)
+
     def ready(self):
         self.registry.check()
         self.artifacts.check()
