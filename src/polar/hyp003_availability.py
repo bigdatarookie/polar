@@ -106,6 +106,26 @@ def pointer_state(info,row):
     return 'VERIFIED_EXACT_BODY_POSITION'
 
 
+def producer_links(jobs,parents):
+    """Only a complete job/parent identity pair can verify a supplied link."""
+    from .import_raw_sip import job_id
+    entries=[]
+    for job in jobs:
+        if not isinstance(job,dict) or not isinstance(job.get('request'),dict):continue
+        request=job['request'];rid=job.get('population_record_id');source_id=job.get('job_id')
+        if type(rid) is not str or type(source_id) is not str:continue
+        try:canonical_id=job_id(request)
+        except RawImportError:continue  # Legacy/unbound declarations are not producer verification.
+        for parent in parents:
+            if (parent.get('population_record_id')==rid and parent.get('request')==request
+                    and parent.get('job_id')==source_id
+                    and parent.get('canonical_job_id',parent.get('raw_coverage_ref'))==canonical_id):
+                identity={'population_record_id':rid,'source_symbol':request['symbols'],
+                          'request':request,'canonical_job_id':canonical_id,'source_plan_job_id':source_id}
+                entries.append((identity,parent))
+    return entries
+
+
 def write_availability(config, output_dir):
     check(len(canonical(config))<=64*1024,'HYP003_CONFIG_LIMIT')
     check(type(config) is dict and set(config)=={'schema','mode','population_ref','grid_ref','inputs'}
@@ -167,11 +187,11 @@ def write_availability(config, output_dir):
             version=info['ref']['sha256'];plan=object_value(info,'source-plan.json')
             check(version not in seen_versions,'HYP003_DUPLICATE_PRIMARY_INPUT');seen_versions.add(version)
             jobs=plan.get('unit',{}).get('jobs',[])
-            auto=[{'population_record_id':j['population_record_id'],
-                   'source_symbol':j['request']['symbols'],'request':j['request'],
-                   'canonical_job_id':None,'source_plan_job_id':j.get('job_id')}
-                  for j in jobs if isinstance(j,dict) and j.get('population_record_id') in by_id and 'request' in j]
-            links=explicit or auto;aliases=defaultdict(list);parents=object_value(info,'parent-coverage-ledger.ndjson')
+            parents=object_value(info,'parent-coverage-ledger.ndjson')
+            producer=producer_links(jobs,parents)
+            auto=[identity for identity,_ in producer if identity['population_record_id'] in by_id
+                  and sum(other==identity for other,_ in producer)==1]
+            links=explicit or auto;aliases=defaultdict(list)
             parent_by_id={r.get('population_record_id'):r for r in parents}
             for link in links:
                 check(type(link) is dict and set(link)=={'population_record_id','source_symbol','request',
@@ -183,16 +203,21 @@ def write_availability(config, output_dir):
                     check(type(request.get('start')) is str and type(request.get('end')) is str
                           and request.get('symbols')==link['source_symbol']
                           and request['start']<request['end'],'HYP003_AVAILABILITY_PROFILE')
-                # A declaration is not source-profile verification. Exact new
-                # producer job equality establishes only this bounded relation.
-                verified=any(j.get('population_record_id')==rid and j.get('request')==request for j in jobs)
+                # Both ID namespaces, literal alias, record and exact request
+                # must resolve to ONE producer job/parent entry. Never replace
+                # a caller's mismatched ID with a convenient parent value.
+                matched=[parent for identity,parent in producer if identity==link]
+                related=[identity for identity,_ in producer
+                         if identity['population_record_id']==rid and identity['request']==request]
+                check(not related or len(matched)==1,'HYP003_AVAILABILITY_PRODUCER_LINK_MISMATCH')
+                verified=len(matched)==1
                 basis={k:v for k,v in request.items() if k not in ('start','end')} if request else None
                 profile_id=digest({'request':request,'unbound_source':None if request else version})
                 profiles[profile_id]={'request':request,'compatibility_basis_sha256':digest(basis) if basis else None}
-                parent=parent_by_id.get(rid,{})
+                parent=matched[0] if verified else parent_by_id.get(rid,{})
                 fact={'source_manifest_sha256':version,'collection_sha256':collection_sha,
                       'profile_id':profile_id,'profile_binding':'VERIFIED_PRODUCER_JOB' if verified else 'DECLARED_NOT_VERIFIED',
-                      'canonical_job_id':parent.get('canonical_job_id',link['canonical_job_id']),
+                      'canonical_job_id':link['canonical_job_id'],
                       'source_plan_job_id':link['source_plan_job_id'],
                       'transport_state':parent.get('raw_data_state','UNKNOWN'),
                       'links_sha256':links_sha}
