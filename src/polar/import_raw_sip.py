@@ -422,7 +422,10 @@ def execute(service,pid,*,fixture=None,network=False,attempt_id=None,scope=None)
                            'started_at':timestamp(service.clock.now()),'timeout_seconds':timeout}
                     service.store.write('requests/'+start['request_id']+'.json',start)
                     service.store._raw_execution_rows.append((start,None))
-                    result=transport.get(start,len(previous),timeout)
+                    # previous aliases the executor cache and has just grown.
+                    # The durable ordinal, assigned BEFORE append, identifies
+                    # this physical GET in fixture and resumed scopes alike.
+                    result=transport.get(start,start['sequence'],timeout)
                     require(type(result['body']) is bytes and len(result['body'])<=POLICY['body_bytes']+1,
                             'IMPORT_TRANSPORT_LIMIT')
                     body_ref=service.store.object(result.pop('body'))  # body is durable FIRST
@@ -454,8 +457,9 @@ def execute(service,pid,*,fixture=None,network=False,attempt_id=None,scope=None)
             except (ImportError,OSError) as exc:
                 service.store._terminal_finalization=True
                 terminal_status='partial' if counts['success'] or counts['partial'] else 'failed'
-                reason='SOURCE_ENVELOPE_NOT_MATERIALIZED'
-                service.store.write(prefix+'/source-gap.json',{'reason':reason,
+                gap_reason='SOURCE_ENVELOPE_NOT_MATERIALIZED'
+                if reason is None:reason=gap_reason
+                service.store.write(prefix+'/source-gap.json',{'reason':gap_reason,'operation_reason':reason,
                     'detail':exc.code if isinstance(exc,ImportError) else 'LOCAL_IO_FAILURE',
                     'raw_evidence_retained':True,'next_action':'Review exact envelope/storage bound before retry; no refetch'})
             service.store._terminal_finalization=True
