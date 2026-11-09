@@ -1,0 +1,10 @@
+schema: openrig.project/v0alpha1
+kind: project
+metadata:
+  id: polar
+install:
+  intent: SPEC.md
+  context:
+    - CULTURE.md
+    - LEARNED.md
+  skills: []

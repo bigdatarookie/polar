@@ -3,9 +3,15 @@ import argparse
 import json
 import sys
 import uuid
+from datetime import date, datetime
 from pathlib import Path
 
 from .models import RunConfig
+
+
+def json_default(value):
+    # Match HTTP timestamps while preserving exact Decimal strings.
+    return value.isoformat() if isinstance(value, (date, datetime)) else str(value)
 
 
 def page_limit(value):
@@ -309,7 +315,7 @@ def main(argv=None):
                 from .worker import run_forever
                 run_forever()
                 return
-        print(json.dumps(result,default=str,sort_keys=True,allow_nan=False))
+        print(json.dumps(result,default=json_default,sort_keys=True,allow_nan=False))
     except Exception as exc:
         # Exception messages can contain DSNs or payloads. Stable type only.
         from .registry import BudgetExceeded, NotFound
