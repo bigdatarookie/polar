@@ -11,6 +11,21 @@ from .capability_contract import (require, CapabilityError, SYMBOLS, ACCOUNTS, I
 from .capability_profile import allocation, identity
 
 
+def settlement_boundaries():
+    """Price-free data barriers; no new quote, mark, sample or route timestamp."""
+    return tuple(ns(day+'T14:30:00.000000Z')+1000*(route+1)+1
+                 for day in OPEN_DATES for route in range(1,len(SYMBOLS)+1))
+
+
+def failure_context(code,pending,awaiting,callback_kind,callback_ns):
+    # Diagnostic only; never substitute a successful settlement or expected value.
+    return {'schema':'polar.capability-adapter-failure-context/1','code':str(code)[:96],
+        'pending_count':len(pending),'pending_ids':[str(key)[:128] for key in sorted(pending)[:16]],
+        'awaiting_logical_id':None if awaiting is None else str(awaiting.get('logical_order_id','UNKNOWN'))[:128],
+        'callback_kind':str(callback_kind)[:96],
+        'callback_ns':None if callback_ns is None else str(callback_ns)[:32]}
+
+
 def one_account(account, target_rows, observations, *, charge, raw_callback):
     require(account in ACCOUNTS and importlib.metadata.version('nautilus_trader')=='1.231.0',
             'NATIVE_ACCOUNT_FAILURE')
@@ -53,10 +68,17 @@ def one_account(account, target_rows, observations, *, charge, raw_callback):
                                                 log_events=False,log_commands=False))
                 self.held={s:0 for s in SYMBOLS};self.quotes={};self.events=[];self.samples=[]
                 self.allocations=[];self.pending={};self.awaiting_balance=None
+                self.callback_kind='constructed';self.callback_ns=None
                 self.expected_cash=10000000;self.native_ids={};self.fill_ids={};self.fee_ids={};self.used_logical=set();self.failed=None
             def guard(self,condition,code):
-                if not condition:self.failed=code
+                if not condition:
+                    self.failed=code
+                    context=failure_context(code,self.pending,self.awaiting_balance,self.callback_kind,self.callback_ns)
+                    try:raw_callback({'callback':'adapter_failure_context','context':context})
+                    except Exception:pass  # Preserve the original guard if diagnostic publication also fails.
                 require(condition,code)
+            def context(self,kind,event):
+                self.callback_kind=kind;self.callback_ns=event.ts_event
             def cash(self):
                 value=Fraction(engine.portfolio.account(venue).balances_total()[USD].as_decimal())*100
                 self.guard(value.denominator==1 and value>=0,'NATIVE_FILL_MISMATCH')
@@ -74,6 +96,7 @@ def one_account(account, target_rows, observations, *, charge, raw_callback):
                                lambda e,i=index,d=day:self.sample(e,i,d))
                 self.alert('terminal',end,lambda e:self.sample(e,6,None))
             def on_quote_tick(self,event):
+                self.context('on_quote_tick',event)
                 symbol=event.instrument_id.symbol.value
                 self.guard(symbol in SYMBOLS,'MAPPING_MISMATCH')
                 self.quotes[symbol]=event
@@ -91,6 +114,7 @@ def one_account(account, target_rows, observations, *, charge, raw_callback):
                 self.guard(self.cash()==self.expected_cash,'NATIVE_FILL_MISMATCH')
                 self.positions()
             def snapshot(self,event,phase,Q,day):
+                self.context('snapshot-'+phase,event)
                 self.settled()
                 rows=opens[day]
                 self.guard(set(self.quotes)==set(SYMBOLS) and all(
@@ -106,6 +130,7 @@ def one_account(account, target_rows, observations, *, charge, raw_callback):
                     self.alert(phase+'-'+str(route),Q+1000*(route+1),
                         lambda e,o=order,p=phase,r=route:self.route(e,o,p,r))
             def route(self,event,intent,phase,route):
+                self.context('route-'+phase+'-'+str(route),event)
                 self.settled()
                 symbol=intent['source_symbol'];qty=intent['quantity'];price=cents(intent['price'],positive=True)
                 self.guard(type(qty) is int and 0<qty<=1000000,'QUOTE_QUANTITY_EXCEEDED')
@@ -126,6 +151,7 @@ def one_account(account, target_rows, observations, *, charge, raw_callback):
                     'held_before':held}
                 self.submit_order(order)
             def raw(self,event,callback):
+                self.context(callback,event)
                 raw_callback({'callback':callback,'event_type':type(event).__name__,
                               'event':type(event).to_dict(event)})
             def on_order_submitted(self,event):
@@ -164,6 +190,7 @@ def one_account(account, target_rows, observations, *, charge, raw_callback):
                         'amount':money(fee.numerator),'currency':'USD','native_receipt_kind':'ORDER_FILLED_COMMISSION'})
                 self.alert('settle-'+order['logical_order_id'],event.ts_event+1,self.balance)
             def balance(self,event):
+                self.context('balance',event)
                 self.guard(self.awaiting_balance is not None,'NATIVE_FILL_MISMATCH')
                 cash=self.cash();self.guard(cash==self.expected_cash,'NATIVE_FILL_MISMATCH')
                 self.positions()
@@ -176,6 +203,7 @@ def one_account(account, target_rows, observations, *, charge, raw_callback):
             def on_event(self,event):
                 self.raw(event,'on_event')
             def sample(self,event,index,day):
+                self.context('sample-'+str(index),event)
                 self.settled();positions=[];exposure=0
                 mark_rows={} if day is None else {r['source_symbol']:r for r in closes[day]}
                 for symbol in SYMBOLS:
@@ -222,9 +250,12 @@ def one_account(account, target_rows, observations, *, charge, raw_callback):
             else:
                 marks.append(MarkPriceUpdate(ids[symbol],price,timestamp,timestamp))
         engine.add_data(quotes);engine.add_data(marks)
-        # I timer precedes first quote; explicit price-free boundary establishes the full interval.
-        engine.add_data([CustomData(DataType(Boundary),Boundary(ns(I))),
-                         CustomData(DataType(Boundary),Boundary(end))],client_id=ClientId('CAP-CONTROL'))
+        # Force venue settlement and capture of fill-created +1ns balance alerts
+        # before a later route/terminal can already be popped from the timer queue.
+        # These are price-free control data, not extra economic observations.
+        control_times=sorted({ns(I),end,*settlement_boundaries()})
+        engine.add_data([CustomData(DataType(Boundary),Boundary(timestamp)) for timestamp in control_times],
+                        client_id=ClientId('CAP-CONTROL'))
         engine.run()
         require(adapter.failed is None and len(adapter.samples)==7 and len(adapter.allocations)==2
                 and not adapter.pending and adapter.awaiting_balance is None,'NATIVE_ACCOUNT_FAILURE')
