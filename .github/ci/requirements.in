@@ -1,0 +1,9 @@
+-r ../../requirements.lock
+pytest==9.2.0
+httpx==0.28.1
+hatchling==1.29.0
+nautilus-trader==1.231.0
+numpy==2.2.6
+scipy==1.15.3
+lightgbm==4.6.0
+editables==0.5

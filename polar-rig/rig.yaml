@@ -1,0 +1,309 @@
+version: "0.32"
+name: polar-rig
+culture_file: CULTURE.md
+permission_policy: builtin:yolo
+summary: "Polar Rig: twelve-seat specialist-initiated continuous financial research and platform team using finite evidence-bound steps, direct quant/data collaboration, Architect, DevOps, QA Code, two QA System seats and independent financial validation."
+docs:
+  - path: SPEC.md
+  - path: CULTURE.md
+  - path: TEAM.md
+  - path: PLATFORM.md
+  - path: EVALUATION.md
+  - path: README.md
+pods:
+  - id: orch
+    label: Portfolio and campaign coordination
+    members:
+      - id: lead
+        agent_ref: path:/Users/garry/.local/node-v24.22.1-darwin-arm64/lib/node_modules/@openrig/cli/daemon/specs/agents/orchestration/orchestrator
+        runtime: codex
+        model: gpt-6.1-sol
+        effort: medium
+        profile: default
+        cwd: /Users/garry/Documents/git/polar
+        startup:
+          files:
+            - path: COMMON.md
+              delivery_hint: send_text
+              required: true
+            - path: guidance/lead.md
+              delivery_hint: send_text
+              required: true
+      - id: architect
+        agent_ref: path:/Users/garry/.local/node-v24.22.1-darwin-arm64/lib/node_modules/@openrig/cli/daemon/specs/agents/orchestration/orchestrator
+        runtime: codex
+        model: gpt-6.1-sol
+        effort: high
+        profile: default
+        cwd: /Users/garry/Documents/git/polar
+        startup:
+          files:
+            - path: COMMON.md
+              delivery_hint: send_text
+              required: true
+            - path: guidance/architect.md
+              delivery_hint: send_text
+              required: true
+    edges:
+      - kind: delegates_to
+        from: lead
+        to: architect
+  - id: data
+    label: Source research and point-in-time datasets
+    members:
+      - id: researcher
+        agent_ref: path:/Users/garry/.local/node-v24.22.1-darwin-arm64/lib/node_modules/@openrig/cli/daemon/specs/agents/research/analyst
+        runtime: codex
+        model: gpt-6.1-sol
+        effort: medium
+        profile: default
+        cwd: /Users/garry/Documents/git/polar
+        startup:
+          files:
+            - path: COMMON.md
+              delivery_hint: send_text
+              required: true
+            - path: guidance/data-researcher.md
+              delivery_hint: send_text
+              required: true
+      - id: engineer
+        agent_ref: path:/Users/garry/.local/node-v24.22.1-darwin-arm64/lib/node_modules/@openrig/cli/daemon/specs/agents/development/implementer
+        runtime: codex
+        model: gpt-6.1-sol
+        effort: medium
+        profile: default
+        cwd: /Users/garry/Documents/git/polar
+        startup:
+          files:
+            - path: COMMON.md
+              delivery_hint: send_text
+              required: true
+            - path: guidance/data-engineer.md
+              delivery_hint: send_text
+              required: true
+    edges:
+      - kind: collaborates_with
+        from: researcher
+        to: engineer
+  - id: quant
+    label: Candidate research and independent financial validation
+    members:
+      - id: a
+        agent_ref: path:/Users/garry/.local/node-v24.22.1-darwin-arm64/lib/node_modules/@openrig/cli/daemon/specs/agents/research/analyst
+        runtime: codex
+        model: gpt-6.1-sol
+        effort: medium
+        profile: default
+        cwd: /Users/garry/Documents/git/polar
+        startup:
+          files:
+            - path: COMMON.md
+              delivery_hint: send_text
+              required: true
+            - path: guidance/quant-a.md
+              delivery_hint: send_text
+              required: true
+      - id: b
+        agent_ref: path:/Users/garry/.local/node-v24.22.1-darwin-arm64/lib/node_modules/@openrig/cli/daemon/specs/agents/research/analyst
+        runtime: codex
+        model: gpt-6.1-sol
+        effort: medium
+        profile: default
+        cwd: /Users/garry/Documents/git/polar
+        startup:
+          files:
+            - path: COMMON.md
+              delivery_hint: send_text
+              required: true
+            - path: guidance/quant-b.md
+              delivery_hint: send_text
+              required: true
+      - id: validator
+        agent_ref: path:/Users/garry/.local/node-v24.22.1-darwin-arm64/lib/node_modules/@openrig/cli/daemon/specs/agents/review/independent-reviewer
+        runtime: codex
+        model: gpt-6.1-sol
+        effort: high
+        profile: default
+        cwd: /Users/garry/Documents/git/polar
+        startup:
+          files:
+            - path: COMMON.md
+              delivery_hint: send_text
+              required: true
+            - path: guidance/validator.md
+              delivery_hint: send_text
+              required: true
+    edges:
+      - kind: collaborates_with
+        from: a
+        to: validator
+      - kind: collaborates_with
+        from: b
+        to: validator
+  - id: platform
+    label: Service implementation, operations, and independent verification
+    members:
+      - id: engineer
+        agent_ref: path:/Users/garry/.local/node-v24.22.1-darwin-arm64/lib/node_modules/@openrig/cli/daemon/specs/agents/development/implementer
+        runtime: codex
+        model: gpt-6.1-sol
+        effort: medium
+        profile: default
+        cwd: /Users/garry/Documents/git/polar
+        startup:
+          files:
+            - path: COMMON.md
+              delivery_hint: send_text
+              required: true
+            - path: guidance/platform-engineer.md
+              delivery_hint: send_text
+              required: true
+      # Stable logical identity retained from v0.4; role is DevOps in v0.6.
+      - id: sre
+        agent_ref: path:/Users/garry/.local/node-v24.22.1-darwin-arm64/lib/node_modules/@openrig/cli/daemon/specs/agents/development/implementer
+        runtime: codex
+        model: gpt-6.1-sol
+        effort: medium
+        profile: default
+        cwd: /Users/garry/Documents/git/polar
+        startup:
+          files:
+            - path: COMMON.md
+              delivery_hint: send_text
+              required: true
+            - path: guidance/devops.md
+              delivery_hint: send_text
+              required: true
+      # Stable logical identity retained from v0.4; role is QA Code in v0.6.
+      - id: qa
+        agent_ref: path:/Users/garry/.local/node-v24.22.1-darwin-arm64/lib/node_modules/@openrig/cli/daemon/specs/agents/development/qa
+        runtime: codex
+        model: gpt-6-luna
+        effort: high
+        profile: default
+        cwd: /Users/garry/Documents/git/polar
+        startup:
+          files:
+            - path: COMMON.md
+              delivery_hint: send_text
+              required: true
+            - path: guidance/qa-code.md
+              delivery_hint: send_text
+              required: true
+      - id: qa-system
+        agent_ref: path:/Users/garry/.local/node-v24.22.1-darwin-arm64/lib/node_modules/@openrig/cli/daemon/specs/agents/development/qa
+        runtime: codex
+        model: gpt-6-luna
+        effort: high
+        profile: default
+        cwd: /Users/garry/Documents/git/polar
+        startup:
+          files:
+            - path: COMMON.md
+              delivery_hint: send_text
+              required: true
+            - path: guidance/qa-system.md
+              delivery_hint: send_text
+              required: true
+      - id: qa-system-2
+        agent_ref: path:/Users/garry/.local/node-v24.22.1-darwin-arm64/lib/node_modules/@openrig/cli/daemon/specs/agents/development/qa
+        runtime: codex
+        model: gpt-6-luna
+        effort: high
+        profile: default
+        cwd: /Users/garry/Documents/git/polar
+        startup:
+          files:
+            - path: COMMON.md
+              delivery_hint: send_text
+              required: true
+            - path: guidance/qa-system.md
+              delivery_hint: send_text
+              required: true
+    edges:
+      - kind: collaborates_with
+        from: engineer
+        to: sre
+      - kind: collaborates_with
+        from: engineer
+        to: qa
+      - kind: collaborates_with
+        from: sre
+        to: qa-system
+      - kind: collaborates_with
+        from: qa
+        to: qa-system
+      - kind: collaborates_with
+        from: sre
+        to: qa
+      - kind: collaborates_with
+        from: engineer
+        to: qa-system-2
+      - kind: collaborates_with
+        from: sre
+        to: qa-system-2
+      - kind: collaborates_with
+        from: qa
+        to: qa-system-2
+
+edges:
+  - kind: delegates_to
+    from: orch.lead
+    to: data.researcher
+  - kind: delegates_to
+    from: orch.lead
+    to: data.engineer
+  - kind: delegates_to
+    from: orch.lead
+    to: quant.a
+  - kind: delegates_to
+    from: orch.lead
+    to: quant.b
+  - kind: delegates_to
+    from: orch.lead
+    to: quant.validator
+  - kind: delegates_to
+    from: orch.lead
+    to: platform.engineer
+  - kind: delegates_to
+    from: orch.lead
+    to: platform.sre
+  - kind: delegates_to
+    from: orch.lead
+    to: platform.qa
+  - kind: collaborates_with
+    from: data.researcher
+    to: quant.a
+  - kind: collaborates_with
+    from: data.researcher
+    to: quant.b
+  - kind: delegates_to
+    from: quant.a
+    to: data.researcher
+  - kind: delegates_to
+    from: quant.b
+    to: data.researcher
+  - kind: collaborates_with
+    from: data.engineer
+    to: platform.engineer
+  - kind: collaborates_with
+    from: quant.validator
+    to: platform.qa
+  - kind: collaborates_with
+    from: quant.validator
+    to: orch.lead
+  - kind: delegates_to
+    from: orch.lead
+    to: platform.qa-system
+  - kind: collaborates_with
+    from: orch.architect
+    to: platform.engineer
+  - kind: collaborates_with
+    from: orch.architect
+    to: data.engineer
+  - kind: collaborates_with
+    from: orch.architect
+    to: platform.sre
+  - kind: delegates_to
+    from: orch.lead
+    to: platform.qa-system-2
