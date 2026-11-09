@@ -192,7 +192,6 @@ def write_availability(config, output_dir):
             auto=[identity for identity,_ in producer if identity['population_record_id'] in by_id
                   and sum(other==identity for other,_ in producer)==1]
             links=explicit or auto;aliases=defaultdict(list)
-            parent_by_id={r.get('population_record_id'):r for r in parents}
             for link in links:
                 check(type(link) is dict and set(link)=={'population_record_id','source_symbol','request',
                         'canonical_job_id','source_plan_job_id'},'HYP003_AVAILABILITY_LINKS')
@@ -208,13 +207,16 @@ def write_availability(config, output_dir):
                 # a caller's mismatched ID with a convenient parent value.
                 matched=[parent for identity,parent in producer if identity==link]
                 related=[identity for identity,_ in producer
-                         if identity['population_record_id']==rid and identity['request']==request]
+                         if identity['population_record_id']==rid
+                         and identity['source_symbol']==link['source_symbol']]
                 check(not related or len(matched)==1,'HYP003_AVAILABILITY_PRODUCER_LINK_MISMATCH')
                 verified=len(matched)==1
                 basis={k:v for k,v in request.items() if k not in ('start','end')} if request else None
                 profile_id=digest({'request':request,'unbound_source':None if request else version})
                 profiles[profile_id]={'request':request,'compatibility_basis_sha256':digest(basis) if basis else None}
-                parent=matched[0] if verified else parent_by_id.get(rid,{})
+                # A record alone proves no request-specific transport outcome.
+                # Unresolved legacy declarations must not borrow completion.
+                parent=matched[0] if verified else {}
                 fact={'source_manifest_sha256':version,'collection_sha256':collection_sha,
                       'profile_id':profile_id,'profile_binding':'VERIFIED_PRODUCER_JOB' if verified else 'DECLARED_NOT_VERIFIED',
                       'canonical_job_id':link['canonical_job_id'],
