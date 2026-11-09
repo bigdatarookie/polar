@@ -8,6 +8,7 @@ from polar.qa_environment import (Environment, Gap, FIXTURE, INERT_ENV, sha, raw
 
 IMAGE = 'sha256:'+'a'*64
 NET, API = 'b'*64, 'c'*64
+FRONT, PROXY = 'd'*64, 'e'*64
 IMAGE_ENV = ['PATH=/image/bin', 'PYTHONPATH=/image-default']
 
 
@@ -34,10 +35,11 @@ class Daemon:
         row = self.rows.get(kind)
         return copy.deepcopy(row) if row and row['Name'].lstrip('/') == name else None
 
-    def create_network(self, name, labels):
-        self.calls.append(('create', 'net'))
-        self.rows['net'] = {'Name': name, 'Id': NET, 'Labels': labels, 'Driver': 'bridge',
-                            'Internal': True, 'Containers': {}}
+    def create_network(self, name, labels, *, internal=True):
+        kind='net' if internal else 'front'
+        self.calls.append(('create', kind))
+        self.rows[kind] = {'Name': name, 'Id': NET if internal else FRONT, 'Labels': labels, 'Driver': 'bridge',
+                            'Internal': internal, 'Containers': {}}
 
     def create_api(self, name, labels, cfg, root, network):
         self.calls.append(('create', 'api'))
@@ -50,33 +52,54 @@ class Daemon:
             'HostConfig': {'ReadonlyRootfs': True, 'Privileged': False, 'NetworkMode': network,
                            'CapDrop': ['ALL'], 'SecurityOpt': ['no-new-privileges'],
                            'Tmpfs': {'/tmp':'rw,noexec,nosuid,size=16777216'},
-                           'PortBindings': {'8000/tcp': [{'HostIp': '127.0.0.1', 'HostPort': ''}]}},
+                           'PortBindings': {}},
             'Mounts': [{'Source': str(root/'source'), 'Destination': '/candidate', 'Type':'bind','RW':False},
                        {'Source':str(root/'empty'), 'Destination':'/qa-empty','Type':'bind','RW':False}],
-            'State': {'Running': False, 'Status': 'created'}, 'NetworkSettings': {'Ports': {}}}
+            'State': {'Running': False, 'Status': 'created'}, 'NetworkSettings': {'Ports': {},'Networks': {self.rows['net']['Name']:{'NetworkID':network}}}}
         if self.fail == 'after-create':
             raise Gap('COMMAND_DEADLINE')
 
+    def create_proxy(self,name,labels,cfg,root,network,upstream):
+        # Same immutable image/env/mount safety properties, distinct role/network.
+        self.calls.append(('create','proxy'))
+        self.rows['proxy']=copy.deepcopy(self.rows['api'])
+        row=self.rows['proxy'];row.update(Name='/'+name,Id=PROXY)
+        row['Config']['Labels']=labels
+        row['Config']['Cmd']=['-S','/candidate/src/polar/qa_environment_proxy.py','--upstream',upstream]
+        row['State']={'Running':False,'Status':'created'}
+        row['HostConfig']['NetworkMode']=network
+        row['HostConfig']['PortBindings']={'8000/tcp':[{'HostIp':'127.0.0.1','HostPort':''}]}
+        row['NetworkSettings']={'Ports':{},'Networks':{self.rows['front']['Name']:{'NetworkID':network}}}
+
+    def connect(self,network,resource_id):
+        self.calls.append(('connect',network,resource_id))
+        self.rows['proxy']['NetworkSettings']['Networks'][self.rows['net']['Name']]={'NetworkID':network}
+
     def start(self, resource_id):
         self.calls.append(('start', resource_id))
-        self.rows['api']['State']['Running'] = True
-        self.rows['api']['State']['Status'] = 'running'
-        self.rows['api']['NetworkSettings']['Ports'] = {'8000/tcp':[{'HostIp':'127.0.0.1','HostPort':'49001'}]}
-        self.rows['net']['Containers'] = {API: {}}
+        kind='api' if resource_id==API else 'proxy'
+        self.rows[kind]['State']={'Running':True,'Status':'running'}
+        self.rows['net']['Containers'][resource_id]={}
+        if kind=='proxy':
+            self.rows['front']['Containers'][resource_id]={}
+            self.rows[kind]['NetworkSettings']['Ports']={'8000/tcp':[{'HostIp':'127.0.0.1','HostPort':'49001'}]}
 
     def remove(self, kind, resource_id):
         assert self.rows[kind]['Id'] == resource_id
         self.calls.append(('remove', kind, resource_id))
         del self.rows[kind]
-        if kind == 'api':
-            self.rows['net']['Containers'] = {}
+        if kind in ('api','proxy'):
+            for network in ('net','front'):
+                if network in self.rows:self.rows[network]['Containers'].pop(resource_id,None)
 
 
 def export(cfg, dest, commands):
     (dest/'src/polar').mkdir(parents=True)
     (dest/'src/polar/schema.sql').write_bytes(b'synthetic-schema')
+    (dest/'src/polar/qa_environment_proxy.py').write_bytes(b'synthetic-relay')
     write(dest/'SOURCE-MANIFEST.json', {'commit':cfg['commit'], 'tree':cfg['tree'],
-         'files':[{'path':'src/polar/schema.sql','bytes':16,'sha256':sha(b'synthetic-schema')}], 'bytes':16})
+         'files':[{'path':'src/polar/schema.sql','bytes':16,'sha256':sha(b'synthetic-schema')},
+                  {'path':'src/polar/qa_environment_proxy.py','bytes':len(b'synthetic-relay'),'sha256':sha(b'synthetic-relay')}], 'bytes':16+len(b'synthetic-relay')})
 
 
 @pytest.fixture
@@ -136,7 +159,7 @@ def test_foreign_or_replaced_resources_block_all_cleanup(fixture, fault):
     if fault == 'label': d.rows['api']['Config']['Labels']['polar.qa.config']='foreign'
     if fault == 'id': d.rows['api']['Id']='e'*64
     if fault == 'mount': d.rows['api']['Mounts'][0]['Source']='/owner'
-    if fault == 'port': d.rows['api']['HostConfig']['PortBindings']['8000/tcp'][0]['HostIp']='0.0.0.0'
+    if fault == 'port': d.rows['proxy']['HostConfig']['PortBindings']['8000/tcp'][0]['HostIp']='0.0.0.0'
     if fault == 'foreign-endpoint': d.rows['net']['Containers']['f'*64]={}
     result=clean(e,a)
     assert result['status']=='NOT_CLEANED'
@@ -174,7 +197,7 @@ def test_readiness_failure_retains_owned_resources(fixture):
     e.http=failed; e.commands.end=time.monotonic()-1
     a=e.prepare(cfg)
     assert a['status']=='NOT_PREPARED' and a['reason']=='READINESS_DEADLINE'
-    assert a['resources']=={'net':NET,'api':API}
+    assert a['resources']=={'net':NET,'api':API,'front':FRONT,'proxy':PROXY}
     assert clean(e,a)['status']=='CLEANED'
 
 
@@ -269,7 +292,11 @@ def test_docker_command_contract_without_daemon(fixture):
     args=c.calls[0]
     assert args[:3]==['docker','--host','unix:///local.sock']
     assert args[3]=='create' and args[args.index('--network')+1]==NET
-    assert args[args.index('--publish')+1]=='127.0.0.1::8000'
+    assert '--publish' not in args
+    client.create_proxy('relay',{},cfg,e.root,FRONT,'polar-qa-'+'1'*32+'-api')
+    relay=c.calls[-1]
+    assert relay[relay.index('--publish')+1]=='127.0.0.1::8000'
+    assert relay[relay.index('--network')+1]==FRONT
     assert '--read-only' in args and args[args.index('--entrypoint')+1]=='python'
     assert cfg['image_id'] in args and not any('password=' in x for x in args)
     client.remove('api',API);client.remove('net',NET)
@@ -418,7 +445,9 @@ def test_preparation_is_published_before_same_container_start(fixture):
     original = d.start
     def start(resource_id):
         receipt = decode(read(e.root/'preparation.json'))
-        assert receipt['observed']['container_id'] == resource_id == API
+        assert resource_id in (API,PROXY)
+        assert receipt['observed']['container_id'] == API
+        assert receipt['observed']['relay']['container_id'] == PROXY
         assert receipt['observed']['image_id'] == IMAGE
         assert receipt['not_started'] is True
         assert receipt['expected']['candidate'] == {'commit': cfg['commit'], 'tree': cfg['tree']}
@@ -476,3 +505,83 @@ def test_receipt_tampering_blocks_restart_without_overwrite(fixture):
     assert result['status'] == 'NOT_PREPARED'
     assert result['reason'] == 'PREPARATION_RECEIPT_CONFLICT'
     assert d.calls == before and read(path) == tampered
+
+
+def test_internal_api_and_dual_network_relay(fixture):
+    e,cfg,d=fixture;result=e.prepare(cfg)
+    assert result['status']=='PREPARED'
+    assert d.rows['api']['HostConfig']['PortBindings']=={}
+    assert d.rows['api']['NetworkSettings']['Ports']=={}
+    assert len(d.rows['api']['NetworkSettings']['Networks'])==1
+    assert len(d.rows['proxy']['NetworkSettings']['Networks'])==2
+    assert d.rows['net']['Internal'] is True and d.rows['front']['Internal'] is False
+    receipt=decode(read(e.root/'preparation.json'))
+    assert receipt['observed']['relay']['container_id']==PROXY
+    assert receipt['observed']['container_id']==API
+    assert receipt['expected']['relay_source_sha256']==sha(b'synthetic-relay')
+
+
+@pytest.mark.parametrize('phase',['created','connected'])
+def test_interrupted_relay_connect_recovers_exact_graph(fixture,phase):
+    e,cfg,d=fixture;original=d.connect
+    def interrupted(network,resource_id):
+        if phase=='connected':original(network,resource_id)
+        raise Gap('COMMAND_DEADLINE')
+    d.connect=interrupted
+    first=e.prepare(cfg)
+    assert first['status']=='NOT_PREPARED'
+    assert not any(call[0]=='start' for call in d.calls)
+    d.connect=original
+    assert e.prepare(cfg)['status']=='PREPARED'
+    for kind in ('api','proxy','net','front'):
+        assert d.calls.count(('create',kind))==1
+    assert clean(e,first)['status']=='CLEANED'
+
+
+@pytest.mark.parametrize('fault',['label','environment','network','foreign-endpoint'])
+def test_relay_foreign_evidence_blocks_reuse_and_all_cleanup(fixture,fault):
+    e,cfg,d=fixture;result=e.prepare(cfg)
+    if fault=='label':d.rows['proxy']['Config']['Labels']['polar.qa.role']='owner'
+    if fault=='environment':d.rows['proxy']['Config']['Env'].append('UNEXPECTED=value')
+    if fault=='network':d.rows['proxy']['NetworkSettings']['Networks']['foreign']={'NetworkID':'f'*64}
+    if fault=='foreign-endpoint':d.rows['front']['Containers']['f'*64]={}
+    before=list(d.calls)
+    assert e.prepare(cfg)['status']=='NOT_PREPARED'
+    assert clean(e,result)['status']=='NOT_CLEANED'
+    assert d.calls==before
+
+
+def test_relay_binding_mismatch_prevents_both_starts(fixture):
+    e,cfg,d=fixture;original=d.create_proxy
+    def wrong(*args):
+        original(*args);d.rows['proxy']['Image']='sha256:'+'f'*64
+    d.create_proxy=wrong
+    assert e.prepare(cfg)['status']=='NOT_PREPARED'
+    assert not any(call[0]=='start' for call in d.calls)
+
+
+def test_relay_fixed_upstream_routes_and_body_bound(monkeypatch):
+    from polar import qa_environment_proxy as relay
+    calls=[]
+    class Response:
+        status=302
+        def read(self,size):calls.append(('read',size));return b'{}'
+        def getheader(self,key,default):return default
+    class Connection:
+        def __init__(self,*args,**kwargs):calls.append((args,kwargs))
+        def request(self,*args,**kwargs):calls.append((args,kwargs))
+        def getresponse(self):return Response()
+        def close(self):calls.append('closed')
+    monkeypatch.setattr(relay.http.client,'HTTPConnection',Connection)
+    upstream='polar-qa-'+'a'*32+'-api'
+    assert relay.fetch(upstream,'/livez')==(302,b'{}','application/json')
+    assert calls[0]==((upstream,8000),{'timeout':2})
+    assert calls[1]==(('GET','/livez'),{'headers':{'Accept':'application/json','Connection':'close'}})
+    assert ('read',relay.LIMIT+1) in calls and calls[-1]=='closed'
+    before=list(calls)
+    for host,path in [('owner','/livez'),(upstream,'http://owner/'),(upstream,'/livez?target=owner')]:
+        with pytest.raises(ValueError):relay.fetch(host,path)
+    assert calls==before
+    monkeypatch.setattr(Response,'read',lambda self,size:b'x'*(relay.LIMIT+1))
+    with pytest.raises(ValueError,match='BODY_BOUND'):relay.fetch(upstream,'/openapi.json')
+    assert calls[-1]=='closed'

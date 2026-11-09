@@ -25,6 +25,9 @@ HEX = re.compile(r'[a-f0-9]{64}\Z')
 GIT = re.compile(r'[a-f0-9]{40}\Z')
 FIXTURE = {'schema': 'polar.qa-liveness-input/1', 'synthetic': True,
            'dataset': 'EMPTY', 'artifacts': 'EMPTY'}
+LAYOUT='internal-api-loopback-relay/1'
+CONTAINERS=('api','proxy')
+NETWORKS=('net','front')
 
 
 class Gap(ValueError):
@@ -245,22 +248,23 @@ class Docker:
         return {'os': row['Os'], 'architecture': row['Architecture']}
 
     def find(self, kind, name):
-        args = ['container', 'ls', '-a'] if kind == 'api' else ['network', 'ls']
+        args = ['container', 'ls', '-a'] if kind in CONTAINERS else ['network', 'ls']
         ids = self.run(*args, '--no-trunc', '--filter', 'name='+name,
                        '--format', '{{.ID}}').decode().splitlines()
         rows = []
         for resource_id in ids:
             require(HEX.fullmatch(resource_id), 'FULL_RESOURCE_ID_REQUIRED')
-            row = decode(self.run('inspect' if kind == 'api' else 'network',
-                                 *([] if kind == 'api' else ['inspect']), resource_id))[0]
+            row = decode(self.run('inspect' if kind in CONTAINERS else 'network',
+                                 *([] if kind in CONTAINERS else ['inspect']), resource_id))[0]
             actual = row['Name'].lstrip('/')
             if actual == name:
                 rows.append(row)
         require(len(rows) <= 1, 'RESOURCE_NAME_CONFLICT')
         return rows[0] if rows else None
 
-    def create_network(self, name, labels):
-        args = ['network', 'create', '--internal', '--driver', 'bridge']
+    def create_network(self, name, labels, *, internal=True):
+        args = ['network', 'create', '--driver', 'bridge']
+        if internal:args.append('--internal')
         for k, v in sorted(labels.items()):
             args.extend(['--label', k+'='+v])
         self.run(*args, name)
@@ -269,7 +273,7 @@ class Docker:
         args = ['create', '--name', name, '--network', network, '--user', '10001:10001',
                 '--read-only', '--no-healthcheck', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
                 '--tmpfs', '/tmp:rw,noexec,nosuid,size=16777216',
-                '--publish', '127.0.0.1::8000', '--entrypoint', 'python',
+                '--entrypoint', 'python',
                 '--mount', 'type=bind,src='+str(root/'source')+',dst=/candidate,readonly',
                 '--mount', 'type=bind,src='+str(root/'empty')+',dst=/qa-empty,readonly']
         for k, v in sorted(labels.items()):
@@ -279,11 +283,25 @@ class Docker:
         self.run(*args, cfg['image_id'], '-m', 'uvicorn', 'polar.api:app',
                  '--host', '0.0.0.0', '--port', '8000')
 
+    def create_proxy(self,name,labels,cfg,root,network,upstream):
+        args=['create','--name',name,'--network',network,'--user','10001:10001',
+              '--read-only','--no-healthcheck','--cap-drop','ALL','--security-opt','no-new-privileges',
+              '--tmpfs','/tmp:rw,noexec,nosuid,size=16777216',
+              '--publish','127.0.0.1::8000','--entrypoint','python',
+              '--mount','type=bind,src='+str(root/'source')+',dst=/candidate,readonly',
+              '--mount','type=bind,src='+str(root/'empty')+',dst=/qa-empty,readonly']
+        for k,v in sorted(labels.items()):args.extend(['--label',k+'='+v])
+        for k,v in INERT_ENV.items():args.extend(['--env',k+'='+v])
+        self.run(*args,cfg['image_id'],'-S','/candidate/src/polar/qa_environment_proxy.py','--upstream',upstream)
+
+    def connect(self,network,resource_id):
+        self.run('network','connect',network,resource_id)
+
     def start(self, resource_id):
         self.run('start', resource_id)
 
     def remove(self, kind, resource_id):
-        self.run(*(['rm', '-f'] if kind == 'api' else ['network', 'rm']), resource_id)
+        self.run(*(['rm', '-f'] if kind in CONTAINERS else ['network', 'rm']), resource_id)
 
 
 def exported(cfg, dest, commands):
@@ -425,25 +443,30 @@ class Environment:
                 'polar.qa.role': kind}
 
     def resource(self, owner, state, cfg, kind):
-        name = 'polar-qa-'+uuid.UUID(owner['operation']).hex+('-api' if kind == 'api' else '-net')
+        name = 'polar-qa-'+uuid.UUID(owner['operation']).hex+'-'+kind
         row = self.docker.find(kind, name)
         saved = state['resources'].get(kind)
         if row is None:
             return name, None
         require(HEX.fullmatch(row['Id']) and (saved is None or row['Id'] == saved), 'RESOURCE_ID_CONFLICT')
-        labels = row.get('Labels', {}) if kind == 'net' else row['Config'].get('Labels', {})
+        labels = row.get('Labels', {}) if kind in NETWORKS else row['Config'].get('Labels', {})
         require(type(labels) is dict and all(labels.get(k) == v for k, v in self.labels(owner, cfg, kind).items())
                 and 'com.docker.compose.project' not in labels, 'RESOURCE_LABEL_CONFLICT')
-        if kind == 'net':
-            require(row['Driver'] == 'bridge' and row['Internal'] is True, 'NETWORK_CONFLICT')
+        relay=state.get('network_layout')==LAYOUT
+        if kind in NETWORKS:
+            require(row['Driver'] == 'bridge' and row['Internal'] is (kind=='net'), 'NETWORK_CONFLICT')
         else:
             require(sha(raw(environment_map(row['Config'].get('Env')))) ==
                     state.get('expected_environment_sha256'), 'CONTAINER_ENVIRONMENT_CONFLICT')
             h = row['HostConfig']
+            command=(['-S','/candidate/src/polar/qa_environment_proxy.py','--upstream',
+                      'polar-qa-'+uuid.UUID(owner['operation']).hex+'-api'] if kind=='proxy' else
+                     ['-m','uvicorn','polar.api:app','--host','0.0.0.0','--port','8000'])
             require(row['Image'] == cfg['image_id'] and row['Config']['User'] == '10001:10001'
                     and row['Config']['Entrypoint'] == ['python']
-                    and row['Config']['Cmd'] == ['-m', 'uvicorn', 'polar.api:app', '--host', '0.0.0.0', '--port', '8000']
-                    and h['ReadonlyRootfs'] is True and h['NetworkMode'] == state['resources'].get('net')
+                    and row['Config']['Cmd'] == command
+                    and h['ReadonlyRootfs'] is True
+                    and h['NetworkMode'] == state['resources'].get('front' if kind=='proxy' else 'net')
                     and h.get('Privileged') is False and h.get('CapDrop') == ['ALL']
                     and h.get('SecurityOpt') == ['no-new-privileges'], 'CONTAINER_CONFLICT')
             require(h.get('Tmpfs') == {'/tmp': 'rw,noexec,nosuid,size=16777216'}, 'TMPFS_CONFLICT')
@@ -455,13 +478,35 @@ class Environment:
             require(mounts == {(str(self.root/'source'), '/candidate', False, 'bind'),
                                (str(self.root/'empty'), '/qa-empty', False, 'bind')}, 'MOUNT_CONFLICT')
             binds = h.get('PortBindings', {})
-            require(set(binds) == {'8000/tcp'} and len(binds['8000/tcp']) == 1
-                    and binds['8000/tcp'][0]['HostIp'] == '127.0.0.1', 'PORT_CONFLICT')
+            if kind=='api' and relay:
+                require(not binds and h.get('PublishAllPorts',False) is False,'PORT_CONFLICT')
+                require(not any(row['NetworkSettings'].get('Ports',{}).values()),'PORT_CONFLICT')
+            else:
+                require(set(binds) == {'8000/tcp'} and len(binds['8000/tcp']) == 1
+                        and binds['8000/tcp'][0]['HostIp'] == '127.0.0.1', 'PORT_CONFLICT')
+            if relay:
+                expected={'polar-qa-'+uuid.UUID(owner['operation']).hex+'-'+k:state['resources'].get(k)
+                          for k in (NETWORKS if kind=='proxy' else ('net',))}
+                actual=row['NetworkSettings'].get('Networks',{})
+                required=set(expected) if row['State']['Running'] or kind=='api' else {
+                    'polar-qa-'+uuid.UUID(owner['operation']).hex+'-front'}
+                require(required<=set(actual)<=set(expected),'CONTAINER_NETWORK_CONFLICT')
+                for key,value in actual.items():
+                    require(value['NetworkID']==expected[key] or
+                            not row['State']['Running'] and value['NetworkID']=='',
+                            'CONTAINER_NETWORK_CONFLICT')
         state['resources'][kind] = row['Id']
         self.save(state)  # recover exact create whose ID was not yet written
         return name, row
 
-    def preparation(self, owner, state, cfg, api, image_identity):
+    def validate_endpoints(self,resources):
+        api=resources.get('api');proxy=resources.get('proxy')
+        for kind,allowed in (('net',{r['Id'] for r in (api,proxy) if r}),
+                             ('front',{proxy['Id']} if proxy else set())):
+            network=resources.get(kind)
+            if network:require(set(network.get('Containers',{}))<=allowed,'FOREIGN_NETWORK_ENDPOINT')
+
+    def preparation(self, owner, state, cfg, api, image_identity, proxy):
         # resource() already rejects image/user/command/env/mount/ownership mismatches.
         # Persist only allowed command strings and a hash of the COMPLETE environment.
         observed_image = self.docker.image_identity(api['Image'])
@@ -488,6 +533,20 @@ class Environment:
         require(all(observed[k] == expected[k] for k in (
             'image_id', 'os', 'architecture', 'configured_user', 'entrypoint',
             'command', 'effective_environment_sha256')), 'RUNTIME_BINDING_MISMATCH')
+        proxy_identity=self.docker.image_identity(proxy['Image'])
+        require(proxy_identity==image_identity,'RUNTIME_PLATFORM_CONFLICT')
+        observed['relay']={'container_id':proxy['Id'],'image_id':proxy['Image'],**proxy_identity,
+                           'configured_user':proxy['Config']['User'],'entrypoint':proxy['Config']['Entrypoint'],
+                           'command':proxy['Config']['Cmd'],
+                           'effective_environment_sha256':sha(raw(environment_map(proxy['Config']['Env'])))}
+        expected['relay']={'container_id':state['resources']['proxy'],'image_id':cfg['image_id'],**image_identity,
+                           'configured_user':'10001:10001','entrypoint':['python'],
+                           'command':['-S','/candidate/src/polar/qa_environment_proxy.py','--upstream',
+                                      'polar-qa-'+uuid.UUID(owner['operation']).hex+'-api'],
+                           'effective_environment_sha256':state['expected_environment_sha256']}
+        expected['network_layout']=LAYOUT
+        expected['relay_source_sha256']=sha(read(self.root/'source/src/polar/qa_environment_proxy.py'))
+        require(observed['relay']==expected['relay'],'RUNTIME_BINDING_MISMATCH')
         path = self.root/'preparation.json'
         if path.exists() or path.is_symlink():
             body = read(path)
@@ -501,7 +560,9 @@ class Environment:
                     'PREPARATION_RECEIPT_CONFLICT')
         else:
             require(api['State'].get('Status') == 'created'
-                    and api['State']['Running'] is False, 'PRESTART_OBSERVATION_REQUIRED')
+                    and api['State']['Running'] is False
+                    and proxy['State'].get('Status')=='created' and proxy['State']['Running'] is False,
+                    'PRESTART_OBSERVATION_REQUIRED')
             stamp = datetime.now(timezone.utc).isoformat()
             receipt = {
                 'schema': 'polar.observed-preparation/1',
@@ -564,7 +625,7 @@ class Environment:
             write(self.root/'config.json', cfg, True)
             write(self.root/'state.json', {'schema': 'polar.qa-environment-state/1',
                   'operation': owner['operation'], 'config_sha256': owner['config_sha256'],
-                  'resources': {}, 'phase': 'CREATED', 'attempts': 0}, True)
+                  'resources': {}, 'phase': 'CREATED', 'attempts': 0,'network_layout':LAYOUT}, True)
         # No mutation, even .lock creation, in a foreign existing directory.
         self.state()
         with locked(self.root):
@@ -581,6 +642,7 @@ class Environment:
                              'total_polar_attribution': 'UNKNOWN'}
             self.save(state)
             try:
+                require(state.get('network_layout')==LAYOUT,'LEGACY_LAYOUT_REQUIRES_FRESH_ROOT')
                 self.docker = self.docker or Docker(self.commands, state.get('docker_endpoint'))
                 state['docker_endpoint'] = self.docker.endpoint
                 self.save(state)
@@ -604,9 +666,9 @@ class Environment:
                 net_name, net = self.resource(owner, state, cfg, 'net')
                 api_name, api = self.resource(owner, state, cfg, 'api')
                 require(not api or net is not None, 'NETWORK_MISSING')
-                if net:
-                    require(set(net.get('Containers', {})) <= ({api['Id']} if api else set()),
-                            'FOREIGN_NETWORK_ENDPOINT')
+                front_name,front=self.resource(owner,state,cfg,'front')
+                proxy_name,proxy=self.resource(owner,state,cfg,'proxy')
+                self.validate_endpoints({'net':net,'api':api,'front':front,'proxy':proxy})
                 if net is None:
                     require('net' not in state['resources'], 'RECORDED_NETWORK_MISSING')
                     state['phase'] = 'NETWORK_INTENT'; self.save(state)
@@ -619,12 +681,37 @@ class Environment:
                     self.docker.create_api(api_name, self.labels(owner, cfg, 'api'), cfg, self.root, net['Id'])
                     _, api = self.resource(owner, state, cfg, 'api')
                     require(api is not None, 'CONTAINER_CREATE_UNOBSERVED')
-                preparation = self.preparation(owner, state, cfg, api, image_identity)
+                if front is None:
+                    require('front' not in state['resources'],'RECORDED_NETWORK_MISSING')
+                    state['phase']='FRONT_INTENT';self.save(state)
+                    self.docker.create_network(front_name,self.labels(owner,cfg,'front'),internal=False)
+                    _,front=self.resource(owner,state,cfg,'front')
+                    require(front is not None,'NETWORK_CREATE_UNOBSERVED')
+                if proxy is None:
+                    require('proxy' not in state['resources'],'RECORDED_CONTAINER_MISSING')
+                    state['phase']='RELAY_INTENT';self.save(state)
+                    self.docker.create_proxy(proxy_name,self.labels(owner,cfg,'proxy'),cfg,self.root,front['Id'],api_name)
+                    _,proxy=self.resource(owner,state,cfg,'proxy')
+                    require(proxy is not None,'CONTAINER_CREATE_UNOBSERVED')
+                if net_name not in proxy['NetworkSettings']['Networks']:
+                    require(not proxy['State']['Running'],'CONTAINER_NETWORK_CONFLICT')
+                    self.docker.connect(net['Id'],proxy['Id'])
+                    _,proxy=self.resource(owner,state,cfg,'proxy')
+                require(set(proxy['NetworkSettings']['Networks'])=={net_name,front_name},'CONTAINER_NETWORK_CONFLICT')
+                self.validate_endpoints({'net':net,'api':api,'front':front,'proxy':proxy})
+                preparation = self.preparation(owner, state, cfg, api, image_identity,proxy)
                 if not api['State']['Running']:
                     self.docker.start(api['Id'])
                     _, api = self.resource(owner, state, cfg, 'api')
                 require(api['State']['Running'], 'CONTAINER_NOT_RUNNING')
-                ports = api['NetworkSettings']['Ports'].get('8000/tcp')
+                if not proxy['State']['Running']:
+                    self.docker.start(proxy['Id'])
+                    _,proxy=self.resource(owner,state,cfg,'proxy')
+                require(proxy['State']['Running'],'CONTAINER_NOT_RUNNING')
+                _,net=self.resource(owner,state,cfg,'net')
+                _,front=self.resource(owner,state,cfg,'front')
+                self.validate_endpoints({'net':net,'front':front,'api':api,'proxy':proxy})
+                ports = proxy['NetworkSettings']['Ports'].get('8000/tcp')
                 require(type(ports) is list and len(ports) == 1 and ports[0]['HostIp'] == '127.0.0.1'
                         and ports[0]['HostPort'].isdigit() and 1 <= int(ports[0]['HostPort']) <= 65535, 'LOOPBACK_PORT_UNOBSERVED')
                 url = 'http://127.0.0.1:'+ports[0]['HostPort']
@@ -659,11 +746,13 @@ class Environment:
                     self.save(state)
                 _, net = self.resource(owner, state, cfg, 'net')
                 _, api = self.resource(owner, state, cfg, 'api')
+                front=proxy=None
+                if state.get('network_layout')==LAYOUT:
+                    _,front=self.resource(owner,state,cfg,'front')
+                    _,proxy=self.resource(owner,state,cfg,'proxy')
                 # A foreign endpoint on our network blocks ALL deletion.
-                if net:
-                    require(set(net.get('Containers', {})) <= ({api['Id']} if api else set()),
-                            'FOREIGN_NETWORK_ENDPOINT')
-                for kind, row in (('api', api), ('net', net)):
+                self.validate_endpoints({'net':net,'api':api,'front':front,'proxy':proxy})
+                for kind, row in (('proxy',proxy),('api', api),('front',front),('net', net)):
                     if row:
                         self.docker.remove(kind, row['Id'])
                         _, after = self.resource(owner, state, cfg, kind)

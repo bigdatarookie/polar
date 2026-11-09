@@ -59,16 +59,21 @@ work queue or controller. Native OpenRig retains work ownership.
 
 Prepare exports exact Git objects using accepted `scripts/polar-local.mjs`, seals
 source, verifies the file set and schema hash, and creates an empty artifact
-mount. One unique internal bridge network and one unprivileged read-only container
-use operation/config/root/candidate/role labels. The API receives only candidate
+mount. The internal API and a narrow loopback relay use two owned bridge networks
+and two unprivileged read-only containers, with operation/config/root/candidate/role labels. The API receives only candidate
 source RO, empty artifacts RO, tmpfs `/tmp`, inert loopback DSN, explicit absent
-secret paths, no Linux capabilities and no-new-privileges. The helper publishes an
-ephemeral port on 127.0.0.1 only. The image is explicit and remains installed;
+secret paths, no Linux capabilities and no-new-privileges. The API has only the
+internal backend network and publishes no port. The relay joins that network and
+a normal frontend bridge; only the relay publishes an ephemeral 127.0.0.1 port.
+It permits GET /livez and /openapi.json against the fixed same-operation API name,
+with a two-second upstream timeout and 1 MiB body bound. It forwards no caller
+headers and follows no redirects. The relay has the frontend gateway required
+for Docker publication; it is not claimed to be an OS egress sandbox. The image is explicit and remains installed;
 no owner stack, credential, shared volume or Docker socket is mounted. Actual
 Docker/host isolation properties still require the independent runtime check.
 
 Identical prepare revalidates exact IDs, labels, configuration, source and empty
-scope. It starts its own stopped container if needed. Partial failures retain
+scope. It starts its own stopped containers if needed. Partial failures retain
 resources and IDs. A failure after Docker create but before ID persistence can be
 recovered by the exact intended unique name plus verified identity/properties;
 no new parallel stack is created. A recorded resource replaced or missing blocks
@@ -78,7 +83,7 @@ if source preparation cannot be reconciled. A cleaned operation never recreates
 resources. There is no background retry/watch or automatic setup cleanup.
 
 Cleanup requires the exact operation and config hash, validates all observed
-resources before deleting either, and rejects foreign network endpoints. It
+resources before deleting any, and rejects foreign network endpoints. It
 removes only verified full container and network IDs; missing resources are
 idempotent only after successful bounded Docker listing. A daemon/inspect failure
 is not treated as absence. No prune, name-only removal, image/volume removal or
@@ -115,12 +120,15 @@ recorded as accepted resource IDs. Runtime/System qualification remains separate
 this source correction performs no Docker or deployment operation.
 
 
-Before starting the API, the helper now atomically publishes and fsyncs an
+Before starting either container, the helper atomically publishes and fsyncs an
 exclusive preparation.json (polar.observed-preparation/1). It observes the full
 actual API container ID, its .Image, the exact image's OS/architecture, configured
 user, entrypoint/command and complete effective-environment hash. Expected fields
 bind operation/config, candidate commit/tree, verified source manifest/schema,
-synthetic input and observer source hash. Environment values are never retained.
+synthetic input and observer source hash. The same receipt also observes and
+compares the actual relay container/image/platform/command/environment, and binds
+the internal-api-loopback-relay/1 layout and relay source SHA-256. It precedes both
+container starts. Environment values are never retained.
 Platform expectations come from inspection of the explicitly pinned image;
 supported platforms are linux/arm64 and linux/amd64. This records configured
 identity, not an observed process UID or independent source execution proof.
@@ -147,3 +155,11 @@ polar.qa-environment-observation/1. No witness container is launched and no clai
 is made that the PR30 CLI observed this API. This adapter is new source requiring
 independent review; PR30's prior acceptance does not qualify it automatically.
 The existing bounded stdout and full environment checks remain in place.
+
+The earlier internal-only direct-publication layout returned an empty runtime
+port projection on the observed Docker host. Its failure remains retained. Live
+roots from that layout return LEGACY_LAYOUT_REQUIRES_FRESH_ROOT on prepare; they
+are not silently migrated. Exact old cleanup remains supported, and already
+cleaned roots remain idempotent. New roots use the relay layout. The source
+correction requires independent actual prepare/reuse/cleanup evidence; component
+checks alone do not prove host publication or isolation.
