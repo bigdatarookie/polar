@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import cp from 'node:child_process';
 import crypto from 'node:crypto';
-import {preparePackage,checkPackage,packageAdapter,pin,mapDiff,runWithPackageDiagnostics} from '../scripts/polar-package.mjs';
+import {preparePackage,checkPackage,packageAdapter,pin,mapDiff,runWithPackageDiagnostics,sourceDiagnosticBytes} from '../scripts/polar-package.mjs';
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 function fixture(t,protocol='pr37'){
  const root=fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()),'polar-package-test-'));t.after(()=>{function open(p){for(const n of fs.readdirSync(p)){const f=path.join(p,n);if(fs.lstatSync(f).isDirectory()){fs.chmodSync(f,0o700);open(f);}}}open(root);fs.rmSync(root,{recursive:true,force:true});});
@@ -38,4 +38,8 @@ for(const declaredCount of [1,2])test(`PR32 rejects build subset of full map in 
  try{preparePackage(f.specFile,f.out);}catch(e){error=e;}
  assert.equal(error?.message,'PACKAGE_PREPARATION_FAILED');const failure=JSON.parse(fs.readFileSync(path.join(error.evidence,'PREPARATION-FAILURE.json'))),diagnostic=JSON.parse(fs.readFileSync(path.join(error.evidence,'SOURCE-MAP-DIAGNOSTIC.json')));
  assert.equal(failure.phase,'SOURCE');assert.equal(failure.code,'PACKAGE_PR32_BUILD_FULL_MAP_MISMATCH');assert.equal(failure.candidate_calls,0);assert.deepEqual(diagnostic.diff.missing,['/app/src/polar/app.js']);assert.deepEqual(diagnostic.diff.extra,[]);assert.deepEqual(diagnostic.diff.changed,[]);assert.equal(Object.keys(diagnostic.expected).length,2);assert.equal(Object.keys(diagnostic.observed).length,1);assert(!fs.existsSync(f.out));assert(!fs.existsSync(path.join(error.evidence,'source-export')));
+});
+
+test('overflow source diff retains bounded counts without repeating oversized path arrays',()=>{
+ const expected={},observed={};for(let i=0;i<300;i++)expected['/app/src/polar/'+String(i)+'x'.repeat(1024)+'.py']={bytes:1,sha256:'a'.repeat(64)};observed['/app/src/polar/only.py']={bytes:1,sha256:'b'.repeat(64)};const raw=sourceDiagnosticBytes({expected,observed,diff:mapDiff(expected,observed)}),summary=JSON.parse(raw);assert(raw.length<=256*1024);assert.equal(summary.status,'OVERFLOW');assert.equal(summary.diff_counts.missing,300);assert.equal(summary.diff_counts.extra,1);assert(!Object.hasOwn(summary,'diff'));
 });
