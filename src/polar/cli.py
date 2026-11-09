@@ -3,9 +3,16 @@ import argparse
 import json
 import sys
 import uuid
+from datetime import date, datetime
 from pathlib import Path
 
 from .models import RunConfig
+
+
+def json_default(value):
+    # Match HTTP's ISO timestamp encoding, retaining the CLI's exact decimal
+    # string convention rather than converting monetary Decimal values to float.
+    return value.isoformat() if isinstance(value, (date, datetime)) else str(value)
 
 
 def page_limit(value):
@@ -66,6 +73,12 @@ def main(argv=None):
         if name == "gym-replay": gym.add_argument("experiment_id")
     subs.add_parser("gym-attempt").add_argument("attempt_id")
     subs.add_parser("gym-report").add_argument("experiment_id")
+    for name in ("research-publish", "research-review"):
+        subs.add_parser(name).add_argument("file", type=Path)
+    subs.add_parser("research-result").add_argument("result_id")
+    listing = subs.add_parser("research-results")
+    listing.add_argument("--limit", type=page_limit, default=10)
+    listing.add_argument("--offset", type=page_offset, default=0)
     partial = subs.add_parser("hyp003-prepare")
     partial.add_argument("config_file", type=Path)
     partial.add_argument("--output-dir", type=Path, required=True)
@@ -170,6 +183,28 @@ def main(argv=None):
         except (PreparationError,HistoryError,OSError,ValueError,TypeError) as exc:
             code=exc.code if isinstance(exc,PreparationError) else "HYP003_INPUT_OR_OUTPUT_UNAVAILABLE"
             print(json.dumps({"schema":"polar.hyp003-preparation-error/1","status":"ERROR","code":code}),file=sys.stderr)
+            raise SystemExit(1)
+        return
+    if args.command.startswith("research-"):
+        from .config import Settings
+        from .service import Service
+        from .research_results import ResearchError, MAX_RESULT
+        from .history_bundle import decode, HistoryError
+        try:
+            service = Service(Settings.load())
+            if args.command in ("research-publish", "research-review"):
+                with args.file.open("rb") as stream:
+                    raw = stream.read(MAX_RESULT + 1)
+                if len(raw) > MAX_RESULT:
+                    raise ResearchError("RESEARCH_INPUT_TOO_LARGE", 413)
+                result = getattr(service, args.command.replace("-", "_"))(decode(raw))
+            elif args.command == "research-results":
+                result = service.research_catalog(args.limit, args.offset)
+            else:
+                result = service.research_result(args.result_id)
+            print(json.dumps(result, sort_keys=True, allow_nan=False))
+        except (ResearchError, HistoryError, OSError, ValueError):
+            print(json.dumps({"status": "ERROR", "code": "RESEARCH_OPERATION_FAILED"}), file=sys.stderr)
             raise SystemExit(1)
         return
     if args.command.startswith("gym-"):
@@ -309,7 +344,7 @@ def main(argv=None):
                 from .worker import run_forever
                 run_forever()
                 return
-        print(json.dumps(result,default=str,sort_keys=True,allow_nan=False))
+        print(json.dumps(result,default=json_default,sort_keys=True,allow_nan=False))
     except Exception as exc:
         # Exception messages can contain DSNs or payloads. Stable type only.
         from .registry import BudgetExceeded, NotFound
