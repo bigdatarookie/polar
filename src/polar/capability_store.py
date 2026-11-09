@@ -379,7 +379,7 @@ class PacketStore(HistoryStore):
             validate(value,name[:-5]+'_file')
             require(value['stage_status']=='COMPLETE','SEMANTIC_INTEGRITY')
             raw[name]=canonical(value)
-        manifest={'schema':'polar.hyp007-fixed-score.semantic-manifest/1','profile_id':PROFILE_ID,
+        manifest={'schema':'polar.hyp007-fixed-score-semantic-manifest/1','profile_id':PROFILE_ID,
                   'protocol_sha256':protocol_sha256,
                   'files':[{'filename':n,'bytes':len(raw[n]),'sha256':sha(raw[n])} for n in FILES]}
         validate(manifest,'semantic_manifest')
