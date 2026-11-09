@@ -51,7 +51,7 @@ def decode(raw, *, opaque=False):
         return NumberToken(token)
     try:
         value=json.loads(raw.decode('utf-8'),object_pairs_hook=pairs,
-            parse_int=number if opaque else int,parse_float=number if opaque else lambda _:require(False,'UNEXPECTED_FLOAT'),
+            parse_int=number if opaque else int,parse_float=number if opaque else float,
             parse_constant=lambda _:require(False,'NONFINITE_JSON'))
         pending=[(value,0)];count=0
         while pending:
