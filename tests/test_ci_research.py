@@ -55,6 +55,8 @@ def test_native_cent_fee_calendar_account_and_cash_control():
     assert [f["fee_cents"] for f in full["fills"]] == [9101, 9101]
     assert full["nav"][-1]["cash_cents"] == full["nav"][-1]["nav_cents"] == 9981808
     primary = legs["AMZN_INITIAL20_BH"]
+    assert primary["intents"][0]["targets"] is None
+    assert primary["intents"][0]["spending_budgets_cents"] == {"AMZN": 2000000}
     assert [f["q"] for f in primary["fills"]] == [1, 1]
     assert primary["nav"][-1]["nav_cents"] == 9997800
     assert legs["CASH"]["fills"] == []

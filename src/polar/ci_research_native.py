@@ -127,7 +127,10 @@ def simulate(plan, diagnostics=None):
                     self.initiated = True
                 self.pending = {"day": d["day"], "targets": targets, "budgets": budgets}
                 self.intents.append({"day": d["day"], "formation": d["formation"], "known_ns": d["known_ns"],
-                                     "decision_ns": event.ts_event, "targets": targets, "signal": signal})
+                                     "decision_ns": event.ts_event, "targets": None if budgets else targets,
+                                     "spending_budgets_cents": budgets,
+                                     "sizing_kind": "FEE_AWARE_SPENDING_BUDGET" if budgets else "WHOLE_SHARE_TARGETS",
+                                     "signal": signal})
 
             def route(self, event, d, symbol, side):
                 self.reconcile()
