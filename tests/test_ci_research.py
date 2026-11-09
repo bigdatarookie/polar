@@ -144,6 +144,29 @@ def test_decimal50_is_significant_not_fractional_places():
     assert Value(value=token, status="OK", reason=None).value == token
 
 
+def test_full_741_interval_exact_moments_do_not_serialize_huge_integers():
+    # Deliberately non-economic NAV arithmetic tape. Pairwise varying integer
+    # denominators grow far beyond small-control examples; no private prices,
+    # source outcomes or native scenarios are used for this math-domain check.
+    profile = invented_plan()["profile"]
+    tapes = []
+    start = instant("2019-01-30", 16, 0, ZoneInfo("UTC"))
+    for leg_index, leg in enumerate(profile["legs"]):
+        nav = []
+        for i in range(742):
+            v = 10000000 if i == 0 or leg == "CASH" else 10000000 + ((i*7919+leg_index*101) % 100003)
+            nav.append({"nav_cents": v, "nominal_ns": start+i*86400*10**9,
+                        "exposure_cents": 0, "position_cents": {"AMZN": 0}, "positions": {"AMZN": 0},
+                        "flat_cents": 0, "bps_cents": 0})
+        tapes.append({"id": leg, "nav": nav, "fills": []})
+    result = evaluate({"legs": tapes}, profile)
+    assert result["exposure_denominator"] == 741
+    assert len(result["legs"][0]["returns"]) == 741
+    for leg in result["legs"]:
+        for item in leg["metrics"].values():
+            assert item["value"] is None or isinstance(item["value"], str) and len(item["value"]) < 200
+
+
 def test_file_only_research_cli_needs_no_database_secret(tmp_path, monkeypatch, capsys):
     import json
     from polar.cli import main
