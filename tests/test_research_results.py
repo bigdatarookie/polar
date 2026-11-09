@@ -77,6 +77,9 @@ def test_persist_restart_http_and_tamper(tmp_path):
     lambda r: r["provenance"][0].update(path="/private/not-public"),
     lambda r: r.update(financial_verdict="PASS"),
     lambda r: r["grid"].__setitem__(0, "2020-02-30T21:00:00Z"),
+    lambda r: r["question"].update(summary="Evidence at /Users/private/file.json"),
+    lambda r: r["limitations"][0].update(text="file:///private/input.json"),
+    lambda r: r["costs"][0].update(description="C:\\private\\input.json"),
 ])
 def test_closed_wire_fails_instead_of_synthesizing(mutation):
     result = invented_result()

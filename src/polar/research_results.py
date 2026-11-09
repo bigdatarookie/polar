@@ -211,9 +211,29 @@ class ResearchError(Exception):
 
 def validate_result(value):
     try:
-        return ResearchResult.model_validate(value).model_dump(mode="json")
+        public = ResearchResult.model_validate(value).model_dump(mode="json")
+        public_text(public)
+        return public
     except (ValidationError, ValueError, TypeError):
         raise ResearchError("RESEARCH_INVALID_RESULT", 422) from None
+
+
+def public_text(value):
+    """Reject physical paths in any free text, not only structured provenance.
+
+    This is an additional fail-closed local-path boundary, not a generic secret
+    detector. The trusted publisher must still provide public/sanitized content.
+    """
+    if isinstance(value, str):
+        if re.search(r"(?i)(?:file://|[A-Z]:[\\/]|(?:^|[\s(=\"'])/\S+)", value):
+            raise ValueError("PUBLIC_RESULT_CONTAINS_PHYSICAL_PATH")
+    elif isinstance(value, list):
+        for item in value:
+            public_text(item)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            public_text(key)
+            public_text(item)
 
 
 class ResearchResults(HistoryStore):
@@ -262,6 +282,7 @@ class ResearchResults(HistoryStore):
                 body = read_file(self.root, f"research-reviews/{result_id}/{entry.name}/review.json", 16384)
                 try:
                     review = ResearchReview.model_validate(decode(body)).model_dump(mode="json")
+                    public_text(review)
                 except (ValidationError, ValueError, TypeError):
                     raise ResearchError("RESEARCH_INVALID_REVIEW") from None
                 if (sha(body) != entry.name or canonical(review) != body or
@@ -281,6 +302,7 @@ class ResearchResults(HistoryStore):
     def review(self, value):
         try:
             review = ResearchReview.model_validate(value).model_dump(mode="json")
+            public_text(review)
         except (ValidationError, ValueError, TypeError):
             raise ResearchError("RESEARCH_INVALID_REVIEW", 422) from None
         detail = self.read(review["result_id"])
