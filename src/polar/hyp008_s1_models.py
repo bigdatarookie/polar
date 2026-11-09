@@ -94,7 +94,8 @@ def fit_tree(z_bits,y_bits,binding):
             'TREE_INPUT_SHAPE')
     X=np.array([[native_float(b) for b in row] for row in z_bits],dtype=np.float64)
     y=np.array([native_float(b) for b in y_bits],dtype=np.float64)
-    parameters=locks['TREE-DEFAULTS.json']['wrapper_effective_parameters']
+    parameter_provenance=locks['TREE-DEFAULTS.json']['wrapper_effective_parameters']
+    parameters={name:record['value'] for name,record in parameter_provenance.items()}
     model=lightgbm.LGBMRegressor(**parameters)
     require(model.get_params(deep=False)==parameters,'TREE_EFFECTIVE_PARAMETERS')
     model.fit(X,y)  # Exactly one fit, no eval set/weights/callbacks or forced iterations.
@@ -103,6 +104,7 @@ def fit_tree(z_bits,y_bits,binding):
     restored=lightgbm.Booster(model_str=text)  # Readback, no second fit.
     require(restored.current_iteration()==model.booster_.current_iteration(),'MODEL_READBACK_ITERATIONS')
     return restored,{'schema':'polar.hyp008-s1-tree/1','parameters':parameters,
+        'parameter_provenance':parameter_provenance,
         'nominal_estimators':50,'actual_iterations':model.booster_.current_iteration(),
         'model_text':text,'native_precision':'SOURCE_BOUND_FLOAT32_LABEL_SCORE',
         'default_hashes':dict(DEFAULT_HASHES)}
