@@ -27,7 +27,7 @@ def run(name,argv,timeout=1200):
         timed_out=True;os.killpg(proc.pid,signal.SIGKILL);code=proc.wait()
     thread.join();step={'name':name,'argv':argv,'exit':code,'timeout':timed_out,'elapsed_seconds':round(time.monotonic()-t,3),'log_bytes':state['bytes'],'log_truncated':state['bytes']>state['retained']};steps.append(step);print(json.dumps(step),flush=True)
     if code:print(out.read_text(errors='replace')[-12000:],flush=True)
-    return code
+    return 1 if code else 0
 status=1
 try:
     assert versions['nautilus-trader']=='1.231.0'
