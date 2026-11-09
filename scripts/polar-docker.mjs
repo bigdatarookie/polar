@@ -153,6 +153,11 @@ function observePreparationMount(id,expectedHash) {
   check(!r.error&&r.status===0,'PREPARATION_MOUNT_COPY_FAILED');
   return {...preparationMountFromTar(r.stdout,expectedHash),observed_container_id:id,observed_at:now()};
 }
+export function validRetentionExpiry(value) {
+  if(typeof value!=='string'||!(/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z$/).test(value))return false;
+  const instant=Date.parse(value);
+  return Number.isFinite(instant)&&new Date(instant).toISOString()===value;
+}
 function lifecycle(s) {
   if(!Object.hasOwn(s,'lifecycle'))return {schema:'polar.resource-lifecycle/1',project:'polar',
     task:'legacy-'+s.launch_id,attempt:s.launch_id,owner:'LEGACY_CALLER_UNKNOWN',
@@ -171,9 +176,7 @@ function lifecycle(s) {
       'INVALID_LIFECYCLE');
     check(v.retention.release_condition===null||(typeof v.retention.release_condition==='string'
       &&v.retention.release_condition.length>0&&v.retention.release_condition.length<=512),'INVALID_LIFECYCLE');
-    check(v.retention.expires_at===null||(typeof v.retention.expires_at==='string'
-      &&/^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d\\.\\d{3}Z$/.test(v.retention.expires_at)
-      &&Number.isFinite(Date.parse(v.retention.expires_at))),'INVALID_LIFECYCLE');
+    check(v.retention.expires_at===null||validRetentionExpiry(v.retention.expires_at),'INVALID_LIFECYCLE');
     check(v.retention.release_condition!==null||v.retention.expires_at!==null,'INVALID_LIFECYCLE');
   }
   return {schema:'polar.resource-lifecycle/1',...v,origin:'EXPLICIT_CONFIG_BINDING'};

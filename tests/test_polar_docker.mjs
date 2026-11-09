@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import cp from 'node:child_process';
-import {observedLaunch,observedCleanup,packagedSourceFromTar,validatePackagedSourceBinding,preparationMountFromTar} from '../scripts/polar-docker.mjs';
+import {validRetentionExpiry,observedLaunch,observedCleanup,packagedSourceFromTar,validatePackagedSourceBinding,preparationMountFromTar} from '../scripts/polar-docker.mjs';
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 const IMAGE='sha256:'+'a'.repeat(64),OTHER='sha256:'+'b'.repeat(64),CID='c'.repeat(64);
 function removeFixture(dir){for(const n of fs.readdirSync(dir)){const p=path.join(dir,n);if(fs.lstatSync(p).isDirectory()){fs.chmodSync(p,0o700);removeFixture(p);}}fs.rmSync(dir,{recursive:true,force:true});}
@@ -269,3 +269,12 @@ test('CLI operation cannot return success when cleanup residual remains',t=>{
   assert.equal(run.status,1);const result=JSON.parse(run.stdout);
   assert.equal(result.scenario,'PASS');assert.equal(result.cleanup.status,'UNVERIFIED_RETAINED');
 });
+
+
+for(const [value,expected] of [
+  ['2026-02-30T00:00:00.000Z',false],['2026-04-31T00:00:00.000Z',false],
+  ['2026-02-29T00:00:00.000Z',false],['2100-02-29T00:00:00.000Z',false],
+  ['2024-02-29T00:00:00.000Z',true],['2000-02-29T00:00:00.000Z',true],
+  ['2026-02-28T23:59:59.999Z',true]]) {
+  test('retention expiry calendar '+value,()=>assert.equal(validRetentionExpiry(value),expected));
+}
