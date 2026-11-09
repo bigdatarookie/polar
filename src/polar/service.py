@@ -195,3 +195,9 @@ class Service:
         a,b = self.report(left),self.report(right)
         return {"left":str(left),"right":str(right),"metrics":{"left":a["metrics"],"right":b["metrics"]},
                 "status":"DESCRIPTIVE_ONLY","financial_verdict":"NOT_RUN"}
+
+
+    def s1(self, operation, *args):
+        """Same S1 facade as CLI; trusted deployment, never a request-selected root."""
+        from .hyp008_s1_service import configured_operation
+        return configured_operation(operation,*args)

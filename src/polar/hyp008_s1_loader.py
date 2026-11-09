@@ -62,7 +62,7 @@ class SourceGraph:
         require((coordinate if coordinate is not None else pin['sha256']) in self.locators,'UNBOUND_SOURCE_LOCATOR')
         if key in self.cache:
             require(ref(self.cache[key])==pin,'REFERENCE_LENGTH');return self.cache[key]
-        locator=self.locators.get(coordinate if coordinate is not None else key)
+        locator=self.locators.get(coordinate if coordinate is not None else pin['sha256'])
         require(isinstance(locator,(str,Path)),'UNBOUND_SOURCE_LOCATOR')
         path=Path(locator);require(path.is_absolute(),'SOURCE_LOCATOR_ABSOLUTE')
         with member_stream(path.parent,path.name,MAX_FILE) as stream:raw=stream.read(MAX_FILE+1)
@@ -119,14 +119,24 @@ def prepare_source(config,locators):
     table=metadata(decode(graph.raw(inputs['references']),opaque=True));graph.declare(table)
     raw=graph.raw(inputs['rows']);lines=raw.splitlines(keepends=True)
     require(len(lines)==binding.census_count and all(len(line)<=MAX_LINE for line in lines),'SOURCE_ROW_COUNT_BOUND')
+    roster_paths=[coordinate for coordinate in graph.declared
+                  if Path(coordinate).name=='roster.ndjson' and
+                  'DECLARED_PRIMITIVE_OR_OPERATOR_ANCESTRY' in table['references'][coordinate]['roles']]
+    require(len(roster_paths)==1,'SOURCE_ROSTER_GRAPH')
+    roster_path=roster_paths[0];roster_raw=graph.raw(graph.declared[roster_path],roster_path)
+    roster_lines=roster_raw.splitlines(keepends=True)
+    roster_keys=[decode(line,opaque=True).get('key') for line in roster_lines]
+    require(all(type(key) is str for key in roster_keys) and len(set(roster_keys))==len(roster_keys),'SOURCE_ROSTER_DUPLICATE_KEY')
     rows=[];opportunities=[]
     for index,line in enumerate(lines):
         row=metadata(decode(line,opaque=True));require(row['index']==index,'SOURCE_ROW_ORDINAL')
         opportunities.append(adapt_metadata_row(row,binding))
         for name in ('history_metadata_ref','opportunity_metadata_ref'):
             require(row[name].get('line_1based')==index+1,'SOURCE_METADATA_LINE');graph.resolve(row[name])
+        require(set(row['source_row_ref'])=={'path','bytes','sha256'},'SOURCE_PER_DATE_ROOT_REF')
         original=graph.resolve(row['source_row_ref'])
-        require(type(original) is dict,'SOURCE_ORIGINAL_ROW')
+        require(type(original) is dict and original.get('D_date')==row['decision_date']
+                and original.get('D')==row['D'],'SOURCE_ORIGINAL_ROW')
         require(all(typed_equal(original.get(key),row['A'][key]) for key in
                     ('A_status','A_reasons','A_required_K')),'SOURCE_A_METADATA')
         opportunity=graph.resolve(row['opportunity_metadata_ref'])
@@ -138,30 +148,30 @@ def prepare_source(config,locators):
         projected=[{k:v[k] for k in ('key','stored_K','reason','mark_kind')} for v in components]
         require(typed_equal(projected,row['B']['component_metadata']) and
                 typed_equal(projected,opportunity.get('component_metadata')),'SOURCE_COMPONENT_METADATA')
+        require(opportunity.get('decision_date')==row['decision_date'] and opportunity.get('D')==row['D'],'SOURCE_OPPORTUNITY_ID')
         roster_refs=metadata(opportunity.get('roster_pointers'))
-        require(roster_refs==row['B']['original_source_roster_refs'] and len(roster_refs)==4,'SOURCE_ROSTER_POINTERS')
-        roster_paths=[coordinate for coordinate,item in graph.declared.items()
-                      if Path(coordinate).name=='roster.ndjson' and
-                      'DECLARED_PRIMITIVE_OR_OPERATOR_ANCESTRY' in table['references'][coordinate]['roles']]
-        require(len(roster_paths)==1,'SOURCE_ROSTER_GRAPH')
-        roster_path=roster_paths[0];roster_raw=graph.raw(graph.declared[roster_path],roster_path)
-        roster_lines=roster_raw.splitlines(keepends=True)
+        require(roster_refs==row['B']['original_source_roster_refs'] and len(roster_refs)==4
+                and [r['key'] for r in roster_refs]==[row['decision_date']+':'+symbol for symbol in ('AAPL','AMZN','TSLA','TWTR')],'SOURCE_ROSTER_POINTERS')
         for item in roster_refs:
             require(type(item) is dict and set(item)=={'key','line_1based','raw_line_sha256'},'SOURCE_ROSTER_REF')
             line1=domain_int(item['line_1based']);require(1<=line1<=len(roster_lines),'SOURCE_ROSTER_LINE')
             raw_line=roster_lines[line1-1];require(len(raw_line)<=MAX_LINE and sha(raw_line)==item['raw_line_sha256'],'SOURCE_ROSTER_RAW_LINE_HASH')
-            require(decode(raw_line,opaque=True).get('key')==item['key'],'SOURCE_ROSTER_KEY')
+            require(roster_keys[line1-1]==item['key'],'SOURCE_ROSTER_KEY')
             graph.checks[sha(canonical(item))]={'reference':item,'status':'MATCHED_ROSTER_RAW_LINE_KEY','roster_ref':graph.declared[roster_path]}
 
         for slot in SLOTS:
             field='LIQUIDITY' if slot=='MEDIAN_DV20' else slot
-            reference=row['X'][slot]['source_ref'];require(reference.get('json_pointer')=='/A_values/'+field,'SOURCE_SLOT_POINTER')
+            reference=row['X'][slot]['source_ref']
+            require({k:v for k,v in reference.items() if k!='json_pointer'}==row['source_row_ref'],'SOURCE_X_PARENT_REF')
+            require(reference.get('json_pointer')=='/A_values/'+field,'SOURCE_SLOT_POINTER')
             if row['A']['A_status']=='UNAVAILABLE':
                 require(row['X'][slot]['represented_source_payload'] is None and original.get('A_values') is None,'SOURCE_UNAVAILABLE_PARENT')
                 require(reference['path']==row['source_row_ref']['path'] and reference['sha256']==row['source_row_ref']['sha256']
                         and reference['bytes']==row['source_row_ref']['bytes'],'SOURCE_UNAVAILABLE_PARENT')
             else:
                 require(typed_equal(graph.resolve(reference),row['X'][slot]['represented_source_payload']),'SOURCE_X_POINTER_VALUE')
+        for name in ('numeric_source_ref','binary64_projection_ref','source_constituents_ref'):
+            require({k:v for k,v in row['B'][name].items() if k!='json_pointer'}==row['source_row_ref'],'SOURCE_B_PARENT_REF')
         require(row['B']['numeric_source_ref'].get('json_pointer')=='/B_value_represented_fraction','SOURCE_B_POINTER')
         require(typed_equal(graph.resolve(row['B']['numeric_source_ref']),row['B']['represented_fraction']),'SOURCE_B_POINTER_VALUE')
         for name in ('binary64_projection_ref','source_constituents_ref'):graph.resolve(row['B'][name])

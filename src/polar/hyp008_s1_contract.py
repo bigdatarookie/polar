@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 
@@ -57,6 +58,7 @@ def decode(raw, *, opaque=False):
         while pending:
             node,depth=pending.pop();count+=1
             require(depth<=64 and count<=2000000,'JSON_COMPLEXITY')
+            if type(node) is float:require(math.isfinite(node),'NONFINITE_JSON')
             if type(node) is dict:pending.extend((v,depth+1) for v in node.values())
             elif type(node) is list:pending.extend((v,depth+1) for v in node)
         return value

@@ -100,7 +100,27 @@ def main(argv=None):
     compare = subs.add_parser("compare")
     compare.add_argument("left",type=uuid.UUID)
     compare.add_argument("right",type=uuid.UUID)
+    for operation in ("prepare","seal","run"):
+        subs.add_parser("hyp008-s1-"+operation).add_argument("file",type=Path)
+    for operation in ("attempt","report","verify-stored"):
+        subs.add_parser("hyp008-s1-"+operation).add_argument("identifier")
     args = parser.parse_args(argv)
+    if args.command.startswith("hyp008-s1-"):
+        from .hyp008_s1_service import configured_operation
+        from .hyp008_s1_contract import decode
+        try:
+            operation=args.command.removeprefix("hyp008-s1-").replace("-","_")
+            if hasattr(args,"file"):
+                from .hyp008_s1_contract import MAX_FILE
+                with args.file.open("rb") as stream:value=decode(stream.read(MAX_FILE+1))
+            else:value=args.identifier
+            result=configured_operation(operation,value)
+            print(json.dumps(result,sort_keys=True,allow_nan=False))
+            if result.get("status") in ("NOT_BOUND","UNFINALIZED","PLANNED_FAMILY_UNAVAILABLE"):raise SystemExit(1)
+        except (ValueError,KeyError,TypeError,OSError) as exc:
+            print(json.dumps({"status":"NOT_BOUND","reason":str(exc)}),file=sys.stderr)
+            raise SystemExit(1)
+        return
     if args.command.startswith("import-"):
         import hashlib
         from .import_contract import ImportError, MAX_FILE, decode

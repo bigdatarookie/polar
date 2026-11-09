@@ -23,18 +23,45 @@ class Deployment:
     binding: dict
     root_identity: tuple
     authority_directory: Path
+    host_identity: tuple | None = None
+    preparation_path: Path | None = None
+
+    def mount(self):
+        """Join the qualified launcher host identity, never host/container inodes."""
+        require(self.preparation_path==Path('/polar-launch/preparation.json'),'AUTOMATIC_PREPARATION_PATH')
+        p=decode(read_file(safe_root(self.preparation_path.parent),self.preparation_path.name,limit=2*1024**2))
+        require(p['preparation']=='PREPARED' and p['scenario_started'] is False,'STORE_MOUNT_NOT_PREPARED')
+        retained=p['retained_binding'];artifact=retained['artifact_root'];observed=retained['observation']
+        require(str(self.root)=='/polar-artifacts' and artifact['container_target']==str(self.root)
+            and artifact['path']==self.binding['canonical_root'] and artifact['writable'] is True
+            and (artifact['device'],artifact['inode'])==tuple(str(v) for v in self.host_identity),
+            'TRUSTED_HOST_ROOT_IDENTITY')
+        require(observed['schema']=='polar.observed-retained-mounts/1' and observed['all_mounts_exact'] is True
+            and observed['container_id']==p['observed']['container_id'],'STORE_MOUNT_OBSERVATION')
+        mounts=[m for m in observed['mounts'] if m['target']==str(self.root)]
+        require(mounts==[{'source':self.binding['canonical_root'],'target':str(self.root),
+            'writable':True,'type':'bind'}],'STORE_MOUNT_IDENTITY')
 
     def verify(self):
         validate('StoreBinding',self.binding)
         root=safe_root(self.root);require(root.is_absolute() and root.resolve()==root,'TRUSTED_ROOT')
         info=root.stat();require((info.st_dev,info.st_ino)==self.root_identity,'TRUSTED_ROOT_IDENTITY')
         require(type(self.root_identity) is tuple and len(self.root_identity)==2,'TRUSTED_ROOT_IDENTITY')
+        if self.host_identity is not None:self.mount()
+        else:require(self.preparation_path is None,'UNBOUND_STORE_MOUNT')
         authorities=safe_root(self.authority_directory)
         require(authorities!=root and root not in authorities.parents,'AUTHORITY_OUTSIDE_CALLER_STORE')
         return root
 
     @property
     def binding_id(self):return sha(canonical(self.binding))
+
+    @property
+    def profile_ref(self):
+        return ref(canonical({'binding':self.binding,'runtime_root':str(self.root),
+            'root_identity':list(self.host_identity if self.host_identity is not None else self.root_identity),
+            'identity_namespace':'HOST_MOUNT' if self.host_identity is not None else 'LOCAL',
+            'authority_directory':str(self.authority_directory)}))
 
 
 class S1Store(HistoryStore):
@@ -48,18 +75,23 @@ class S1Store(HistoryStore):
         return self.deployment.binding
 
     def object(self,value):
-        raw=canonical(value);require(len(raw)<=MAX_FILE,'OBJECT_BOUND')
+        return self.raw_object(canonical(value))
+
+    def raw_object(self,raw):
+        require(type(raw) is bytes and len(raw)<=MAX_FILE,'OBJECT_BOUND')
         pin=ref(raw)
         with self.locked():
             self.trusted();self._publish('s1-objects',pin['sha256'],{'record.json':raw},file_limit=MAX_FILE)
         return pin
 
-    def get(self,pin):
+    def raw_get(self,pin):
         validate('Ref',pin);self.trusted()
         raw=read_file(self.root,'s1-objects/'+pin['sha256']+'/record.json',limit=MAX_FILE)
-        require(ref(raw)==pin,'OBJECT_HASH');value=decode(raw)
-        require(canonical(value)==raw,'OBJECT_CANONICAL')
-        return value
+        require(ref(raw)==pin,'OBJECT_HASH');return raw
+
+    def get(self,pin):
+        raw=self.raw_get(pin);value=decode(raw)
+        require(canonical(value)==raw,'OBJECT_CANONICAL');return value
 
     def _record(self,parent,name,value):
         self._publish(parent,name,{'record.json':canonical(value)},file_limit=MAX_FILE)

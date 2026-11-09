@@ -51,6 +51,7 @@ def test_token_reader_preserves_source_number_and_rejects_duplicate_nonfinite():
     assert value['index']==NumberToken('2') and value['literal']=='2'
     for raw in (b'{"x":1,"x":2}',b'{"x":NaN}',b'{"x":Infinity}'):
         with pytest.raises(S1ContractError):decode(raw,opaque=True)
+    with pytest.raises(S1ContractError,match='NONFINITE_JSON'):decode(b'{"metadata":1e999}')
 
 
 def test_closed_schema_rejects_unknown_and_bool_integer(tmp_path):
@@ -123,3 +124,83 @@ def test_orphan_actual_call_cannot_claim_completed(tmp_path):
     with pytest.raises(Exception):s.witness(aid,'TREE','COMPLETED',{'invented':'no boundary'})
     result=s.attempt(aid)
     assert result['terminal_status']=='UNFINALIZED' and result['resumption_allowed'] is False
+
+
+def test_concurrent_runners_have_at_most_one_irreversible_family_start(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    s=store(tmp_path);value=seal(s);gate=Barrier(2)
+    def begin():
+        gate.wait()
+        try:return s.begin(value)
+        except S1ContractError as exc:return str(exc)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes=list(pool.map(lambda _:begin(),range(2)))
+    assert outcomes.count('FAMILY_ALREADY_STARTED')==1
+    assert len(list((s.root/'s1-attempts').iterdir()))==1
+
+
+def test_changed_runtime_root_profile_cannot_reuse_old_seal_plan(tmp_path):
+    from polar.hyp008_s1_service import S1Service
+    s=store(tmp_path);value=seal(s,False)
+    candidate={'commit':'a'*40,'tree':'b'*40};files={'/app/src/polar/invented.py':{'bytes':1,'sha256':'0'*64}}
+    code=s.object({'schema':'polar.hyp008-s1-code-projection/1','candidate':candidate,'files':files})
+    build=s.object({'commit':candidate['commit'],'tree':candidate['tree'],'image_id':'sha256:'+'c'*64,'source_files':files})
+    proof=s.object({'scope':'INVENTED_QUALIFICATION_STUB'})
+    qa=s.object({'schema':'polar.hyp008-s1-qualification/1','code_ref':code,'build_ref':build,
+        'verdicts':{'code':'PASS','numeric':'PASS','system':'PASS'},'proof_refs':[proof]})
+    plan=s.object({'schema':'polar.hyp008-s1-runtime-plan/1','candidate':candidate,'image_id':'sha256:'+'c'*64,
+        'source_build_ref':build,'launcher_refs':[proof],'store_profile_ref':s.deployment.profile_ref})
+    assignment=s.object({'schema':'polar.hyp008-s1-execution-assignment/1','prepared_ref':value['prepared_ref'],
+        'registration_ref':value['registration_ref'],'native_qitem':'qitem-invented','scope':'INVENTED'})
+    value.update(code_ref=code,build_ref=build,qa_ref=qa,runtime_plan_ref=plan,execution_assignment_ref=assignment)
+    value.pop('seal_id');value['seal_id']=sha(canonical(value))
+    assert S1Service(s,{})._qualification(value,{})[0]['candidate']==candidate
+    clone=tmp_path/'clone';shutil.copytree(s.root,clone);stat=clone.stat()
+    copied=S1Store(Deployment(clone,s.deployment.binding,(stat.st_dev,stat.st_ino),s.deployment.authority_directory),s.limit)
+    with pytest.raises(S1ContractError,match='RUNTIME_STORE_PROFILE'):
+        S1Service(copied,{})._qualification(value,{})
+    assert not (copied.root/copied.family()).exists()
+
+
+def test_observed_host_mount_identity_never_equates_host_and_container_inode(tmp_path,monkeypatch):
+    import polar.hyp008_s1_store as module
+    s=store(tmp_path);binding={**s.deployment.binding,'canonical_root':'/trusted/host/store'}
+    prep={'preparation':'PREPARED','scenario_started':False,'observed':{'container_id':'cid'},
+        'retained_binding':{'artifact_root':{'path':'/trusted/host/store','device':'99','inode':'123',
+            'container_target':'/polar-artifacts','writable':True},
+            'observation':{'schema':'polar.observed-retained-mounts/1','all_mounts_exact':True,'container_id':'cid',
+                'mounts':[{'source':'/trusted/host/store','target':'/polar-artifacts','writable':True,'type':'bind'}]}}}
+    monkeypatch.setattr(module,'safe_root',lambda p:p)
+    monkeypatch.setattr(module,'read_file',lambda *args,**kwargs:canonical(prep))
+    d=Deployment(Path('/polar-artifacts'),binding,(1,2),Path('/run/trusted-authority'),(99,123),Path('/polar-launch/preparation.json'))
+    d.mount()
+    # Different namespace-local inode is expected on a later container; host identity stays fixed.
+    other=Deployment(d.root,binding,(4,5),d.authority_directory,(99,123),d.preparation_path)
+    assert d.profile_ref==other.profile_ref
+    prep['retained_binding']['artifact_root']['inode']='124'
+    with pytest.raises(S1ContractError,match='TRUSTED_HOST_ROOT_IDENTITY'):d.mount()
+    prep['retained_binding']['artifact_root']['inode']='123'
+    prep['retained_binding']['observation']['container_id']='another'
+    with pytest.raises(S1ContractError,match='STORE_MOUNT_OBSERVATION'):d.mount()
+    prep['retained_binding']['observation']['container_id']='cid'
+    prep['retained_binding']['observation']['mounts'][0]['source']='/copied/root'
+    with pytest.raises(S1ContractError,match='STORE_MOUNT_IDENTITY'):d.mount()
+
+
+@pytest.mark.parametrize('stage',STAGES)
+@pytest.mark.parametrize('boundary',[False,True])
+def test_crash_after_each_stage_intent_never_allows_resume_or_refund(tmp_path,stage,boundary):
+    s=store(tmp_path);value=seal(s);aid=s.begin(value)
+    for name in STAGES[:STAGES.index(stage)]:
+        s.stage_intent(aid,name);s.witness(aid,name,'CALL_BOUNDARY_OBSERVED',{})
+        s.witness(aid,name,'COMPLETED',{})
+    s.stage_intent(aid,stage)
+    if boundary:s.witness(aid,stage,'CALL_BOUNDARY_OBSERVED',{})
+    restored=S1Store(s.deployment,s.limit)
+    result=restored.attempt(aid)
+    assert result['terminal_status']=='UNFINALIZED' and result['resumption_allowed'] is False
+    assert result['stages'][stage]['intent']['scientific_stage_attempt_charged'] is True
+    assert ('boundary' in result['stages'][stage]) is boundary
+    with pytest.raises(S1ContractError,match='FAMILY_ALREADY_STARTED'):restored.begin(value)
+    with pytest.raises(S1ContractError,match='STAGE_ALREADY_CHARGED'):restored.stage_intent(aid,stage)
