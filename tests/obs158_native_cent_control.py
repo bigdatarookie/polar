@@ -8,6 +8,7 @@ import importlib.machinery
 import os
 import platform
 import time
+import traceback
 
 
 def verify_before_import(input_path,expectations_path,config_path,output_root):
@@ -159,11 +160,34 @@ def run_control():
     finally:engine.dispose()
 
 
+def retain_failure(output_root,receipt_sha,exc):
+    """Bounded invented-control diagnostics; no locals, environment or input dump."""
+    text=''.join(traceback.format_exception(type(exc),exc,exc.__traceback__,limit=32))
+    encoded=text.encode('utf-8',errors='replace');limit=16384
+    value={'schema':'polar.obs158-native-cent-failure/1','status':'FAIL',
+           'scope':'INVENTED_NATIVE_CENT_CONTROL_ONLY',
+           'pre_scenario_receipt_sha256':receipt_sha,
+           'exception_type':type(exc).__name__[:256],
+           'traceback':encoded[:limit].decode('utf-8',errors='replace'),
+           'traceback_truncated':len(encoded)>limit,
+           'engine_run_and_fill_completion':'UNKNOWN_UNTIL_SEPARATELY_EVIDENCED'}
+    raw=(json.dumps(value,sort_keys=True,allow_nan=False)+'\n').encode()
+    if len(raw)>131072:raise ValueError('FAILURE_ARTIFACT_BOUND')
+    target=Path(output_root)/'failure.json'
+    with target.open('xb') as stream:stream.write(raw);stream.flush();os.fsync(stream.fileno())
+    target.chmod(0o444)
+
+
 if __name__=='__main__':
     # Qualified launcher command: harness INPUT EXPECTATIONS CONFIG /polar-output.
     if len(sys.argv)!=5:raise SystemExit('BOUND_LAUNCH_REQUIRED')
     receipt_sha=verify_before_import(*sys.argv[1:])
     output=Path(sys.argv[4])/'result.json'
-    value=run_control()
+    try:
+        value=run_control()
+    except BaseException as exc:
+        try:retain_failure(sys.argv[4],receipt_sha,exc)
+        except Exception:pass  # Diagnostic IO failure never replaces the original failure.
+        raise
     value['pre_scenario_receipt_sha256']=receipt_sha
     with output.open('x') as stream:stream.write(json.dumps(value,sort_keys=True,allow_nan=False)+'\n')
