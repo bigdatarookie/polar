@@ -1,5 +1,5 @@
 name: Polar CI
-run-name: Polar CI · ${{ github.event_name }} · ${{ inputs.product_pr || '45' }}
+run-name: Polar CI · ${{ github.event_name }} · ${{ inputs.product_pr || '49' }}
 on:
   pull_request:
   push:
@@ -9,14 +9,14 @@ on:
       product_pr:
         description: 'Current product PR number; resolve its live head at start'
         required: true
-        default: '45'
+        default: '49'
       test_path:
         description: 'Optional tests/ path or node ID; native control still runs'
         required: false
 permissions:
   contents: read
 concurrency:
-  group: polar-ci-${{ github.workflow }}-${{ github.ref }}-${{ inputs.product_pr || '45' }}
+  group: polar-ci-${{ github.workflow }}-${{ github.ref }}-${{ inputs.product_pr || '49' }}
   cancel-in-progress: false
 jobs:
   select:
@@ -28,7 +28,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CURRENT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          PRODUCT_PR: ${{ inputs.product_pr || '45' }}
+          PRODUCT_PR: ${{ inputs.product_pr || '49' }}
         run: |
           [[ "$PRODUCT_PR" =~ ^[0-9]+$ ]]
           HEAD=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PRODUCT_PR" --jq '.head.sha')
