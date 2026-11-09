@@ -24,12 +24,14 @@ class Obs158Store(GymStore):
         require(type(family) is str and re.fullmatch(r'[A-Za-z0-9_-]{1,128}',family),
                 'INVALID_BUDGET_FAMILY')
         maximum=authorization['max_full_packet_starts']
-        require(type(maximum) is int and 1<=maximum<=2
+        require(type(maximum) is int and 1<=maximum
                 and (namespace!='RETAINED' or maximum==2),'INVALID_PACKET_BUDGET')
         with self.locked():
             parent=f'obs158-budgets/{namespace}/{family}';directory=self.root/parent
             existing=sorted(directory.iterdir()) if directory.exists() else []
-            require(len(existing)<maximum,'OBS158_PACKET_BUDGET_EXHAUSTED')
+            # Invented attempts append without a technical count cap or refund.
+            if namespace=='RETAINED':
+                require(len(existing)<maximum,'OBS158_PACKET_BUDGET_EXHAUSTED')
             if replay_of is not None:
                 require(bool(existing),'REPLAY_REQUIRES_PRIOR_PACKET')
                 prior=self.packet(self.read_record(parent,existing[-1].name)['attempt_id'])

@@ -101,9 +101,11 @@ class Obs158Service:
                 'OBS158_EXECUTION_NOT_BOUND')
         expected='FIXED_PAIR_AND_REPLAY' if config['source_class']=='RETAINED' else 'INVENTED_FIXED_PAIR'
         require(auth.get('purpose')==expected,'OBS158_EXECUTION_PURPOSE')
+        # v27: INVENTED keeps legacy count metadata, not a technical call pool.
+        # Actual retained authority remains exactly two starts.
         require(type(auth['family']) is str and re.fullmatch(r'[A-Za-z0-9_-]{1,128}',auth['family'])
                 and type(auth['max_full_packet_starts']) is int
-                and 1<=auth['max_full_packet_starts']<=2
+                and 1<=auth['max_full_packet_starts']
                 and (config['source_class']!='RETAINED' or auth['max_full_packet_starts']==2),
                 'OBS158_PACKET_BUDGET')
         limits=auth.get('limits',{})
