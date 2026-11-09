@@ -1,0 +1,97 @@
+name: Polar CI
+run-name: Polar CI · ${{ github.event_name }} · ${{ inputs.product_pr || '49' }}
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      product_pr:
+        description: 'Current product PR number; resolve its live head at start'
+        required: true
+        default: '49'
+      test_path:
+        description: 'Optional tests/ path or node ID; native control still runs'
+        required: false
+permissions:
+  contents: read
+concurrency:
+  group: polar-ci-${{ github.workflow }}-${{ github.ref }}-${{ inputs.product_pr || '49' }}
+  cancel-in-progress: false
+jobs:
+  select:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PRODUCT_PR: ${{ inputs.product_pr || '49' }}
+        run: |
+          [[ "$PRODUCT_PR" =~ ^[0-9]+$ ]]
+          HEAD=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PRODUCT_PR" --jq '.head.sha')
+          [[ "$HEAD" =~ ^[a-f0-9]{40}$ ]]
+          MATRIX=$(jq -nc --arg current "$CURRENT_SHA" --arg head "$HEAD" --arg pr "$PRODUCT_PR" '{include:[{name:"current",sha:$current},{name:("product-pr-"+$pr),sha:$head}]}')
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+  test:
+    needs: select
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
+    name: Test ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - name: Checkout CI implementation
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: ci-tools
+          persist-credentials: false
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ matrix.sha }}
+          path: candidate
+          persist-credentials: false
+      - name: Record pending status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ matrix.sha }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$CANDIDATE_SHA" -f state=pending -f context='Polar CI / locked environment' -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" -f description='Exact candidate checkout selected; public/invented checks only'
+      - name: Run shared author and QA command
+        id: ci
+        env:
+          TEST_PATH: ${{ inputs.test_path }}
+        run: |
+          ARGS=()
+          if [[ -n "$TEST_PATH" ]]; then ARGS+=(--test "$TEST_PATH"); fi
+          ci-tools/scripts/ci.sh --source "$GITHUB_WORKSPACE/candidate" --reports "$GITHUB_WORKSPACE/ci-reports" "${ARGS[@]}"
+      - name: Publish exact candidate result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ matrix.sha }}
+          OUTCOME: ${{ steps.ci.outcome }}
+        run: |
+          STATE=failure
+          if [[ "$OUTCOME" == success ]]; then STATE=success; fi
+          if [[ -f ci-reports/result.json ]]; then
+            jq -e --arg sha "$CANDIDATE_SHA" '.candidate_sha == $sha' ci-reports/result.json
+            cat ci-reports/result.json >> "$GITHUB_STEP_SUMMARY"
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$CANDIDATE_SHA" -f state="$STATE" -f context='Polar CI / locked environment' -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" -f description='Shared locked command result; see exact SHA and diagnostics'
+      - name: Retain bounded synthetic diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ci-${{ matrix.name }}-${{ matrix.sha }}
+          path: ci-reports/
+          retention-days: 7
+          if-no-files-found: warn

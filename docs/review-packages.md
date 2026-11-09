@@ -1,6 +1,17 @@
-# Reproducible technical packages
+# Legacy local package compatibility
 
-Use the existing local launcher to prepare the current PR32/PR37 technical tuple:
+The standard author, independent QA and Actions path is [scripts/ci.sh](ci.md).
+Migrated technical checks use its official locked environment and exact Git checkout;
+local package generation, nested assignment/review bindings and post-handoff hash
+matching are no longer prerequisites.
+
+The commands below are retained for recorded PR32/PR37 legacy consumers and
+historical recovery. They must not be added back as an admission step for the
+migrated path. The module still has explicit CLI/test consumers, so it has not been
+deleted blindly. Preserve old packages and failures; retire remaining calls only
+when their actual consumer has moved to the standard path.
+
+For an existing legacy consumer, the local metadata commands are:
 
 ```sh
 node scripts/polar-local.mjs package /absolute/SPEC.json /absolute/new-package
