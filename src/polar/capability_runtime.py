@@ -137,7 +137,7 @@ class ObservedRuntime:
     def __init__(self,config,store,aid,directory,started_ns,host_cpu_origin):
         self.config=config;self.store=store;self.aid=aid;self.directory=directory
         self.started=started_ns;self.cpu_origin=host_cpu_origin
-        self.worker_cpu=0;self.native_ns=0;self.measured_cpu=0
+        self.worker_cpu=0;self.worker_sample_cpu=0;self.native_ns=0;self.measured_cpu=0
         self.active_since=None;self.charged=0;self.receipt=None;self.physical=[]
         self.launched=False;self.last_usage=0;self.resource_finalized=False
         state=self.store.state()
@@ -233,9 +233,7 @@ class ObservedRuntime:
                     require(len(usages)<=10000,'RESOURCE_WALL_LIMIT')
                     if usages:
                         usage=record(usages[-1])
-                        require(type(usage['cpu_us']) is int and usage['cpu_us']>=self.worker_cpu,
-                                'INTERNAL_EXECUTION_ERROR')
-                        self.worker_cpu=usage['cpu_us'];self.native_ns=max(self.native_ns,usage['native_wall_ns'])
+                        self.sample_usage(usage)
                     for index in range(self.charged):
                         done=scenario/f'account-done-{index}.json'
                         if done.exists():
@@ -314,3 +312,17 @@ class ObservedRuntime:
                 'native_wall_ns':self.native_ns,'cleanup_receipt_sha256':sha(cleanup_files[-1].read_bytes())})
             self.wall.timeout()
             self.resource_finalized=True
+
+    def sample_usage(self,usage):
+        """Periodic sequence and final aggregate have distinct monotonic origins.
+
+        The stopped monitor's last immutable sample remains visible after the
+        higher final worker receipt. Re-reading it must not look like a CPU
+        rollback, nor reduce the charged aggregate. Actual periodic rollback
+        still fails closed.
+        """
+        require(type(usage['cpu_us']) is int and usage['cpu_us']>=self.worker_sample_cpu,
+                'INTERNAL_EXECUTION_ERROR')
+        self.worker_sample_cpu=usage['cpu_us']
+        self.worker_cpu=max(self.worker_cpu,usage['cpu_us'])
+        self.native_ns=max(self.native_ns,usage['native_wall_ns'])
