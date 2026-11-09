@@ -266,12 +266,14 @@ def test_mock_projection_loss_is_not_zero_budget(tmp_path):
     with pytest.raises(CapabilityError,match='FAMILY_ROOT_MISMATCH'):store.state()
 
 
-def test_mock_global_fixture_account_limit_cannot_reset_by_case(tmp_path):
-    for index in range(3):
+def test_mock_technical_accounts_exceed_old_pool_with_all_history_preserved(tmp_path):
+    for index in range(7):
         store,cfg=family(tmp_path,'case'+str(index))
         aid=store.reserve(cfg,'ORIGINAL')['payload']['attempt_id']
         store.runtime(aid,{'path':'invented','sha256':'a'*64},cfg['expected_image_id'])
-        for account in ACCOUNTS:
-            if index==2 and account==ACCOUNTS[-1]:
-                with pytest.raises(CapabilityError,match='ACCOUNT_LIMIT'):store.account(aid,account)
-            else:store.account(aid,account)
+        for account in ACCOUNTS:store.account(aid,account)
+    directory=tmp_path/'anchor/qualification'
+    rows=[record(path) for path in sorted(directory.glob('charge-*.json'))]
+    assert sum(row['kind']=='ACCOUNT' for row in rows)==49
+    assert sum(row['kind']=='START' for row in rows)==7
+    assert record(directory/'header.json')['ceilings']['accounts']==20

@@ -121,7 +121,7 @@ class FamilyStore:
         return value
 
     def qualification(self,kind,payload):
-        """One pre-provisioned technical allowance across every fixture/case/root."""
+        """Preserve legacy technical charge history; v0.27 removes its quotas."""
         if not self.technical:
             return
         directory=self.anchor/'qualification'
@@ -153,8 +153,6 @@ class FamilyStore:
             require(committed==local,'FAMILY_ALREADY_FAILED')
         candidate={'sequence':len(rows),'previous':tail,'kind':kind,'payload':payload,'case':self.key}
         all_rows=rows+[candidate]
-        require(sum(r['kind']=='START' for r in all_rows)<=6,'START_LIMIT')
-        require(sum(r['kind']=='ACCOUNT' for r in all_rows)<=20,'ACCOUNT_LIMIT')
         latest={}
         for row in all_rows:
             if row['kind']=='RESOURCE':
@@ -165,10 +163,6 @@ class FamilyStore:
                 latest[key]=p
         immutable(directory/f'charge-{len(rows):06d}.json',candidate)
         _replace(directory/'projection.json',{'count':len(rows)+1,'tail':digest(candidate)})
-        for field,limit,reason in (('cpu_us',600000000,'RESOURCE_CPU_LIMIT'),
-                ('wall_ns',900000000000,'RESOURCE_WALL_LIMIT'),
-                ('native_wall_ns',300000000000,'NATIVE_WALL_LIMIT')):
-            require(sum(p[field] for p in latest.values())<=limit,reason)
 
     def provision(self,config):
         """Explicit separately authorized administrative metadata operation, never prepare."""
@@ -310,9 +304,10 @@ class FamilyStore:
             require((not previous and kind=='ORIGINAL' and replay_of is None) or
                     (len(previous)==1 and kind=='REPLAY' and replay_of==previous[0]['finish']['packet_id']),'REPLAY_NOT_ADMISSIBLE')
             require(state['remaining_known'],'FAMILY_ALREADY_FAILED')
-            require(state['spent']['cpu_us']<600000000,'RESOURCE_CPU_LIMIT')
-            require(state['spent']['wall_ns']<900000000000,'RESOURCE_WALL_LIMIT')
-            require(state['spent']['native_wall_ns']<300000000000,'NATIVE_WALL_LIMIT')
+            if not self.technical:
+                require(state['spent']['cpu_us']<600000000,'RESOURCE_CPU_LIMIT')
+                require(state['spent']['wall_ns']<900000000000,'RESOURCE_WALL_LIMIT')
+                require(state['spent']['native_wall_ns']<300000000000,'NATIVE_WALL_LIMIT')
             aid=str(uuid.uuid4())
             payload={'attempt_id':aid,'kind':kind,'ordinal':len(previous),'replay_of':replay_of}
             self.qualification('START',payload)
@@ -342,9 +337,10 @@ class FamilyStore:
             total_cpu=state['spent']['cpu_us']-previous['cpu_us']+cpu_us
             total_wall=state['spent']['wall_ns']-previous['wall_ns']+wall_ns
             total_native=state['spent']['native_wall_ns']-previous['native_wall_ns']+native_wall_ns
-            require(total_cpu<=600000000,'RESOURCE_CPU_LIMIT')
-            require(total_wall<=900000000000,'RESOURCE_WALL_LIMIT')
-            require(total_native<=300000000000,'NATIVE_WALL_LIMIT')
+            if not self.technical:
+                require(total_cpu<=600000000,'RESOURCE_CPU_LIMIT')
+                require(total_wall<=900000000000,'RESOURCE_WALL_LIMIT')
+                require(total_native<=300000000000,'NATIVE_WALL_LIMIT')
             return result
 
     def runtime(self,aid,receipt_ref,observed_image):
@@ -361,10 +357,11 @@ class FamilyStore:
                     (reason is None if state=='SUCCESS' else reason in REASONS),'FAMILY_ROOT_MISMATCH')
             require(a['start']['attempt_id']==aid and a['finish'] is None,'FAMILY_ALREADY_FAILED')
             if state=='SUCCESS':
-                require(data['spent']['cpu_us']<=600000000,'RESOURCE_CPU_LIMIT')
-                require(data['spent']['wall_ns']<=900000000000,'RESOURCE_WALL_LIMIT')
-                require(data['spent']['native_wall_ns']<=300000000000,'NATIVE_WALL_LIMIT')
-                require((a['resource'] or {}).get('native_wall_ns',300000000001)<=300000000000,'NATIVE_WALL_LIMIT')
+                if not self.technical:
+                    require(data['spent']['cpu_us']<=600000000,'RESOURCE_CPU_LIMIT')
+                    require(data['spent']['wall_ns']<=900000000000,'RESOURCE_WALL_LIMIT')
+                    require(data['spent']['native_wall_ns']<=300000000000,'NATIVE_WALL_LIMIT')
+                    require((a['resource'] or {}).get('native_wall_ns',300000000001)<=300000000000,'NATIVE_WALL_LIMIT')
                 require(type(packet_id) is str and re.fullmatch(r'[0-9a-f]{64}',packet_id),'SEMANTIC_INTEGRITY')
                 require(resource_evidence=='VERIFIED' and completed_accounts==7 and len(a['accounts'])==7
                         and a['runtime'] is not None and a['resource'] is not None,'FAMILY_ALREADY_FAILED')

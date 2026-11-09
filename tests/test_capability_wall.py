@@ -84,6 +84,7 @@ def test_unreaped_preprocess_marks_resource_evidence_incomplete(monkeypatch,tmp_
     monkeypatch.setattr('polar.capability_service.subprocess.Popen',lambda *args,**kwargs:process)
     monkeypatch.setattr('polar.capability_runtime.os.killpg',lambda *args:None)
     class Family:
+        technical=False
         def state(self):return {'spent':{'cpu_us':0,'wall_ns':850000000000}}
         def resources(self,*args):pass
     service=CapabilityService.__new__(CapabilityService)
@@ -91,3 +92,12 @@ def test_unreaped_preprocess_marks_resource_evidence_incomplete(monkeypatch,tmp_
         service._preprocess({},Family(),'invented-attempt',tmp_path,started,0)
     assert process.waits==[1.0]
     assert clock()==started+16000000000
+
+
+def test_technical_operation_timeout_does_not_subtract_historical_share():
+    clock=Clock();wall=_WallBudget(clock(),5000000000000,clock,technical=True)
+    assert wall.remaining_ns()==900000000000
+    assert wall.scenario_ms()==300000
+    clock.advance(864)
+    with pytest.raises(CapabilityError,match='RESOURCE_WALL_LIMIT'):wall.work_timeout()
+    assert wall.remaining_ns()==CLEANUP_RESERVE_NS

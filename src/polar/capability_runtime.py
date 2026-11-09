@@ -29,7 +29,7 @@ def host_cpu_us():
 
 
 
-# These intervals are RESERVED inside the existing cumulative 900-second ceiling.
+# Cleanup reserves stay inside retained cumulative or technical per-operation timeouts.
 FINAL_ACCOUNTING_NS=2000000000
 OWNED_REAP_NS=2000000000
 CLEANUP_COMMAND_NS=30000000000
@@ -37,11 +37,11 @@ CLEANUP_RESERVE_NS=2*OWNED_REAP_NS+CLEANUP_COMMAND_NS+FINAL_ACCOUNTING_NS
 
 
 class _WallBudget:
-    def __init__(self,started_ns,prior_wall_ns,clock=None):
+    def __init__(self,started_ns,prior_wall_ns,clock=None,*,technical=False):
         require(type(started_ns) is int and type(prior_wall_ns) is int
-                and 0<=prior_wall_ns<900000000000,'RESOURCE_WALL_LIMIT')
+                and prior_wall_ns>=0 and (technical or prior_wall_ns<900000000000),'RESOURCE_WALL_LIMIT')
         self.clock=clock or time.monotonic_ns
-        self.deadline=started_ns+900000000000-prior_wall_ns
+        self.deadline=started_ns+900000000000-(0 if technical else prior_wall_ns)
 
     def remaining_ns(self,reserve_ns=0):
         return self.deadline-self.clock()-reserve_ns
@@ -146,7 +146,7 @@ class ObservedRuntime:
         self.host_capacity=os.cpu_count()
         require(type(self.host_capacity) is int and 1<=self.host_capacity<=1024,'OBSERVATION_MISSING')
         self.engine=None;self.guest_origin=None;self.charge_cpu=current['cpu_us']
-        self.wall=_WallBudget(self.started,self.prior['wall_ns'])
+        self.wall=_WallBudget(self.started,self.prior['wall_ns'],technical=store.technical)
 
     def usage(self,force=False):
         now=time.monotonic_ns()
@@ -269,9 +269,10 @@ class ObservedRuntime:
                 # It may stop early; it never treats a missing observation as free CPU.
                 wall=time.monotonic_ns()-self.started
                 upper=(wall*self.host_capacity+elapsed*self.engine['logical_cpus']+999)//1000
-                require(self.prior['cpu_us']+upper<=600000000,'RESOURCE_CPU_LIMIT')
+                if not self.store.technical:
+                    require(self.prior['cpu_us']+upper<=600000000,'RESOURCE_CPU_LIMIT')
                 self.wall.work_timeout()
-                if self.active_since is not None:
+                if self.active_since is not None and not self.store.technical:
                     require(self.native_ns+time.monotonic_ns()-self.active_since<=300000000000,
                             'NATIVE_WALL_LIMIT')
                 if process.poll() is not None:break

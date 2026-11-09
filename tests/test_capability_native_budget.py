@@ -13,6 +13,7 @@ IMAGE='sha256:'+'b'*64
 
 
 class MemoryFamily(FamilyStore):
+    technical=False
     """Only journal arithmetic is real; all IO/global qualification is inert."""
     def __init__(self):self.rows=[];self.charges=[]
     def records(self):return self.rows,'invented-tail'
@@ -95,3 +96,25 @@ def test_no_resource_for_new_attempt_does_not_reset_prior_spent():
     family=MemoryFamily();start(family,A,0);resource(family,A,200000000000);finish(family,A)
     start(family,B,1)
     assert family.state()['spent']['native_wall_ns']==200000000000
+
+
+def test_technical_history_over_old_pools_remains_spent_without_admission_gate():
+    family=MemoryFamily();family.technical=True
+    start(family,A,0)
+    family.resources(A,700000000,1000000000000,400000000000)
+    family.finish(A,'SUCCESS',None,PACKET,7,{})
+    assert family.state()['spent']=={'cpu_us':700000000,'wall_ns':1000000000000,'native_wall_ns':400000000000}
+    replay=family.reserve({},'REPLAY',PACKET)
+    assert replay['payload']['ordinal']==1
+    assert family.state()['spent']['cpu_us']==700000000
+    with pytest.raises(CapabilityError,match='START_LIMIT'):
+        family.reserve({},'ORIGINAL')
+
+
+def test_technical_resource_monotonicity_and_success_integrity_are_not_waived():
+    family=MemoryFamily();family.technical=True;start(family,A,0)
+    family.resources(A,700000000,1000000000000,400000000000)
+    with pytest.raises(CapabilityError,match='INTERNAL_EXECUTION_ERROR'):
+        family.resources(A,699999999,1000000000000,400000000000)
+    with pytest.raises(CapabilityError,match='FAMILY_ALREADY_FAILED'):
+        family.finish(A,'SUCCESS',None,PACKET,7,{},resource_evidence='INCOMPLETE')

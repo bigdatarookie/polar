@@ -171,3 +171,32 @@ read/execution, real family registration, provider or financial run occurred.
 Full schema meta-validation and full native original/replay qualification remain
 NOT RUN until their actual independent evidence. The local validator implements
 the exact hash-pinned schema's keywords; it is not a general JSON Schema engine.
+
+## Current v0.27 technical execution authority
+
+TECHNICAL_FIXTURE assignments retain their exact invented-input hashes, review
+references, registered roots/configuration, irreversible original/replay lifecycle,
+seven-account packet order and immutable resource/charge history. The historical
+qualification header and allocation counters remain intact, but their global
+starts/accounts/CPU/wall/native pools no longer admit or reject technical checks.
+A failed or unfinished family still cannot retry or overwrite its original; this
+is record integrity, not a global fixture allowance. Retained-input family limits
+and separate scientific authorization are unchanged.
+
+Technical supervision keeps the existing 900-second individual operation hang
+timeout, including reserved bounded owned cleanup. Historical technical wall usage
+is recorded without subtracting it from a later operation's timeout. The launcher
+keeps its individual <=300-second scenario timeout. Cumulative technical CPU and
+native-interval usage are still recorded monotonically but do not impose a share
+quota. Queue/review wait does not start either operation clock. Missing cleanup,
+image/source mismatch, corrupted history or incomplete resource evidence still
+prevents success; no unknown history is reset to zero.
+
+The external QA qa_guard_v41 / guard-binding-v41 execution-share gate is obsolete
+for technical admission. Its original source/results remain historical. The
+corresponding system-runner-v41 caller contains Gate.begin/finish phase handshakes
+and frozen capacity/share assumptions; it cannot simply be launched unchanged.
+QA owns removing those obsolete handshakes and rebinding the exact corrected
+candidate/image/config/fixture, preserving numerical comparison and cleanup
+criteria, with nonauthor review of a materially changed native harness before
+invocation. This source correction does not grant any native or retained run.

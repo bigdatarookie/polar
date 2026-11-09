@@ -126,7 +126,7 @@ class CapabilityService:
     def _preprocess(self,cfg,family,aid,directory,started,cpu_origin):
         immutable(directory/'sealed-config.json',cfg)
         prior=family.state()['spent']
-        wall_budget=_WallBudget(started,prior['wall_ns'])
+        wall_budget=_WallBudget(started,prior['wall_ns'],technical=family.technical)
         wall_budget.work_timeout()
         process=subprocess.Popen([sys.executable,'-m','polar.capability_worker','--prepare',
             str(directory/'sealed-config.json'),str(directory)],
@@ -138,7 +138,8 @@ class CapabilityService:
                 wall=time.monotonic_ns()-started
                 # Host child is unreaped: logical-CPU capacity is a conservative CPU guard.
                 upper=(wall*(os.cpu_count() or 1)+999)//1000
-                require(prior['cpu_us']+upper<=600000000,'RESOURCE_CPU_LIMIT')
+                if not family.technical:
+                    require(prior['cpu_us']+upper<=600000000,'RESOURCE_CPU_LIMIT')
                 wall_budget.work_timeout()
                 if wall-last>=1000000000:
                     family.resources(aid,max(host_cpu_us()-cpu_origin,upper),wall,0);last=wall
