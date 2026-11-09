@@ -160,13 +160,14 @@ def run_control():
     finally:engine.dispose()
 
 
-def retain_failure(output_root,receipt_sha,exc):
+def retain_failure(output_root,receipt_sha,stage,exc):
     """Bounded invented-control diagnostics; no locals, environment or input dump."""
     text=''.join(traceback.format_exception(type(exc),exc,exc.__traceback__,limit=32))
     encoded=text.encode('utf-8',errors='replace');limit=16384
     value={'schema':'polar.obs158-native-cent-failure/1','status':'FAIL',
            'scope':'INVENTED_NATIVE_CENT_CONTROL_ONLY',
            'pre_scenario_receipt_sha256':receipt_sha,
+           'entrypoint_stage':stage,
            'exception_type':type(exc).__name__[:256],
            'traceback':encoded[:limit].decode('utf-8',errors='replace'),
            'traceback_truncated':len(encoded)>limit,
@@ -181,13 +182,16 @@ def retain_failure(output_root,receipt_sha,exc):
 if __name__=='__main__':
     # Qualified launcher command: harness INPUT EXPECTATIONS CONFIG /polar-output.
     if len(sys.argv)!=5:raise SystemExit('BOUND_LAUNCH_REQUIRED')
-    receipt_sha=verify_before_import(*sys.argv[1:])
-    output=Path(sys.argv[4])/'result.json'
+    receipt_sha=None;stage='PREIMPORT_VERIFICATION'
     try:
+        receipt_sha=verify_before_import(*sys.argv[1:])
+        stage='NATIVE_CONTROL'
         value=run_control()
+        stage='RESULT_PUBLICATION'
+        value['pre_scenario_receipt_sha256']=receipt_sha
+        output=Path(sys.argv[4])/'result.json'
+        with output.open('x') as stream:stream.write(json.dumps(value,sort_keys=True,allow_nan=False)+'\n')
     except BaseException as exc:
-        try:retain_failure(sys.argv[4],receipt_sha,exc)
+        try:retain_failure(sys.argv[4],receipt_sha,stage,exc)
         except Exception:pass  # Diagnostic IO failure never replaces the original failure.
         raise
-    value['pre_scenario_receipt_sha256']=receipt_sha
-    with output.open('x') as stream:stream.write(json.dumps(value,sort_keys=True,allow_nan=False)+'\n')
