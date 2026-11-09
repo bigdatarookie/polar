@@ -38,7 +38,8 @@ def simulate_obs158(converted,aliases):
     from nautilus_trader.accounting.factory import AccountFactory
     from nautilus_trader.backtest.engine import BacktestEngine
     from nautilus_trader.backtest.models import FixedFeeModel,FillModel,LatencyModel
-    from nautilus_trader.config import BacktestEngineConfig,LoggingConfig,PortfolioConfig,StrategyConfig
+    from nautilus_trader.config import (BacktestEngineConfig,LoggingConfig,PortfolioConfig,
+                                       StrategyConfig,RiskEngineConfig)
     from nautilus_trader.trading.strategy import Strategy
     from nautilus_trader.core.data import Data
     from nautilus_trader.model.data import QuoteTick,MarkPriceUpdate,CustomData,DataType,Bar
@@ -84,7 +85,11 @@ def simulate_obs158(converted,aliases):
         venue=Venue('OBS158'+uuid.uuid4().hex.upper())
         ids={a:InstrumentId(Symbol(f'OBS158-{i:03d}'),venue) for i,a in enumerate(aliases)}
         reverse={v:k for k,v in ids.items()}
+        # One positive-side order per alias in a frozen nanosecond opening burst.
+        # Keep all other risk checks; this finite envelope is simulator-local.
         engine=BacktestEngine(BacktestEngineConfig(logging=LoggingConfig(bypass_logging=True),
+                 risk_engine=RiskEngineConfig(bypass=False,
+                     max_order_submit_rate=f'{len(aliases)}/00:00:01'),
                  portfolio=PortfolioConfig(use_mark_prices=True,bar_updates=False),run_analysis=False))
 
         class Adapter(Strategy):
