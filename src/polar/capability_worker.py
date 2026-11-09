@@ -6,6 +6,7 @@ import resource
 import sys
 import threading
 import time
+import traceback
 
 from .capability_contract import ACCOUNTS, require, canonical, decode, digest, sha, MAX_BYTES, CapabilityError
 from .capability_store import immutable, record
@@ -86,12 +87,26 @@ def main():
     if len(sys.argv)==4 and sys.argv[1]=='--prepare':
         from .capability_inputs import AdmittedInputs
         from .capability_profile import targets
-        config=record(sys.argv[2]);out=Path(sys.argv[3])
-        admitted=AdmittedInputs(config).load()
-        result={'schema':'polar.capability-prepared-native/1',
-            'targets':targets(admitted['score_rows']),'scores_payload':admitted['scores_payload'],
-            'observations':admitted['observations'],'lineage_refs':admitted['lineage_refs']}
-        immutable(out/'prepared-native.json',result)
-        return 0
+        out=Path(sys.argv[3])
+        try:
+            config=record(sys.argv[2])
+            admitted=AdmittedInputs(config).load()
+            result={'schema':'polar.capability-prepared-native/1',
+                'targets':targets(admitted['score_rows']),'scores_payload':admitted['scores_payload'],
+                'observations':admitted['observations'],'lineage_refs':admitted['lineage_refs']}
+            immutable(out/'prepared-native.json',result)
+            return 0
+        except BaseException as exc:
+            trace=''.join(traceback.format_exception(type(exc),exc,exc.__traceback__,limit=32))
+            trace=trace.encode('utf-8',errors='replace')[:16384].decode('utf-8',errors='ignore')
+            immutable(out/'preparation-failure.json',{
+                'schema':'polar.capability-preparation-failure/1',
+                'error_type':type(exc).__name__,'traceback':trace})
+            if isinstance(exc,(KeyboardInterrupt,SystemExit)):raise
+            return 1
     require(len(sys.argv)==5,'BINDING_MISMATCH')
     return worker(*sys.argv[1:])
+
+
+if __name__=='__main__':
+    raise SystemExit(main())
