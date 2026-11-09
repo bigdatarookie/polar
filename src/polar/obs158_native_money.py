@@ -43,7 +43,9 @@ def native_types():
     class CentEquity(Equity):
         def notional_value(self,quantity,price,use_quote_for_inverse=False,
                            target_currency=None,conversion_price=None):
-            require(not use_quote_for_inverse and conversion_price is None
+            # Nautilus risk checks pass True even for standard equities. The
+            # flag selects a currency only for inverse instruments (1.231.0).
+            require(not self.is_inverse and conversion_price is None
                     and target_currency in (None,USD) and self.quote_currency==USD,
                     'UNSUPPORTED_NATIVE_NOTIONAL_PROFILE')
             return notional(quantity,price)
