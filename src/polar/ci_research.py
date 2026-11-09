@@ -14,6 +14,7 @@ from .obs158_math import microprice, cent_round_micro
 
 PROFILES = {
     "HYP001-CI3-12M1M-v1": {
+        "registration_id": "CI8H-A-MOM3-2017-2019-V1-EXPERIMENT-01",
         "kind": "A_MOMENTUM", "protocol_sha256": "08774eddd65d8280925e1690b5f3e5fc980d0c1fb2ef45fb89d391a013cb6608",
         "input_sha256": "11754099ccfaeb29df4e4ab2e2518c54a229da79d69bcd2f3610acf0ff5c3f1f",
         "symbols": ["AAPL", "AMZN", "TSLA"], "input_start": "2016-01-04",
@@ -22,6 +23,7 @@ PROFILES = {
         "legs": ["MOM12_1_TOP1_MONTHLY", "EW3_INITIAL_BUYHOLD"],
     },
     "HYP010-CI-AMZN-TOM-v1": {
+        "registration_id": "HYP010-CI-AMZN-TOM-v1",
         "kind": "B_TOM", "protocol_sha256": "adc674064d6b5bd93c14f41fb85224644d703a96903e25d0c9f16335b592957b",
         "input_sha256": "262b0b7a45dece5d0b05a7af05d30a11a6a62b5011389703b51ffd86026dbd26",
         "symbols": ["AMZN"], "input_start": "2019-01-31", "initial": "2019-01-30",

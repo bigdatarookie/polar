@@ -20,6 +20,21 @@ def test_fee_and_half_even_affordability_boundaries():
     assert maximum_buy(100, 10000000000, 10000000) == 9
 
 
+def test_reservation_experiment_registration_is_not_always_profile_id():
+    from polar.ci_research_service import validate_reservation
+    for profile, registration in [
+        ("HYP001-CI3-12M1M-v1", "CI8H-A-MOM3-2017-2019-V1-EXPERIMENT-01"),
+        ("HYP010-CI-AMZN-TOM-v1", "HYP010-CI-AMZN-TOM-v1"),
+    ]:
+        card = {"schema": "polar.native-hypothesis-reservation/1", "state": "RESERVED",
+                "candidate_id": "invented-card", "experiment_registration_id": registration}
+        cfg = {"profile_id": profile, "candidate_id": "invented-card"}
+        validate_reservation(card, cfg)
+        card["experiment_registration_id"] = "wrong-registration"
+        with pytest.raises(ResearchRunError, match="CANDIDATE_RESERVATION_PIN"):
+            validate_reservation(card, cfg)
+
+
 def test_modeled_new_york_dst_is_not_fixed_utc_open():
     tz = ZoneInfo("America/New_York")
     assert utc_text(instant("2019-03-08", 9, 30, tz)) == "2019-03-08T14:30:00Z"

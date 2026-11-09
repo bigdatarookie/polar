@@ -48,6 +48,13 @@ def root_identity(root):
     return {"path": str(path), "device": str(st.st_dev), "inode": str(st.st_ino)}
 
 
+def validate_reservation(candidate, config):
+    require(candidate.get("schema") == "polar.native-hypothesis-reservation/1" and
+            candidate.get("state") == "RESERVED" and candidate.get("candidate_id") == config["candidate_id"] and
+            candidate.get("experiment_registration_id") == PROFILES[config["profile_id"]]["registration_id"],
+            "CANDIDATE_RESERVATION_PIN")
+
+
 def operation_binding(config, pins):
     return {"config_sha256": sha(canonical({k:v for k,v in config.items() if k != "execution_authority_ref"})),
             "pins": pins, "runtime_image_id": config["runtime_image_id"], "code_revision": config["code_revision"]}
@@ -234,9 +241,7 @@ class ResearchService:
             kind = PROFILES[config["profile_id"]]["kind"]
             require(authority["method_ref"]["sha256"] == METHODS[kind], "METHOD_REVIEW_PIN")
             candidate = metadata_decode(read_ref(authority["candidate_ref"]), source=True)
-            require(candidate.get("schema") == "polar.native-hypothesis-reservation/1" and
-                    candidate.get("state") == "RESERVED" and candidate.get("candidate_id") == config["candidate_id"] and
-                    candidate.get("experiment_registration_id") == config["profile_id"], "CANDIDATE_RESERVATION_PIN")
+            validate_reservation(candidate, config)
             # CI durations are nonfinancial metadata, never binary-float inputs
             # to the evaluator. Preserve their lexical tokens while checking
             # the exact SHA/candidate/PASS/selected-test association.
