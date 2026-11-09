@@ -53,7 +53,10 @@ for attempt in $(seq 1 60); do
 done
 [[ "$READY" == 1 ]] || { docker logs "$DB_ID" >"$REPORT_DIR/postgres.log" 2>&1; exit 1; }
 docker exec "$DB_ID" psql -U polar -d polar_test_ci -c 'CREATE DATABASE polar_test_dataset_ci' >"$REPORT_DIR/database-setup.log" 2>&1
-TEST_ID=$(docker create --network "$NETWORK_ID" --label polar.resource.project=polar --label "polar.resource.task=$RUN_ID" \
+GIT_MOUNTS=()
+GIT_COMMON=$(git -C "$SOURCE_ROOT" rev-parse --path-format=absolute --git-common-dir)
+case "$GIT_COMMON" in "$SOURCE_ROOT"/*) ;; *) GIT_MOUNTS+=(--mount "type=bind,src=$GIT_COMMON,dst=$GIT_COMMON,readonly") ;; esac
+TEST_ID=$(docker create --network "$NETWORK_ID" "${GIT_MOUNTS[@]}" --label polar.resource.project=polar --label "polar.resource.task=$RUN_ID" \
   --mount "type=bind,src=$SOURCE_ROOT,dst=/workspace,readonly" --mount "type=bind,src=$REPORT_DIR,dst=/reports" \
   -e POLAR_TEST_DATABASE_URL=postgresql://polar:polar_ci@ci-db:5432/polar_test_ci \
   -e POLAR_DATASET_TEST_DATABASE_URL=postgresql://polar:polar_ci@ci-db:5432/polar_test_dataset_ci \

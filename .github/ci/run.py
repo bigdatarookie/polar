@@ -6,7 +6,7 @@ for x in a.test:
         p.error('--test must be a repository tests/ path or node ID')
 reports=pathlib.Path('/reports');reports.mkdir(exist_ok=True);start=time.monotonic();steps=[];limit=4*1024*1024
 os.environ.update(PYTHONPATH='/workspace/src',POLAR_GYM_NATIVE_TEST='1')
-subprocess.run(['git','config','--global','--add','safe.directory','/workspace'],check=True)
+subprocess.run(['git','-C','/tmp','config','--global','--add','safe.directory','/workspace'],check=True)
 sha=subprocess.check_output(['git','-C','/workspace','rev-parse','HEAD'],text=True).strip()
 versions={n:importlib.metadata.version(n) for n in ['nautilus-trader','numpy','scipy','lightgbm','pyarrow','pytest']}
 def run(name,argv,timeout=1200):
