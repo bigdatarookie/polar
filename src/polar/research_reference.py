@@ -141,7 +141,8 @@ def load_reference(manifest_pin):
             'dataset_revision': manifest['parent_dataset_revision'], 'symbols': list(symbols), 'dates': days,
             'schedule': rows, 'prices_micro': prices, 'source_evidence': evidence,
             'quote_basis': expected_basis, 'unit_type': UNIT, 'eligibility': 'NOT_DERIVED',
-            'rights': manifest['rights'], 'action_credit': 'NONE', 'source_relations': relations}
+            'rights': manifest['rights'], 'action_credit': 'NONE', 'source_relations': relations,
+            'source_relations_ref': manifest.get('source_relations')}
 
 
 def trailing_return(market, symbol, end_index, lag):

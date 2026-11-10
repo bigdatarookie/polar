@@ -7,7 +7,8 @@ import hashlib
 import json
 from pathlib import Path
 from reference_fixture import fixture as base_fixture, write
-from polar.gym_contract import canonical, sha
+from polar.gym_contract import sha
+from polar.history_bundle import canonical
 from polar.reference_c import INVENTED_C
 from polar.reference_service import config_from_seed
 

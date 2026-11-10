@@ -119,4 +119,4 @@ def coverage(market, *, retained):
                     r['economic_mapping_status'] == 'NOT_ADMITTED_SOURCE_ALIAS_ONLY' for r in result),
                 'REFERENCE_C_COVERAGE_COUNTS')
     return {'schema': 'polar.reference-C-coverage/1', 'rows': result,
-            'source_relations_sha256': sha(canonical(relations)), 'economic_security_N50': 'NOT_ESTABLISHED'}
+            'source_relations_sha256': market['source_relations_ref']['sha256'], 'economic_security_N50': 'NOT_ESTABLISHED'}
