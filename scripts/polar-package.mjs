@@ -45,6 +45,13 @@ function repositoryCode(code){
     repositoryPath(name);check(/^[a-f0-9]{64}$/.test(digest),'PACKAGE_REPOSITORY_HASH');
   }return code;
 }
+function candidateSourceProjection(ref){
+  const projection=parsed(ref);
+  check(projection&&typeof projection==='object'&&!Array.isArray(projection)
+    &&Object.keys(projection).sort().join('|')==='files|schema'
+    &&projection.schema==='polar.capability-source-projection/1','PACKAGE_PR32_SOURCE_PROJECTION_SCHEMA');
+  return repositoryCode(projection.files);
+}
 function exportMapped(repo,candidate,full,dest,code=null){
   const git=(args,max=64*1024**2)=>cp.execFileSync('git',['-C',repo,...args],{timeout:15000,maxBuffer:max});
   check(git(['rev-parse',candidate.commit+'^{tree}']).toString().trim()===candidate.tree,'PACKAGE_GIT_TREE');
@@ -70,6 +77,12 @@ function exportMapped(repo,candidate,full,dest,code=null){
 function checkRepositoryProjection(p,root){
   const build=parsed(p.build_ref),code=repositoryCode(build.code_projection),projection=p.repository_projection;
   check(projection&&equal(Object.keys(projection).sort(),Object.keys(code).sort()),'PACKAGE_REPOSITORY_PROJECTION');
+  const config=parsed(p.config),candidateRef=config.code?.source_projection;
+  check(equal(candidateSourceProjection(candidateRef),code),'PACKAGE_CODE_PROJECTION');
+  const assignment=parsed(p.assignment),binding=parsed(p.binding),runner=JSON.parse(read(path.join(root,'RUNNER-BINDING.json')));
+  for(const ref of [assignment.bindings?.code?.source_projection,binding.source_projection,runner.source_projection]){
+    check(ref?.path===candidateRef.path&&ref.sha256===candidateRef.sha256,'PACKAGE_PR32_SOURCE_PROJECTION_REF');
+  }
   check(p.repository_root===path.join(root,'source-export'),'PACKAGE_REPOSITORY_ROOT');
   safe(p.repository_root);check(fs.realpathSync(p.repository_root)===p.repository_root,'PACKAGE_REPOSITORY_ROOT');
   check(p.source_root===path.join(p.repository_root,'src/polar'),'PACKAGE_REPOSITORY_ROOT');
@@ -96,6 +109,7 @@ export function preparePackage(specFile,out){
   try{
     if(s.protocol==='pr32'){
       if(!equal(full,build.source_files))throw Object.assign(new Error('PACKAGE_PR32_BUILD_FULL_MAP_MISMATCH'),{sourceDiagnostic:{comparison:'declared_full_package_vs_build_source_files',expected:full,observed:build.source_files,diff:mapDiff(full,build.source_files)}});
+      candidateSourceProjection(s.code_projection_ref);
       check(code&&equal(code,build.code_projection)&&build.code_projection_count===Object.keys(code).length&&build.source_projection_count===Object.keys(full).length,'PACKAGE_CODE_PROJECTION');
     }
     const exportRoot=path.join(stage,'source-export');fs.mkdirSync(exportRoot,{mode:0o700});const repositoryProjection=exportMapped(s.repo,candidate,full,exportRoot,s.protocol==='pr32'?code:null);const actual=inventory(path.join(exportRoot,'src/polar'));write('SOURCE-NAMESPACES.json',{schema:'polar.source-namespaces/1',full_package:full,eligible_code:eligible,code_projection:code,repository_projection:s.protocol==='pr32'?repositoryProjection:null,full_count:Object.keys(full).length,eligible_count:Object.keys(eligible).length,projection_count:code?Object.keys(code).length:null,rule:'Full package integrity and executable projection are distinct; no extra-file exclusions',origin:'Exact Git objects + pinned build map, not prior writable export'});check(equal(actual,full),'PACKAGE_SOURCE_MISMATCH');
