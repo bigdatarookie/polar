@@ -80,14 +80,15 @@ function createLatestLoader(fetcher) {
 }
 function indicatorDefaults(){return {sma:{period:20},ema:{period:20},bollinger:{period:20,deviation:'2'},rsi:{period:14}};}
 function restoredControls(saved, count) {
-  const clean = {granularity: '1D', rangeId: 'All', mode: 'Orders', theme: 'auto', sma: false, markers: true,
+  const clean = {granularity: '1D', rangeId: 'All', mode: 'Orders', theme: 'auto', sma: false, markers: true, volume:true, diagnostics:{},
     ema:false,bollinger:false,rsi:false,benchmark:false,referenceFamily:'RAW_PRICE_RELATIVE',indicators:indicatorDefaults(),sortBy: 'createdAt', sortDir: 'desc', cursorSource: 'assetClose', lo: 0, hi: Math.max(0, count - 1)};
   if (!saved || typeof saved !== 'object') return clean;
   if (GRANULARITIES.includes(saved.granularity)) clean.granularity = saved.granularity;
   if (['1W','1M','3M','6M','12M','All','Custom'].includes(saved.rangeId)) clean.rangeId = saved.rangeId;
   if (['Orders','Overlays','Settings'].includes(saved.mode)) clean.mode = saved.mode;
   if (['auto','light','dark'].includes(saved.theme)) clean.theme = saved.theme;
-  for (const key of ['sma','ema','bollinger','rsi','benchmark','markers']) if (typeof saved[key] === 'boolean') clean[key] = saved[key];
+  for (const key of ['sma','ema','bollinger','rsi','benchmark','markers','volume']) if (typeof saved[key] === 'boolean') clean[key] = saved[key];
+  for(const key of ['raw','sma','ema','bollinger','rsi','reference','source'])if(typeof saved.diagnostics?.[key]==='boolean')clean.diagnostics[key]=saved.diagnostics[key];
   for(const key of ['sma','ema','bollinger','rsi']){const period=saved.indicators?.[key]?.period;if(Number.isInteger(period)&&period>=2&&period<=500)clean.indicators[key].period=period;}
   const k=saved.indicators?.bollinger?.deviation;if(typeof k==='string'&&k.length<=40&&/^\d+(?:\.\d+)?$/.test(k)&&Number(k)>0&&Number(k)<=10)clean.indicators.bollinger.deviation=k;
   if(['RAW_PRICE_RELATIVE','PROVIDER_ADJUSTED_CLOSE_INDEX'].includes(saved.referenceFamily))clean.referenceFamily=saved.referenceFamily;
