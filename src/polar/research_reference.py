@@ -67,19 +67,8 @@ def _instant(value):
     return dt
 
 
-def load_reference(manifest_pin):
-    """Read full declared grid without eligibility, returns, fits or source reconstruction."""
-    manifest = decode(pinned_bytes(manifest_pin))
-    require(type(manifest) is dict and manifest.get('schema') == 'polar.synthetic-reference-source-input/1',
-            'REFERENCE_MANIFEST_SCHEMA')
-    require(manifest.get('quote_basis') == BASIS and manifest.get('unit_type') == UNIT and
-            manifest.get('double_action_policy') == 'NO_ADDITIONAL_SPLIT_DIVIDEND_CREDIT_IN_REFERENCE_UNIT_MODEL',
-            'REFERENCE_BASIS')
-    symbols = manifest['symbols']
-    require(type(symbols) is list and 1 <= len(symbols) <= 256 and len(set(symbols)) == len(symbols)
-            and all(type(s) is str and re.fullmatch('[A-Z][A-Z0-9.]{0,31}', s) for s in symbols),
-            'REFERENCE_SYMBOLS')
-    schedule = decode(pinned_bytes(manifest['schedule']))
+def reference_schedule(schedule):
+    """Shared structural calendar validation, usable before immutable publication."""
     require(schedule.get('schema') == 'polar.xnys-reference-schedule/1', 'REFERENCE_SCHEDULE_SCHEMA')
     rows = schedule['rows']
     require(type(rows) is list and 1 <= len(rows) <= 10000, 'REFERENCE_SCHEDULE_BOUND')
@@ -91,10 +80,33 @@ def load_reference(manifest_pin):
                 _instant(row['reference_close_utc']).date().isoformat() == days[i], 'REFERENCE_SESSION_CLOCK')
         require(row['next_reference_date'] == (days[i+1] if i+1 < len(days) else None),
                 'REFERENCE_NEXT_SESSION')
+    return rows, days
+
+
+def load_reference(manifest_pin):
+    """Read full declared grid without eligibility, returns, fits or source reconstruction."""
+    manifest = decode(pinned_bytes(manifest_pin))
+    require(type(manifest) is dict and manifest.get('schema') in
+            ('polar.synthetic-reference-source-input/1', 'polar.synthetic-reference-source-input/2'),
+            'REFERENCE_MANIFEST_SCHEMA')
+    version2 = manifest['schema'].endswith('/2')
+    expected_basis = 'VENDOR_ALL_ADJUSTED_REFERENCE_CLOSE' if version2 else BASIS
+    require(manifest.get('quote_basis') == expected_basis and manifest.get('unit_type') == UNIT and
+            manifest.get('double_action_policy') == 'NO_ADDITIONAL_SPLIT_DIVIDEND_CREDIT_IN_REFERENCE_UNIT_MODEL',
+            'REFERENCE_BASIS')
+    symbols = manifest['symbols']
+    require(type(symbols) is list and 1 <= len(symbols) <= 256 and len(set(symbols)) == len(symbols)
+            and all(type(s) is str and re.fullmatch('[A-Z][A-Z0-9.]{0,31}', s) for s in symbols),
+            'REFERENCE_SYMBOLS')
+    schedule = decode(pinned_bytes(manifest['schedule']))
+    rows, days = reference_schedule(schedule)
     require(manifest['dates'] == {'count': len(days), 'start': days[0], 'end': days[-1]} and
             type(manifest['rows']) is int and manifest['rows'] == len(days)*len(symbols), 'REFERENCE_DECLARED_GRID')
     members = {p['sha256'] for p in manifest['source_members']}
     require(members and all(type(h) is str and SHA.fullmatch(h) for h in members), 'REFERENCE_SOURCE_MEMBERS')
+    relations = decode(pinned_bytes(manifest['source_relations'])) if version2 else None
+    if version2:
+        require(relations.get('schema') == 'polar.reference-source-relations/1', 'REFERENCE_RELATIONS_SCHEMA')
     raw = pinned_bytes(manifest['quotes'])
     lines = raw.splitlines(keepends=True)
     require(len(lines) == manifest['rows'], 'REFERENCE_ROW_COUNT')
@@ -108,9 +120,13 @@ def load_reference(manifest_pin):
         quote = microprice(value['reference_quote'])
         require(quote == microprice(value['source_adjusted_close_token']), 'REFERENCE_SCALE_CHANGED')
         source = value['source_ref']
-        require(type(source) is dict and set(source) == {'normalized_member_sha256', 'line_1based',
+        if version2:
+            from .reference_input import validate_source
+            validate_source(value, members, relations)
+        else:
+            require(type(source) is dict and set(source) == {'normalized_member_sha256', 'line_1based',
                 'line_sha256', 'raw_object_sha256', 'source_row_index'}, 'REFERENCE_SOURCE_POINTER')
-        require(source['normalized_member_sha256'] in members and
+            require(source['normalized_member_sha256'] in members and
                 all(type(source[k]) is str and SHA.fullmatch(source[k]) for k in
                     ('normalized_member_sha256', 'line_sha256', 'raw_object_sha256')) and
                 type(source['line_1based']) is int and source['line_1based'] > 0 and
@@ -124,7 +140,7 @@ def load_reference(manifest_pin):
     return {'manifest_ref': {k: manifest_pin[k] for k in ('sha256', 'bytes') if k in manifest_pin},
             'dataset_revision': manifest['parent_dataset_revision'], 'symbols': list(symbols), 'dates': days,
             'schedule': rows, 'prices_micro': prices, 'source_evidence': evidence,
-            'quote_basis': BASIS, 'unit_type': UNIT, 'eligibility': 'NOT_DERIVED',
+            'quote_basis': expected_basis, 'unit_type': UNIT, 'eligibility': 'NOT_DERIVED',
             'rights': manifest['rights'], 'action_credit': 'NONE'}
 
 

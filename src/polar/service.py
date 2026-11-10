@@ -51,6 +51,20 @@ class Service:
         from .ci_research_service import config_from_seed
         return config_from_seed(seed)
 
+    def research_input_prepare(self, config):
+        from .reference_input import prepare_input
+        try:
+            return prepare_input(config, self.artifacts.root, self.artifacts.limit)
+        except (KeyError, TypeError, IndexError, AttributeError):
+            raise ValueError('REFERENCE_CONVERSION_INVALID') from None
+
+    def research_input_preflight(self, manifest_pin):
+        from .reference_input import preflight_input
+        try:
+            return preflight_input(manifest_pin)
+        except (KeyError, TypeError, IndexError, AttributeError):
+            raise ValueError('REFERENCE_CONVERSION_INVALID') from None
+
     def research_run(self, config):
         return self._research_engine(config).run(config)
 
