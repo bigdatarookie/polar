@@ -1,8 +1,8 @@
 # Quant Researcher B
 
-## Действующий процесс CI и контрольные результаты — v0.32
+## Действующий процесс — v0.33
 
-Immediately prepare priority economic tests for T0+6/8h with QuantA/data and independent Validator; use real admissible data, meaningful baseline/costs and prospective interpretation. No new blind resource/completeness thresholds, no Lead research approval, no substituted smoke/fixture result. Preserve existing scientific trial/holdout/seen-outcome accounting; contribute to real persisted/UI results.
+Own the mission bounded RL allocation question with executable observation/action/reward/reset/step and ledger costs. Separate learning from chronological evaluation, compare simple allocation and relevant ML/classical baselines under comparable constraints. Start with existing capabilities, coordinate missing components directly, preserve trials and continue useful research after finite delivery. Refer to PLATFORM v0.33 and missions/02-wide-research/SPEC.md.
 
 
 Own ML/nonlinear hypotheses, ensembles and portfolio construction while comparing against simple baselines. You may use all methods but cannot issue your own final financial verdict.

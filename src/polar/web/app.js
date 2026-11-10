@@ -14,6 +14,7 @@ let researchWorkspace=null;
 let chart, loading = false, loadError = null, flow = 0, assetQuery = '', assetOptionIndex = 0, rendering = false, restoreFrame = 0;
 let pendingSelection=null, failedSelection=null;
 let historyContext=null,historyCatalogCursor=null,pendingHistoryRequest=null,pendingPlotRange=null;
+let viewportVersion=0,historyViewportTimer=null,pendingSeriesBuffer=null;
 const historyClient=createHistoryClient((...args)=>fetch(...args));
 const historyDisplayed=()=>dataset?.kind==='history'||(!dataset&&state.dataMode==='real');
 const loader = createLatestLoader((...args) => fetch(...args));
@@ -76,11 +77,11 @@ function canReuseHistoryContext(){return !!historyContext?.revision&&(!pendingHi
 function currentHistoryRequest(){return pendingHistoryRequest||{datasetId:historyContext?.revision?.dataset_id,revision:historyContext?.revision?.dataset_revision,instrumentId:historyContext?.instrument?.instrument_id};}
 function refreshHistoryOverlays(){
   saveWorkspace();if(state.dataMode!=='real'){keepScroll(renderAll);return;}
-  const request={...currentHistoryRequest(),seriesOnly:canReuseHistoryContext()};
+  const request={...currentHistoryRequest(),seriesOnly:canReuseHistoryContext(),rangeId:state.rangeId,window:null};
   keepScroll(renderRail);loadHistorySelection(request);
 }
 async function loadHistorySelection(request={}) {
-  const token=++flow;loader.cancel();historyClient.cancel();loading=true;loadError=null;failedSelection=null;pendingHistoryRequest=request;
+  const token=++flow;loader.cancel();if(!request.seriesOnly)historyClient.cancel();clearTimeout(historyViewportTimer);pendingSeriesBuffer=null;const requestedViewportVersion=viewportVersion;loading=true;loadError=null;failedSelection=null;pendingHistoryRequest=request;
   const controls=historyControls(state),requestedRange=request.rangeId||state.rangeId;
   state.dataMode='real';pendingSelection={label:request.seriesOnly?'series / '+requestedRange:[request.datasetId,request.instrumentId].filter(Boolean).join(' · ')||'registered history catalog'};renderPending();
   const current=()=>token===flow;
@@ -93,15 +94,18 @@ async function loadHistorySelection(request={}) {
     const previousWindow={first:view.bars[state.lo]?.time,last:view.bars[state.hi]?.endTime};
     const window=historyWindow(next,requestedRange,previousWindow,request.window);
     if(window&&historyNeedsSeries(controls)&&HISTORY_SERIES_RUNTIME.enabled){
-      try{next.series=await historyClient.series(next,controls,window);}
-      catch(error){if(error.message!=='HISTORY_INVALID_CURSOR'||!current())throw error;next.series=await historyClient.series(next,controls,window);}
+      const buffer=historyBufferedWindow(next,window);pendingSeriesBuffer={key:historySeriesCacheKey(next,controls),window:buffer};renderSeriesState();
+      try{next.series=await historyClient.series(next,controls,buffer);}
+      catch(error){if(error.message!=='HISTORY_INVALID_CURSOR'||!current())throw error;next.series=await historyClient.series(next,controls,buffer);}
       if(!current())return;
     }else next.series=null;
     next.seriesControls=next.series?controls:{...controls,sma:false,ema:false,bollinger:false,rsi:false,benchmark:false};
     next.seriesUnavailable=historyNeedsSeries(controls)&&!HISTORY_SERIES_RUNTIME.enabled?'C_RUNTIME_NOT_QUALIFIED':null;
     const nextView=buildHistoryView(next),same=dataset?.kind==='history'&&dataset.dataset_id===next.revision?.dataset_id&&dataset.dataset_revision===next.revision?.dataset_revision&&dataset.instrument.instrument_id===next.instrument?.instrument_id;
-    const nextState={...state,dataMode:'real',rangeId:requestedRange,granularity:'1D',assetId:next.instrument?.instrument_id||null,strategyId:null};
-    if(window&&nextView.bars.length){const first=nextView.bars.findIndex(b=>b.time>=window.start),indices=nextView.bars.map((b,i)=>b.time<window.end_exclusive?i:-1);nextState.lo=Math.max(0,first);nextState.hi=Math.max(nextState.lo,...indices);}
+    const preserveViewport=same&&(request.seriesOnly||viewportVersion!==requestedViewportVersion),latestWindow={start:view.bars[state.lo]?.time,end_exclusive:view.bars[state.hi]?historyDayAfter(view.bars[state.hi].time):null};
+    const displayWindow=preserveViewport&&latestWindow.start&&latestWindow.end_exclusive?latestWindow:window;
+    const nextState={...state,dataMode:'real',rangeId:preserveViewport?state.rangeId:requestedRange,granularity:'1D',assetId:next.instrument?.instrument_id||null,strategyId:null};
+    if(displayWindow&&nextView.bars.length){const first=nextView.bars.findIndex(b=>b.time>=displayWindow.start),indices=nextView.bars.map((b,i)=>b.time<displayWindow.end_exclusive?i:-1);nextState.lo=Math.max(0,first);nextState.hi=Math.max(nextState.lo,...indices);}
     else Object.assign(nextState,boundsForSelection(nextView,nextState,previousWindow));
     const remap=i=>nextView.bars.findIndex(b=>b.time===view.bars[i]?.time);
     if(same){nextState.cursor=remap(state.cursor);nextState.inspect=remap(state.inspect);if(nextState.measurement){const start=remap(state.measurement.start),end=remap(state.measurement.end);nextState.measurement=start>=0&&end>=0?{...state.measurement,start,end}:null;}}
@@ -112,13 +116,13 @@ async function loadHistorySelection(request={}) {
     dataset=nextDataset;detail=null;view=nextView;runRows=[];runOffset=datasetOffset=0;
     catalog=next.assets.map(a=>({kind:'history',dataset_id:a.instrument_id,name:a.display_symbol||a.source_symbol||a.instrument_id,instrument:{...a,ticker_history:[{ticker:a.display_symbol||a.source_symbol||a.instrument_id}]}}));state=nextState;
     state.cursorSource='assetClose';clampCursor();invalidateRange();if(!same)cancelGesture();
-    loading=false;pendingSelection=pendingHistoryRequest=pendingPlotRange=null;closeAssets();keepScroll(renderAll);writeURL(!!request.push);
+    loading=false;pendingSelection=pendingHistoryRequest=pendingPlotRange=pendingSeriesBuffer=null;closeAssets();keepScroll(renderAll);writeURL(!!request.push);scheduleViewportSeries();
     tell(next.revision?'Stored immutable history · '+(next.bars?.data_status||'EMPTY_WINDOW')+' · no strategy result.':'No registered chart-ready history. Nothing was substituted.');
-  }catch(error){if(!current())return;loading=false;loadError=/^[A-Z0-9_]+$/.test(error.message)?error.message:'HISTORY_UNAVAILABLE';failedSelection={history:true,request};pendingSelection=pendingHistoryRequest=pendingPlotRange=null;renderPending();syncToolbar();keepScroll(renderRail);if(!view.bars.length)renderChart();tell('History update failed · '+loadError+'. '+(dataset?'Last valid displayed context retained.':'No valid history display available.')+' Retry is available.');}
+  }catch(error){if(!current())return;loading=false;loadError=/^[A-Z0-9_]+$/.test(error.message)?error.message:'HISTORY_UNAVAILABLE';failedSelection={history:true,request};pendingSelection=pendingHistoryRequest=pendingPlotRange=pendingSeriesBuffer=null;renderPending();syncToolbar();keepScroll(renderRail);renderSeriesState();if(!view.bars.length)renderChart();tell('History update failed · '+loadError+'. '+(dataset?'Last valid displayed context retained.':'No valid history display available.')+' Retry is available.');}
 }
 async function loadSelection(datasetId, runId, {push=false, catalogPage=null, runsPage=0, restore=null}={}) {
   if(state.dataMode!=='retained-test')return loadHistorySelection({datasetId:datasetId||historyContext?.revision?.dataset_id,revision:historyContext?.revision?.dataset_revision,instrumentId:historyContext?.instrument?.instrument_id,push});
-  const token=++flow;loader.cancel();historyClient.cancel();pendingHistoryRequest=pendingPlotRange=null;loading=true;loadError=null;failedSelection=null;
+  const token=++flow;loader.cancel();historyClient.cancel();clearTimeout(historyViewportTimer);pendingSeriesBuffer=null;pendingHistoryRequest=pendingPlotRange=null;loading=true;loadError=null;failedSelection=null;
   const intent={datasetId,runId,options:{push,catalogPage,runsPage,restore}};
   pendingSelection={datasetId,runId};renderPending();
   const current=()=>token===flow;
@@ -186,12 +190,37 @@ function setGranularity(interval) {
   if(!dataset||!GRANULARITIES.includes(interval)||(historyDisplayed()&&interval!=='1D'))return;
   state.granularity=interval;state.measurement=null;state.infoId=null;view=buildView(dataset,detail?.report,interval);state.lo=0;state.hi=Math.max(0,view.bars.length-1);state.cursor=state.inspect=0;state.rangeId='All';cancelGesture();renderAll();saveWorkspace();tell(interval+' · supplied daily rows only; incomplete buckets stay unavailable.');
 }
+function visibleHistoryWindow(){return view.bars[state.lo]&&view.bars[state.hi]?{start:view.bars[state.lo].time,end_exclusive:historyDayAfter(view.bars[state.hi].time)}:null;}
+function renderSeriesState(){
+  const label=$('#series-state');if(!label)return;
+  const needed=historyDisplayed()&&historyNeedsSeries(state),window=visibleHistoryWindow();
+  const requested=needed&&historyContext?historySeriesCacheKey(historyContext,historyControls(state)):null;
+  const displayed=historyContext?.series?historySeriesCacheKey(historyContext,historyContext.series.controls):null;
+  const covered=needed&&!!historyContext?.series&&requested===displayed&&historyWindowContains(historyContext.series.window,window);
+  const failed=needed&&loadError&&failedSelection?.request?.seriesOnly;
+  label.hidden=!needed||covered&&!loading;
+  label.textContent=failed?'Indicator update unavailable · candles remain interactive':pendingSeriesBuffer?'Indicators loading · candles remain interactive':covered?'Requested indicators updating · candles remain interactive':'Indicator data not loaded here · candles remain interactive';
+}
+function scheduleViewportSeries(){
+  clearTimeout(historyViewportTimer);renderSeriesState();
+  if(!historyDisplayed()||!historyContext?.revision||!historyNeedsSeries(state)||!HISTORY_SERIES_RUNTIME.enabled||loading&&!pendingHistoryRequest?.seriesOnly)return;
+  const window=visibleHistoryWindow();if(!window)return;
+  const key=historySeriesCacheKey(historyContext,historyControls(state));
+  if(historyContext.series&&key===historySeriesCacheKey(historyContext,historyContext.series.controls)&&!historyBufferNeedsPrefetch(historyContext,historyContext.series.window,window))return;
+  if(pendingSeriesBuffer?.key===key&&historyWindowContains(pendingSeriesBuffer.window,window))return;
+  // Coalesce a burst before requesting a new backend buffer. Panning never waits.
+  const intent=flow;historyViewportTimer=setTimeout(()=>{if(intent!==flow||!historyDisplayed())return;loadHistorySelection({...currentHistoryRequest(),seriesOnly:true,rangeId:state.rangeId,window:visibleHistoryWindow()});},80);
+}
+function commitViewport(lo,hi,rangeId='Custom',dispatch=false){
+  viewportVersion++;state.lo=lo;state.hi=hi;state.rangeId=rangeId;pendingPlotRange=null;
+  if(dispatch&&chart){rendering=true;chart.dispatchAction({type:'dataZoom',startValue:lo,endValue:hi});rendering=false;}
+  clampCursor();invalidateRange();syncToolbar();drawMeasurement();showRaw(state.inspect);saveWorkspace();scheduleViewportSeries();
+}
 function setPreset(id) {
   if(!view.bars.length)return;
-  if(historyDisplayed()&&historyNeedsSeries(state)&&HISTORY_SERIES_RUNTIME.enabled){loadHistorySelection({...currentHistoryRequest(),seriesOnly:canReuseHistoryContext(),rangeId:id,window:null});return;}
   const last=new Date(view.bars.at(-1).endTime), lower=new Date(last); lower.setUTCHours(0,0,0,0);
   if(id==='1W')lower.setUTCDate(lower.getUTCDate()-7);else if(id==='All')lower.setTime(Date.parse(view.bars[0].time));else lower.setUTCMonth(lower.getUTCMonth()-({'1M':1,'3M':3,'6M':6,'12M':12}[id]||1));
-  state.rangeId=id;state.lo=Math.max(0,view.bars.findIndex(b=>Date.parse(b.endTime)>=lower));state.hi=view.bars.length-1;clampCursor();invalidateRange();renderChart();syncToolbar();drawMeasurement();showRaw(state.inspect);saveWorkspace();tell('Showing available observations; requested range is not additional history.');
+  commitViewport(Math.max(0,view.bars.findIndex(b=>Date.parse(b.endTime)>=lower)),view.bars.length-1,id,true);tell('Showing available observations; requested range is not additional history.');
 }
 function clampCursor() {state.cursor=Math.max(state.lo,Math.min(state.hi,state.cursor));state.inspect=Math.max(state.lo,Math.min(state.hi,state.inspect));}
 function setTheme(theme) {state.theme=theme;try{localStorage.setItem(themeKey,theme);}catch{}keepScroll(renderAll);document.getElementById('theme-'+theme)?.focus({preventScroll:true});saveWorkspace();tell('Theme changed; compatible measurement retained.');}
@@ -252,7 +281,7 @@ function indicatorCard(parent,key,title,shortName,period){
   panelNote(settings,compactOverlayStatus(key));diagnosticPanel(settings,key,'Calculation details',note);card.append(settings);parent.append(card);
 }
 function setDataMode(mode){
-  if(mode===state.dataMode)return;
+  if(mode===state.dataMode)return;clearTimeout(historyViewportTimer);pendingSeriesBuffer=null;
   state.dataMode=mode;loadError=null;
   if(mode==='retained-test'){keepScroll(renderRail);const [asset,run]=urlSelection();loadSelection(run?asset:null,run||null,{catalogPage:0});}
   else loadHistorySelection({});
@@ -363,7 +392,7 @@ function syncToolbar() {
   $('#datasets-prev').disabled=loading||historyDisplayed()||datasetOffset===0;$('#datasets-next').disabled=loading||historyDisplayed()||catalog.length<10;
 
 }
-function renderAll() {document.documentElement.dataset.theme=resolvedTheme();renderPending();syncModes();renderRail();renderRows();renderRecord();syncToolbar();renderChart();drawMeasurement();showRaw(state.inspect);}
+function renderAll() {document.documentElement.dataset.theme=resolvedTheme();renderPending();syncModes();renderRail();renderRows();renderRecord();syncToolbar();renderChart();drawMeasurement();showRaw(state.inspect);renderSeriesState();}
 function chartLayout(){
   const control=displayedHistoryControls();
   return chartGeometry({height:$('#chart').clientHeight,width:$('#chart').clientWidth,narrow:innerWidth<701,
@@ -431,11 +460,7 @@ function initUI() {
   chart=echarts.init($('#chart'),null,{renderer:'canvas'});chart.on('datazoom',()=>{
     if(rendering||!view.bars.length)return;const d=chart.getOption().dataZoom[0],n=view.bars.length,index=v=>typeof v==='string'?view.bars.findIndex(b=>b.time===v):Number(v);
     const lo=Math.max(0,Math.min(n-1,Number.isFinite(index(d.startValue))?index(d.startValue):Math.ceil(d.start/100*(n-1)))),hi=Math.max(lo,Math.min(n-1,Number.isFinite(index(d.endValue))?index(d.endValue):Math.floor(d.end/100*(n-1))));
-    if(historyDisplayed()&&historyNeedsSeries(state)&&HISTORY_SERIES_RUNTIME.enabled){
-      rendering=true;chart.dispatchAction({type:'dataZoom',startValue:state.lo,endValue:state.hi});rendering=false;pendingPlotRange={lo,hi};
-      loadHistorySelection({...currentHistoryRequest(),seriesOnly:canReuseHistoryContext(),rangeId:'Custom',window:{start:view.bars[lo].time,end_exclusive:historyDayAfter(view.bars[hi].time)}});return;
-    }
-    state.lo=lo;state.hi=hi;state.rangeId='Custom';clampCursor();invalidateRange();syncToolbar();drawMeasurement();showRaw(state.inspect);saveWorkspace();
+    commitViewport(lo,hi);
   });
   let lastSize='';new ResizeObserver(()=>{const w=$('#chart').clientWidth,h=$('#chart').clientHeight;if(document.hidden||w<40||h<40)return;const size=w+'x'+h;if(size===lastSize)return;lastSize=size;chart.resize();renderChart();positionInfo();requestAnimationFrame(drawMeasurement);}).observe($('#chart'));
   initGestures();$('#strategy-list').addEventListener('scroll',positionInfo,{passive:true});

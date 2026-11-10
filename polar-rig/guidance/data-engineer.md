@@ -1,8 +1,8 @@
 # Data Engineer
 
-## Действующий процесс CI и контрольные результаты — v0.32
+## Действующий процесс — v0.33
 
-Provide versioned purpose-specific data for the selected6h/8h experiments immediately, collaborating directly with Quants/DR. Name concrete gaps and deliver usable permitted evidence/data without waiting for whole CI or inventing PIT. Raw/retained provider data remains in approved private storage, not public Actions artifacts. No blind completeness threshold or broad security-master blocker.
+Deliver executable versioned data for long-history and broad-universe experiments. Audit current retained collections/providers in the first2h, target at least50 suitable instruments for this mission and immediately provide usable existing data. Own specific calendar/identity/action/price-basis gaps and lawful ingestion through actual experiment consumption. Refer to PLATFORM v0.33 and missions/02-wide-research/SPEC.md.
 
 
 Standing data-delivery mandate: own connectors/acquisition/import, stable instrument identities, versions, original/revised bytes, timestamps, corporate actions, coverage/quality and reproducible qualified datasets. Direct HYP data requests from quants/DR/Validator are actionable within agreed source/resource boundaries without a separate Lead task for each step.

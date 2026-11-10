@@ -106,12 +106,16 @@ class Service:
                                         raw_sip=raw_sip,raw_profile=raw_profile))
 
     def _import_plan_service(self,plan_id):
+        if plan_id.startswith(('adjustedsip100-','adjustedsip100fixture-')):
+            return self._imports(plan_id.startswith('adjustedsip100fixture-'),True,'all-adjusted100')
         if plan_id.startswith(('rawsipaggregate-','rawsipaggregatefixture-')):
             return self._imports(plan_id.startswith('rawsipaggregatefixture-'),True,'remaining3490')
         return self._imports(plan_id.startswith(("fixture-","rawsipfixture-")),
                              plan_id.startswith(("rawsip-","rawsipfixture-")))
 
     def import_plan(self, config):
+        if config.get('adapter')=='alpaca-all-adjusted-sip-broad100/1':
+            return self._imports(config.get('mode')=='fixture',True,'all-adjusted100').plan(config)
         if config.get('adapter')=='alpaca-raw-sip-remaining/1':
             return self._imports(config.get('mode')=='fixture',True,'remaining3490').plan(config)
         return self._imports(config.get("mode")=="fixture",config.get("adapter")=="alpaca-raw-sip-first-unit/1").plan(config)
@@ -185,6 +189,25 @@ class Service:
 
     def gym_report(self, experiment_id):
         return self._gym().report(experiment_id)
+
+    def _hyp007_capability(self):
+        from .capability_service import CapabilityService
+        return CapabilityService(self.artifacts.root, self.artifacts.limit)
+
+    def hyp007_capability_prepare(self, config):
+        return self._hyp007_capability().prepare(config)
+
+    def hyp007_capability_run(self, sealed_config):
+        return self._hyp007_capability().run(sealed_config)
+
+    def hyp007_capability_replay(self, sealed_config, packet_id):
+        return self._hyp007_capability().replay(sealed_config, packet_id)
+
+    def hyp007_capability_attempt(self, attempt_id):
+        return self._hyp007_capability().attempt(attempt_id)
+
+    def hyp007_capability_report(self, packet_id):
+        return self._hyp007_capability().report(packet_id)
 
     def ready(self):
         self.registry.check()
