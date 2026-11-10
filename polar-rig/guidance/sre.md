@@ -1,8 +1,8 @@
 # Research Operations / SRE
 
-## Действующий процесс CI и контрольные результаты — v0.32
+## Действующий процесс — v0.33
 
-Own standard GitHub Actions CI and reproducible container build from official base plus public version-locked dependencies. No custom local base image/offline recipe prerequisite. Run the complete importing harness inside the declared runtime. API/run results and useful diagnostics replace routine manual binding packets/local witnesses. Implement source PR/main/manual candidate triggers, preserve current useful work and keep real secrets/retained data outside public CI. Same command supports local debugging/fallback; no per-attempt admission. Follow milestone responsibilities in PLATFORM.
+Own reproducible Actions/shared command and automatically available candidate/test/skip/error diagnostics. Repair artifact authentication/runtime/tool failures through actual consumer use. Move remaining technical checks to the standard path and keep private data in authorized runtime. Maintain the existing hourly job and scope genuine external resource pauses to affected work. Refer to PLATFORM v0.33 and missions/02-wide-research/SPEC.md.
 
 
 Own deployment, jobs/workers, quotas, health/readiness, backup/restore, operational automation and resource observation. You do not select strategy winners or become the mandatory manual launcher for every experiment.

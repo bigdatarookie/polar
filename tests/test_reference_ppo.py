@@ -1,0 +1,62 @@
+"""Bounded invented mature-library training and fixed-trace native reconciliation."""
+from datetime import date,timedelta,timezone
+import numpy as np
+from polar.reference_ppo import train_seed,deterministic_episode,native_test_plan,reconcile_selected
+from polar.ci_research_native import simulate
+
+
+def test_actual_ppo_rollout_true_terminals_and_final_native_trace():
+    days=[(date(2020,1,1)+timedelta(days=i)).isoformat() for i in range(100)]
+    symbols=['AAPL','AMZN','TSLA','VTI']
+    market={'dataset_revision':'INVENTED-PPO-ROLLOUT','dates':days,'symbols':symbols,
+        'prices_micro':{d:{s:10000000+i*(j+1)*10000+(i%7)*1000 for j,s in enumerate(symbols)}
+                        for i,d in enumerate(days)}}
+    model,audit=train_seed(market,days[60],days[70],timezone.utc,0,invented_steps=256)
+    assert audit['actual_timesteps']==256 and audit['actual_rollouts']==1
+    assert audit['actual_epoch_updates']==10 and audit['actual_optimizer_steps']==40
+    assert len(audit['resets'])==26 and not audit['budget_stop_is_episode_terminal']
+    assert len(audit['transitions'])==256
+    assert audit['represented_runtime']['rollout_buffer']['rewards']=='float32'
+    assert audit['represented_runtime']['rollout_buffer']['advantages']=='float32'
+    assert audit['represented_runtime']['policy_parameter_dtypes']==['torch.float32']
+    # Public algorithm metadata only: no fixture quotes, observations or ledgers.
+    from pathlib import Path
+    import json,subprocess
+    reports=Path('/reports')
+    if reports.is_dir():
+        report={'schema':'polar.reference-ppo-constructor-observation/1',
+            'candidate':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+            'scope':'INVENTED_256_TRANSITIONS_ONLY','defaults':audit['defaults'],
+            'represented_runtime':audit['represented_runtime'],'actual_optimizer_steps':audit['actual_optimizer_steps'],
+            'intraop_threads':audit['intraop_threads'],'interop_threads':audit['interop_threads'],
+            'deterministic_algorithms':audit['deterministic_algorithms']}
+        (reports/'ppo-constructor-observation.json').write_text(json.dumps(report,sort_keys=True,indent=2)+'\n')
+    terminal=[r for r in audit['transitions'] if r['terminated']]
+    assert len(terminal)==25
+    assert all(r['next_observation'][-1]==0 and r['info']['terminal_action_ignored'] for r in terminal)
+    assert all(not any(r['ledger']['positions'].values()) for r in terminal)
+    assert audit['last_environment_state']['date']==days[66] # no invented budget-end liquidation
+    episode=deterministic_episode(model,market,days[70],days[80],timezone.utc)
+    assert len(episode['rows'])==10 and len(episode['nav'])==11
+    assert all(row['action']==int(np.argmax(row['probabilities'])) for row in episode['rows'])
+    plan=native_test_plan(market,episode,timezone.utc)
+    native=simulate(plan)
+    assert reconcile_selected(episode,native)['status']=='MATCHED'
+    assert len(native['legs'])==5
+    assert all(not any(leg['nav'][-1]['positions'].values()) for leg in native['legs'])
+
+
+def test_long_nominal_grid_exact_moments_do_not_serialize_giant_integer_strings():
+    from polar.ci_research_evaluation import evaluate_legs
+    from polar.ci_research import instant
+    from polar.gym_contract import canonical,decode
+    nav=[]
+    for i in range(967):
+        d=(date(2020,1,1)+timedelta(days=i)).isoformat();value=10000000+i*397+(i%17)*103
+        nav.append({'date':d,'nominal_ns':instant(d,16,0,timezone.utc),'nav_cents':value,
+            'cash_cents':value,'positions':{'AAPL':0},'position_cents':{'AAPL':0},
+            'exposure_cents':0,'flat_cents':0,'bps_cents':0})
+    legs,_=evaluate_legs({'legs':[{'id':'INVENTED_LONG_GRID','nav':nav,'fills':[]}]})
+    assert len(legs[0]['returns'])==966
+    assert legs[0]['metrics']['sharpe_252_rf0']['status']=='OK'
+    assert decode(canonical(legs))==legs

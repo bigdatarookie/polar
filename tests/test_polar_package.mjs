@@ -15,7 +15,7 @@ function fixture(t,protocol='pr37'){
  function file(n,o){const p=path.join(root,n);fs.writeFileSync(p,typeof o==='string'?o:JSON.stringify(o));return pin(p);}
  const full={};for(const n of ['main.py','app.js']){const b=fs.readFileSync(path.join(repo,'src/polar',n));full['/app/src/polar/'+n]={bytes:b.length,sha256:sha(b)};}const code={'src/polar/main.py':full['/app/src/polar/main.py'].sha256};
  if(protocol==='pr32')code['scripts/polar_capability_worker.py']=sha(fs.readFileSync(path.join(repo,'scripts/polar_capability_worker.py')));
- const build=file('build.json',{...candidate,image_id:image,source_files:protocol==='pr32'?full:{'/app/src/polar/main.py':full['/app/src/polar/main.py']},code_projection:code,code_projection_count:Object.keys(code).length,source_projection_count:2});const fullRef=file('full.json',full),projection=file('projection.json',{files:code});
+ const build=file('build.json',{...candidate,image_id:image,source_files:protocol==='pr32'?full:{'/app/src/polar/main.py':full['/app/src/polar/main.py']},code_projection:code,code_projection_count:Object.keys(code).length,source_projection_count:2});const fullRef=file('full.json',full),projection=file('projection.json',{...(protocol==='pr32'?{schema:'polar.capability-source-projection/1'}:{}),files:code});
  const refs={harness:file('harness.py','# inert\n'),tool:file('tool.mjs','// inert\n'),observer:file('actual-v11-adapter.mjs','export function observedLaunch(){return {selected:"v11"}};\n'),review:file('review.md','Review NOT ASSESSED; no PASS claim\n'),input:file('input.json',{synthetic:true}),expectations:file('expectations.json',{marker:'NONE'})};
  const candidateConfig=file('candidate.json',{candidate,image_id:image});let template;
  if(protocol==='pr37')template=file('template.json',{schema:'polar.observed-launch-config/1',refs:{config:candidateConfig},candidate,image_id:image,runtime_image_id:image});
@@ -61,7 +61,7 @@ for(const problem of ['missing','changed','unsafe'])test(`PR32 repository projec
  if(problem==='missing')b.code_projection['scripts/missing_worker.py']='a'.repeat(64);
  if(problem==='changed')b.code_projection['scripts/polar_capability_worker.py']='b'.repeat(64);
  if(problem==='unsafe')b.code_projection['../outside.py']='c'.repeat(64);
- b.code_projection_count=Object.keys(b.code_projection).length;f.spec.build_ref=f.file('projection-build.json',b);f.spec.code_projection_ref=f.file('projection-new.json',{files:b.code_projection});fs.writeFileSync(f.specFile,JSON.stringify(f.spec));
+ b.code_projection_count=Object.keys(b.code_projection).length;f.spec.build_ref=f.file('projection-build.json',b);f.spec.code_projection_ref=f.file('projection-new.json',{schema:'polar.capability-source-projection/1',files:b.code_projection});fs.writeFileSync(f.specFile,JSON.stringify(f.spec));
  let error;try{preparePackage(f.specFile,f.out);}catch(e){error=e;}
  assert.equal(error?.message,'PACKAGE_PREPARATION_FAILED');const failure=JSON.parse(fs.readFileSync(path.join(error.evidence,'PREPARATION-FAILURE.json')));
  assert.equal(failure.phase,'SOURCE');assert.equal(failure.candidate_calls,0);assert.equal(failure.code,{missing:'PACKAGE_REPOSITORY_GIT_MISSING',changed:'PACKAGE_REPOSITORY_GIT_HASH',unsafe:'PACKAGE_REPOSITORY_PATH'}[problem]);assert(!fs.existsSync(f.out));assert(!fs.existsSync(path.join(error.evidence,'candidate-config.json')));
@@ -89,4 +89,23 @@ test('PR32 rejects an external repository root while its source root remains in-
  p.repository_root=f.repo;fs.chmodSync(packageFile,0o644);fs.writeFileSync(packageFile,JSON.stringify(p));
  const manifest=path.join(f.out,'MANIFEST.json'),m=JSON.parse(fs.readFileSync(manifest)),raw=fs.readFileSync(packageFile);m.files['PACKAGE.json']={bytes:raw.length,sha256:sha(raw)};fs.chmodSync(manifest,0o644);fs.writeFileSync(manifest,JSON.stringify(m));
  assert.throws(()=>checkPackage(f.out),/PACKAGE_REPOSITORY_ROOT/);assert(!fs.existsSync(p.output_root));assert(!fs.existsSync(p.anchor));
+});
+
+for(const problem of ['build-namespace','missing-schema','extra-field'])test(`PR32 refuses ${problem} source projection before config or consumer use`,t=>{
+ const f=fixture(t,'pr32'),projection=JSON.parse(fs.readFileSync(f.spec.code_projection_ref.path));
+ if(problem==='build-namespace')projection.schema='polar.capability-code-projection/1';
+ if(problem==='missing-schema')delete projection.schema;
+ if(problem==='extra-field')projection.note='not in the closed candidate contract';
+ f.spec.code_projection_ref=f.file('wrong-namespace.json',projection);fs.writeFileSync(f.specFile,JSON.stringify(f.spec));let error;
+ try{preparePackage(f.specFile,f.out);}catch(e){error=e;}
+ assert.equal(error?.message,'PACKAGE_PREPARATION_FAILED');const failure=JSON.parse(fs.readFileSync(path.join(error.evidence,'PREPARATION-FAILURE.json')));
+ assert.equal(failure.phase,'SOURCE');assert.equal(failure.code,'PACKAGE_PR32_SOURCE_PROJECTION_SCHEMA');assert.equal(failure.candidate_calls,0);assert(!fs.existsSync(f.out));assert(!fs.existsSync(path.join(error.evidence,'candidate-config.json')));
+});
+test('PR32 checker rejects a rehashed candidate projection with the build namespace',t=>{
+ const f=fixture(t,'pr32');preparePackage(f.specFile,f.out);const packageFile=path.join(f.out,'PACKAGE.json'),p=JSON.parse(fs.readFileSync(packageFile));
+ const config=JSON.parse(fs.readFileSync(p.config.path)),projection=JSON.parse(fs.readFileSync(config.code.source_projection.path));projection.schema='polar.capability-code-projection/1';
+ fs.writeFileSync(config.code.source_projection.path,JSON.stringify(projection));config.code.source_projection.sha256=sha(fs.readFileSync(config.code.source_projection.path));
+ fs.chmodSync(p.config.path,0o644);fs.writeFileSync(p.config.path,JSON.stringify(config));p.config.sha256=sha(fs.readFileSync(p.config.path));fs.chmodSync(packageFile,0o644);fs.writeFileSync(packageFile,JSON.stringify(p));
+ const manifest=path.join(f.out,'MANIFEST.json'),m=JSON.parse(fs.readFileSync(manifest));for(const name of ['PACKAGE.json','candidate-config.json']){const raw=fs.readFileSync(path.join(f.out,name));m.files[name]={bytes:raw.length,sha256:sha(raw)};}fs.chmodSync(manifest,0o644);fs.writeFileSync(manifest,JSON.stringify(m));
+ assert.throws(()=>checkPackage(f.out),/PACKAGE_PR32_SOURCE_PROJECTION_SCHEMA/);assert(!fs.existsSync(p.output_root));assert(!fs.existsSync(p.anchor));
 });

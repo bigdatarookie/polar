@@ -82,7 +82,7 @@ def native_bits(value):
     return {'bits':'0000000000000000' if x==0 else raw,'native_bits':raw}
 
 
-def fit_tree(z_bits,y_bits,binding):
+def fit_tree(z_bits,y_bits,binding,observe=None):
     locks=binding.verify()  # Before importing NumPy/LightGBM.
     import numpy as np
     import lightgbm
@@ -98,29 +98,38 @@ def fit_tree(z_bits,y_bits,binding):
     parameters={name:record['value'] for name,record in parameter_provenance.items()}
     model=lightgbm.LGBMRegressor(**parameters)
     require(model.get_params(deep=False)==parameters,'TREE_EFFECTIVE_PARAMETERS')
+    if observe is not None:observe('TREE','CALL_BOUNDARY_OBSERVED',{'call':'LGBMRegressor.fit','rows':len(y_bits)})
     model.fit(X,y)  # Exactly one fit, no eval set/weights/callbacks or forced iterations.
     text=model.booster_.model_to_string()
     require(len(text.encode())<=16*1024**2,'MODEL_BYTE_BOUND')
     restored=lightgbm.Booster(model_str=text)  # Readback, no second fit.
     require(restored.current_iteration()==model.booster_.current_iteration(),'MODEL_READBACK_ITERATIONS')
-    return restored,{'schema':'polar.hyp008-s1-tree/1','parameters':parameters,
+    artifact={'schema':'polar.hyp008-s1-tree/1','parameters':parameters,
         'parameter_provenance':parameter_provenance,
         'nominal_estimators':50,'actual_iterations':model.booster_.current_iteration(),
         'model_text':text,'native_precision':'SOURCE_BOUND_FLOAT32_LABEL_SCORE',
         'default_hashes':dict(DEFAULT_HASHES)}
+    if observe is not None:observe('TREE','COMPLETED',{'call':'LGBMRegressor.fit',
+        'model_text_sha256':digest(text.encode()),'actual_iterations':artifact['actual_iterations']})
+    return restored,artifact
 
 
-def fit_linear(row_ids,z_bits,y_bits,binding):
+def fit_linear(row_ids,z_bits,y_bits,binding,observe=None):
     binding.verify()
     from scipy.optimize import linprog
     from scipy.sparse import csr_matrix
     import scipy
     require(str(Path(scipy.__file__).resolve().parent)=='/usr/local/lib/python3.13/site-packages/scipy',
             'NATIVE_IMPORT_ORIGIN')
-    return generate(row_ids,z_bits,y_bits,linprog,csr_matrix)
+    def observed_lp(*args,**kwargs):
+        if observe is not None:observe('LINEAR','CALL_BOUNDARY_OBSERVED',{'call':'scipy.optimize.linprog','rows':len(row_ids)})
+        return linprog(*args,**kwargs)
+    result=generate(row_ids,z_bits,y_bits,observed_lp,csr_matrix)
+    if observe is not None:observe('LINEAR','COMPLETED',{'call':'scipy.optimize.linprog','proof_id':result['proof']['proof_id']})
+    return result
 
 
-def fixed_family(training_ids,training_z,training_y,score_z,history_windows,targets,masks,binding,start):
+def fixed_family(training_ids,training_z,training_y,score_z,history_windows,targets,masks,binding,start,observe=None):
     """Stage callback is mandatory; Service later binds durable authority/charges.
 
     This component never creates real authority. All actual invocations in the
@@ -146,16 +155,20 @@ def fixed_family(training_ids,training_z,training_y,score_z,history_windows,targ
     forecasts={k:{} for k in METHODS};current='TREE'
     try:
         start('TREE_START');stages['TREE']='STARTED'
-        tree,artifacts['tree']=fit_tree(training_z,training_y,binding);stages['TREE']='SUCCESS'
+        kwargs={} if observe is None else {'observe':observe}
+        tree,artifacts['tree']=fit_tree(training_z,training_y,binding,**kwargs);stages['TREE']='SUCCESS'
         current='LINEAR';start('LINEAR_START');stages['LINEAR']='STARTED'
-        artifacts['linear']=fit_linear(training_ids,training_z,training_y,binding);stages['LINEAR']='SUCCESS'
+        artifacts['linear']=fit_linear(training_ids,training_z,training_y,binding,**kwargs);stages['LINEAR']='SUCCESS'
         current='HISTORICAL_PASS';start('HISTORICAL_PASS_START');stages['HISTORICAL_PASS']='STARTED'
+        if observe is not None:observe('HISTORICAL_PASS','CALL_BOUNDARY_OBSERVED',{'call':'historical','order':masks['I']})
         for identity in masks['I']:
             window=history_windows[identity]
             require(tuple(window['ids'])==tuple(next(row['history_window'] for row in masks['C']
                                                    if row['opportunity_id']==identity)),'HISTORY_MASK_BINDING')
             artifacts.setdefault('history',{})[identity]=historical(tuple(window['ids']),tuple(window['bits']))
             forecasts['HISTORICAL'][identity]=artifacts['history'][identity]['bits']
+        if observe is not None:observe('HISTORICAL_PASS','COMPLETED',{'call':'historical',
+            'history_sha256':digest(json.dumps(artifacts['history'],sort_keys=True,separators=(',',':')).encode())})
         stages['HISTORICAL_PASS']='SUCCESS';current='FORECASTS'
         # Predict only after both fits and the historical pass succeeded.
         import numpy as np

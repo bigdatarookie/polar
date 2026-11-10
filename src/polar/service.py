@@ -113,12 +113,16 @@ class Service:
                                         raw_sip=raw_sip,raw_profile=raw_profile))
 
     def _import_plan_service(self,plan_id):
+        if plan_id.startswith(('adjustedsip100-','adjustedsip100fixture-')):
+            return self._imports(plan_id.startswith('adjustedsip100fixture-'),True,'all-adjusted100')
         if plan_id.startswith(('rawsipaggregate-','rawsipaggregatefixture-')):
             return self._imports(plan_id.startswith('rawsipaggregatefixture-'),True,'remaining3490')
         return self._imports(plan_id.startswith(("fixture-","rawsipfixture-")),
                              plan_id.startswith(("rawsip-","rawsipfixture-")))
 
     def import_plan(self, config):
+        if config.get('adapter')=='alpaca-all-adjusted-sip-broad100/1':
+            return self._imports(config.get('mode')=='fixture',True,'all-adjusted100').plan(config)
         if config.get('adapter')=='alpaca-raw-sip-remaining/1':
             return self._imports(config.get('mode')=='fixture',True,'remaining3490').plan(config)
         return self._imports(config.get("mode")=="fixture",config.get("adapter")=="alpaca-raw-sip-first-unit/1").plan(config)
@@ -268,3 +272,9 @@ class Service:
         a,b = self.report(left),self.report(right)
         return {"left":str(left),"right":str(right),"metrics":{"left":a["metrics"],"right":b["metrics"]},
                 "status":"DESCRIPTIVE_ONLY","financial_verdict":"NOT_RUN"}
+
+
+    def s1(self, operation, *args):
+        """Same S1 facade as CLI; trusted deployment, never a request-selected root."""
+        from .hyp008_s1_service import configured_operation
+        return configured_operation(operation,*args)
