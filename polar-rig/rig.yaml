@@ -1,4 +1,4 @@
-version: "0.32"
+version: "0.33"
 name: polar-rig
 culture_file: CULTURE.md
 permission_policy: builtin:yolo
@@ -10,6 +10,7 @@ docs:
   - path: PLATFORM.md
   - path: EVALUATION.md
   - path: README.md
+  - path: missions/02-wide-research/SPEC.md
 pods:
   - id: orch
     label: Portfolio and campaign coordination
