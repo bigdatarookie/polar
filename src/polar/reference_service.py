@@ -23,7 +23,7 @@ from .history_bundle import read_file
 from .history_store import HistoryStore
 from .research_results import ResearchResults
 from .research_reference import load_reference
-from .research_learning import fit_ridge, diagnostic_mse
+from .research_learning import fit_ridge, diagnostic_mse, diagnostic_from_records
 from .reference_ridge_plan import ridge_phase_plan, LEGS
 from .reference_evaluation import evaluate_reference
 from .reference_projection import public_reference
@@ -198,6 +198,9 @@ class ReferenceResearchService:
             body=read_file(self.store.root,parent+'/'+name,32*1024**2)
             require(len(body)==pin['bytes'] and sha(body)==pin['sha256'],'REFERENCE_SEMANTIC_HASH')
             files[name]=body
+        diagnostics=decode(files['diagnostics.json'])
+        for diagnostic in diagnostics.values():
+            require(canonical(diagnostic_from_records(diagnostic['rows']))==canonical(diagnostic),'REFERENCE_DIAGNOSTIC_RECOMPUTE')
         phases=decode(files['phases.json'])
         for phase,items in phases.items():
             expected=evaluate_reference(items['simulation'],kind='RIDGE',strategy=LEGS[0],simple=LEGS[1],benchmark=LEGS[2],phase=phase)

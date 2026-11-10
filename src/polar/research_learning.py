@@ -116,9 +116,16 @@ def diagnostic_mse(market, fitted, cycles):
     predictions=ridge_predict(fitted['model'],standardize(array([s[2] for s in samples],columns=4),fitted['transform']))
     records=[{'signal':c['signal'],'entry':c['entry'],'label_exit':c['label_exit'],'symbol':s,
               'prediction_repr':repr(p),'label_repr':repr(y)} for (c,s,_,y),p in zip(samples,predictions)]
+    return diagnostic_from_records(records)
+
+
+def diagnostic_from_records(records):
+    require(type(records) is list and records,'RIDGE_DIAGNOSTIC_EMPTY')
+    pairs=[(float(r['prediction_repr']),float(r['label_repr'])) for r in records]
+    require(all(math.isfinite(p) and math.isfinite(y) for p,y in pairs),'RIDGE_DIAGNOSTIC_INPUT_NONFINITE')
     try:
-        sse=math.fsum((p-s[3])**2 for p,s in zip(predictions,samples));mse=sse/len(samples)
+        sse=math.fsum((p-y)**2 for p,y in pairs);mse=sse/len(records)
         require(math.isfinite(sse) and math.isfinite(mse),'RIDGE_DIAGNOSTIC_OVERFLOW')
     except (ArithmeticError,ValueError):
-        return {'status':'UNAVAILABLE','reason':'NUMERICAL_OVERFLOW','n':len(samples),'sse_repr':None,'mse_repr':None,'rows':records}
-    return {'status':'OK','reason':None,'n':len(samples),'sse_repr':repr(sse),'mse_repr':repr(mse),'rows':records}
+        return {'status':'UNAVAILABLE','reason':'NUMERICAL_OVERFLOW','n':len(records),'sse_repr':None,'mse_repr':None,'rows':records}
+    return {'status':'OK','reason':None,'n':len(records),'sse_repr':repr(sse),'mse_repr':repr(mse),'rows':records}

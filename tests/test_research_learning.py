@@ -55,3 +55,12 @@ class ChronologicalRidge(unittest.TestCase):
         self.assertEqual(quantized_prediction(0.0000000000005), Decimal('0.000000000000'))
         self.assertEqual(quantized_prediction(0.0000000000015), Decimal('0.000000000002'))
         with self.assertRaises(ValueError):quantized_prediction(float('nan'))
+
+
+def test_stored_diagnostic_sse_order_and_overflow_status():
+    from polar.research_learning import diagnostic_from_records
+    rows=[{'prediction_repr':'2.0','label_repr':'1.0'},{'prediction_repr':'3.0','label_repr':'1.0'}]
+    value=diagnostic_from_records(rows)
+    assert value['sse_repr']=='5.0' and value['mse_repr']=='2.5' and value['n']==2
+    large=diagnostic_from_records([{'prediction_repr':'1e+308','label_repr':'-1e+308'}])
+    assert large['status']=='UNAVAILABLE' and large['reason']=='NUMERICAL_OVERFLOW' and large['mse_repr'] is None
