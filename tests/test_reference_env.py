@@ -32,9 +32,9 @@ def test_gym_contract_causal_observation_and_true_terminal():
 def test_zero_fill_keeps_requested_target_in_observation_and_same_action_holds():
     m=market()
     for day in m['dates']:m['prices_micro'][day]['AAA']=10**18
+    m['prices_micro'][m['dates'][62]]['AAA']=1000000
     env=ReferenceAllocationEnv(m,m['dates'][60],m['dates'][65],timezone.utc);env.reset()
     obs,_,_,_,_=env.step(1)
     assert env.ledger.held['AAA']==0 and env.ledger.previous_target==1 and obs[18]==1
-    m['prices_micro'][m['dates'][62]]['AAA']=1000000
     env.step(1)
     assert env.ledger.held['AAA']==0 and not env.ledger.fills

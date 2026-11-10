@@ -14,18 +14,19 @@ class ReferenceAllocationEnv(gym.Env):
     def __init__(self, market, anchor, terminal, tz):
         super().__init__()
         require(len(market['symbols']) == 4 and market['symbols'] == sorted(market['symbols']), 'PPO_SYMBOL_ORDER')
-        self.market=market;self.symbols=market['symbols'];self.days=market['dates'];self.tz=tz
+        self.symbols=list(market['symbols']);self.days=list(market['dates']);self.tz=tz
+        self.prices={d:dict(market['prices_micro'][d]) for d in self.days}
         self.anchor=self.days.index(anchor);self.terminal=self.days.index(terminal)
         require(60<=self.anchor<self.terminal,'PPO_WINDOW')
         # Parse exact decimal quote text to float64 once. These features never feed accounting.
-        self.quotes=np.asarray([[np.float64(f'{market["prices_micro"][d][s]//1000000}.{market["prices_micro"][d][s]%1000000:06d}')
+        self.quotes=np.asarray([[np.float64(f'{self.prices[d][s]//1000000}.{self.prices[d][s]%1000000:06d}')
                                  for s in self.symbols] for d in self.days],dtype=np.float64)
         require(np.isfinite(self.quotes).all() and (self.quotes>0).all(),'PPO_FEATURE_QUOTES')
         self.action_space=spaces.Discrete(5)
         self.observation_space=spaces.Box(low=-1.,high=1.,shape=(23,),dtype=np.float32)
         self.total_transitions=0;self.current=None
 
-    def _prices(self,index):return self.market['prices_micro'][self.days[index]]
+    def _prices(self,index):return self.prices[self.days[index]]
 
     def _observation(self):
         i=self.current;values=[]

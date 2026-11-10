@@ -1,6 +1,8 @@
 """Producer projection for modeled reference units; no UI finance or raw-price labels."""
 from .ci_research import cents_text, utc_text
 from .research_results import validate_result
+from decimal import Decimal
+from .gym_contract import decimal_string
 
 ALIASES = {'net_total_return':'adjusted_reference_return_after_costs',
            'net_cagr_act36525':'adjusted_reference_cagr_after_costs'}
@@ -28,6 +30,13 @@ def public_reference(config, simulation, evaluation, *, semantic_id, semantic_ha
         label={'net_total_return':'Synthetic vendor-adjusted reference-unit return after modeled costs',
                'net_cagr_act36525':'Synthetic vendor-adjusted reference-unit CAGR after modeled costs'}.get(name,name.replace('_',' '))
         metrics.append({'id':key,'label':label,'unit':unit,'values':{leg['id']:leg['metrics'][name] for leg in evaluation['legs']}})
+    for scope,diagnostic in config.get('forecast_diagnostics',{}).items():
+        for field,label,unit in [('mse_repr','forecast MSE','squared_fraction'),('sse_repr','forecast SSE','squared_fraction'),('n','complete forecast labels','count')]:
+            values={leg['id']:{'value':None,'status':'NOT_APPLICABLE','reason':'NO_PREDICTIVE_MODEL'} for leg in evaluation['legs']}
+            token=str(diagnostic[field]) if field=='n' else decimal_string(Decimal(diagnostic[field])) if diagnostic[field] is not None else None
+            values[primary]={'value':token,'status':'OK' if token is not None else 'UNAVAILABLE',
+                             'reason':None if token is not None else diagnostic['reason']}
+            metrics.append({'id':scope+'_FORECAST_'+field.upper(),'label':scope+' '+label,'unit':unit,'values':values})
     costs=[{'id':name,'label':label,'kind':'CHARGED_FEES','unit':'USD',
             'values':{leg['id']:leg['metrics'][metric] for leg in evaluation['legs']},'description':description}
            for name,label,metric,description in [
