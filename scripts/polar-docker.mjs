@@ -37,8 +37,23 @@ function docker(args,timeout=15000) {
 }
 const jsonDocker=args=>JSON.parse(docker(args));
 const same=(a,b)=>canonical(a)===canonical(b);
+// Optional additive containment; absent resources preserve config1/2/3 behavior.
+function resourceLimits(s) {
+  if(!Object.hasOwn(s,'resources'))return null;
+  const r=s.resources;exact(r,['memory_bytes','memory_swap_total_bytes']);
+  check(Number.isSafeInteger(r.memory_bytes)&&r.memory_bytes>=64*1024**2&&r.memory_bytes<=64*1024**3,'INVALID_RESOURCE_MEMORY');
+  check(Number.isSafeInteger(r.memory_swap_total_bytes)&&r.memory_swap_total_bytes>=r.memory_bytes&&r.memory_swap_total_bytes<=64*1024**3,'INVALID_RESOURCE_SWAP');
+  return r;
+}
+function observeResourceLimits(c,s) {
+  const expected=resourceLimits(s);if(!expected)return null;
+  const actual={memory_bytes:c.HostConfig?.Memory??null,memory_swap_total_bytes:c.HostConfig?.MemorySwap??null,oom_kill_disable:c.HostConfig?.OomKillDisable??null};
+  return {schema:'polar.container-resource-limits/1',container_id:c.Id,expected,actual,
+    matches:actual.memory_bytes===expected.memory_bytes&&actual.memory_swap_total_bytes===expected.memory_swap_total_bytes&&actual.oom_kill_disable===false,
+    meaning:'Whole-container containment ceiling, not observed demand or a fit guarantee; equal memory/swap totals permit no additional swap.'};
+}
 function validate(s) {
-  exact(s,['schema','launch_id','candidate','image_id','runtime_image_id','platform','user','entrypoint','environment','refs','build_fields','scenario_timeout_ms',...(s.schema==='polar.observed-launch-config/3'?['retained']:[]),...(Object.hasOwn(s,'lifecycle')?['lifecycle']:[])]);
+  exact(s,['schema','launch_id','candidate','image_id','runtime_image_id','platform','user','entrypoint','environment','refs','build_fields','scenario_timeout_ms',...(s.schema==='polar.observed-launch-config/3'?['retained']:[]),...(Object.hasOwn(s,'lifecycle')?['lifecycle']:[]),...(Object.hasOwn(s,'resources')?['resources']:[])]);
   check(['polar.observed-launch-config/1','polar.observed-launch-config/2','polar.observed-launch-config/3'].includes(s.schema)&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(s.launch_id),'INVALID_LAUNCH');
   exact(s.candidate,['commit','tree']);check(Object.values(s.candidate).every(x=>/^[a-f0-9]{40}$/.test(x)),'INVALID_CANDIDATE');
   check(/^sha256:[a-f0-9]{64}$/.test(s.image_id),'IMMUTABLE_IMAGE_ID_REQUIRED');
@@ -51,6 +66,7 @@ function validate(s) {
   const allowed={TZ:/^[A-Za-z_/+-]{1,64}$/,LANG:/^[A-Za-z0-9_.-]{1,32}$/,PYTHONDONTWRITEBYTECODE:/^1$/,PYTHONUNBUFFERED:/^1$/,POLAR_CODE_REVISION:/^[a-f0-9]{40}$/};
   for(const [k,v] of Object.entries(s.environment))check(allowed[k]&&typeof v==='string'&&allowed[k].test(v),'UNSAFE_ENVIRONMENT');
   exact(s.refs,['source_build','harness','input','expectations','config','review']);
+  resourceLimits(s);
   lifecycle(s); // Optional additive identity; legacy configs retain their interpretation.
   const refs={};
   for(const [k,v] of Object.entries(s.refs)) {
@@ -281,6 +297,7 @@ export function observedLaunch(configFile,out) {
       fs.chmodSync(observationDir,0o555);
     }
     const args=['create','--pull=never','--name','polar-observed-'+s.launch_id,'--label','polar.launch.id='+s.launch_id,'--label','polar.launch.binding='+bindingHash,'--network','none','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--user',s.user,'--platform',s.platform,'--entrypoint',s.entrypoint];
+    const limits=resourceLimits(s);if(limits)args.push('--memory',String(limits.memory_bytes),'--memory-swap',String(limits.memory_swap_total_bytes),'--oom-kill-disable=false');
     for(const [k,v] of Object.entries(lifecycleLabels(s)))args.push('--label',k+'='+v);
     for(const [k,v] of Object.entries(s.environment))args.push('--env',k+'='+v);
     const mounts=[];
@@ -302,6 +319,7 @@ export function observedLaunch(configFile,out) {
     publish(path.join(out,'container.json'),{container_id:id,launch_id:s.launch_id,binding_sha256:bindingHash});
     preparation.owned_resources={container_id:id,container_name:'polar-observed-'+s.launch_id};
     const c=ownedContainer(id,s,bindingHash,true);
+    if(limits){preparation.resource_limits=observeResourceLimits(c,s);check(preparation.resource_limits.matches,'RESOURCE_HOSTCONFIG_MISMATCH');}
     preparation.observed={container_id:c.Id,image_id:c.Image,image_identity_type:'docker-local-image-id',os:null,architecture:null,observed_at:now()};
     const image=jsonDocker(['image','inspect',c.Image])[0];check(image.Id===c.Image,'IMAGE_OBSERVATION_MISSING');
     preparation.observed=observation(c,image,s);preparation.compared_at=now();
@@ -345,6 +363,8 @@ export function observedLaunch(configFile,out) {
     }
     prepRef=publish(path.join(out,'preparation.json'),preparation);
     if(visibleRef)check(visibleRef.sha256===prepRef.sha256&&hash(regular(prepRef.path))===visibleRef.sha256,'RECEIPT_CONFLICT');
+    // Re-inspect limits on that same stopped CID immediately before start.
+    if(limits){const still=ownedContainer(id,s,bindingHash,true);check(still.State.Status==='created','RUNTIME_BINDING_MISMATCH');result.prestart_resource_limits=observeResourceLimits(still,s);check(result.prestart_resource_limits.matches,'RESOURCE_HOSTCONFIG_MISMATCH');}
     // A receipt is committed before starting the SAME observed full container ID.
     result.preparation=prepRef;result.scenario_started=true;result.started_at=now();
     const run=cp.spawnSync('docker',['start','--attach',id],{encoding:'utf8',timeout:s.scenario_timeout_ms,maxBuffer:1024*1024});
@@ -354,7 +374,7 @@ export function observedLaunch(configFile,out) {
     const done=ownedContainer(id,s,bindingHash,true);result.container_exit=done.State.ExitCode;
     if(done.State.Running||done.State.ExitCode!==0)result.scenario='FAIL';
   } catch(e) {
-    const codes=new Set(['INVALID_LIFECYCLE','PREPARATION_MOUNT_ARCHIVE_BOUND','PREPARATION_MOUNT_CONTENT_MISMATCH','PREPARATION_MOUNT_ARCHIVE_INVALID','PREPARATION_MOUNT_FILE_SET','PREPARATION_MOUNT_COPY_FAILED','PREPARATION_DIRECTORY_MODE_MISMATCH','PREPARATION_FILE_MODE_MISMATCH','SOURCE_MAP_BOUND','SOURCE_PATH_INVALID','SOURCE_FILE_BOUND','SOURCE_REFERENCE_OVERLAP','SOURCE_ENTRYPOINT_OVERLAP','SOURCE_ARCHIVE_BOUND','SOURCE_ARCHIVE_INVALID','SOURCE_NONREGULAR','SOURCE_FILE_SET_MISMATCH','SOURCE_HASH_MISMATCH','SOURCE_COPY_FAILED','INVALID_FIELDS','INVALID_LAUNCH','INVALID_CANDIDATE','IMMUTABLE_IMAGE_ID_REQUIRED','IMMUTABLE_RUNTIME_IMAGE_ID_REQUIRED','INVALID_PLATFORM','INVALID_CONFIGURED_USER','INVALID_ENTRYPOINT','INVALID_DEADLINE','INVALID_ENVIRONMENT','UNSAFE_ENVIRONMENT','INVALID_REFERENCE','REFERENCE_HASH_MISMATCH','REFERENCE_PATH_COLLISION','INVALID_BUILD_FIELDS','SOURCE_BUILD_BINDING_MISMATCH','UNSAFE_OUTPUT_ROOT','OUTPUT_CONFLICT','OUTPUT_IDENTITY_CONFLICT','RECEIPT_CONFLICT','ENGINE_IDENTITY_MISSING','ENGINE_COMMAND_FAILED','INVALID_CONTAINER_ID','CONTAINER_OWNERSHIP_CONFLICT','IMAGE_OBSERVATION_MISSING','RUNTIME_BINDING_MISMATCH','STAGED_REFERENCE_CHANGED']);
+    const codes=new Set(['INVALID_RESOURCE_MEMORY','INVALID_RESOURCE_SWAP','RESOURCE_HOSTCONFIG_MISMATCH','INVALID_LIFECYCLE','PREPARATION_MOUNT_ARCHIVE_BOUND','PREPARATION_MOUNT_CONTENT_MISMATCH','PREPARATION_MOUNT_ARCHIVE_INVALID','PREPARATION_MOUNT_FILE_SET','PREPARATION_MOUNT_COPY_FAILED','PREPARATION_DIRECTORY_MODE_MISMATCH','PREPARATION_FILE_MODE_MISMATCH','SOURCE_MAP_BOUND','SOURCE_PATH_INVALID','SOURCE_FILE_BOUND','SOURCE_REFERENCE_OVERLAP','SOURCE_ENTRYPOINT_OVERLAP','SOURCE_ARCHIVE_BOUND','SOURCE_ARCHIVE_INVALID','SOURCE_NONREGULAR','SOURCE_FILE_SET_MISMATCH','SOURCE_HASH_MISMATCH','SOURCE_COPY_FAILED','INVALID_FIELDS','INVALID_LAUNCH','INVALID_CANDIDATE','IMMUTABLE_IMAGE_ID_REQUIRED','IMMUTABLE_RUNTIME_IMAGE_ID_REQUIRED','INVALID_PLATFORM','INVALID_CONFIGURED_USER','INVALID_ENTRYPOINT','INVALID_DEADLINE','INVALID_ENVIRONMENT','UNSAFE_ENVIRONMENT','INVALID_REFERENCE','REFERENCE_HASH_MISMATCH','REFERENCE_PATH_COLLISION','INVALID_BUILD_FIELDS','SOURCE_BUILD_BINDING_MISMATCH','UNSAFE_OUTPUT_ROOT','OUTPUT_CONFLICT','OUTPUT_IDENTITY_CONFLICT','RECEIPT_CONFLICT','ENGINE_IDENTITY_MISSING','ENGINE_COMMAND_FAILED','INVALID_CONTAINER_ID','CONTAINER_OWNERSHIP_CONFLICT','IMAGE_OBSERVATION_MISSING','RUNTIME_BINDING_MISMATCH','STAGED_REFERENCE_CHANGED']);
     const retainedCodes=new Set(['RETAINED_FIELDS','RETAINED_PATH','RETAINED_FILE_BOUND','RETAINED_TOTAL_BOUND','RETAINED_TARGET_OVERLAP','RETAINED_REFERENCE_OVERLAP','RETAINED_FILE_CHANGED','RETAINED_HASH_MISMATCH','RETAINED_MOUNT_MISMATCH','ARTIFACT_ROOT_IDENTITY','ARTIFACT_ROOT_PERMISSIONS','ARTIFACT_OUTPUT_OVERLAP']);
     const code=codes.has(e.message)||retainedCodes.has(e.message)?e.message:'PREPARATION_IO_OR_RECORD_ERROR';
     if(!root)return {schema:'polar.observed-execution/1',preparation_status:'NOT_PREPARED',reason:code,scenario:'NOT_RUN',scenario_started:false,cleanup:{status:'NO_RESOURCES_CREATED'}};
