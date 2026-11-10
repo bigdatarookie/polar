@@ -99,3 +99,26 @@ def score_ridge(market, fitted, signal, decision, tz):
     winner = max(range(len(scores)), key=lambda i:(Decimal(scores[i]['rank_value']), -i))
     return {'signal': signal, 'decision': decision.isoformat(), 'scores': scores,
             'selected_symbol': scores[winner]['symbol'] if Decimal(scores[winner]['rank_value']) > 0 else None}
+
+
+def diagnostic_mse(market, fitted, cycles):
+    """A-v1.2 diagnostic only: fixed unrounded binary64 pairs, never model selection."""
+    from .hyp007_numeric import array, standardize, ridge_predict
+    samples=[]
+    for cycle in cycles:
+        for symbol in market['symbols']:
+            row=feature_row(market,symbol,cycle['signal_index'])
+            y=float(Fraction(market['prices_micro'][cycle['label_exit']][symbol],
+                             market['prices_micro'][cycle['entry']][symbol])-1)
+            require(math.isfinite(y),'RIDGE_DIAGNOSTIC_INPUT_NONFINITE')
+            samples.append((cycle,symbol,row,y))
+    require(samples,'RIDGE_DIAGNOSTIC_EMPTY')
+    predictions=ridge_predict(fitted['model'],standardize(array([s[2] for s in samples],columns=4),fitted['transform']))
+    records=[{'signal':c['signal'],'entry':c['entry'],'label_exit':c['label_exit'],'symbol':s,
+              'prediction_repr':repr(p),'label_repr':repr(y)} for (c,s,_,y),p in zip(samples,predictions)]
+    try:
+        sse=math.fsum((p-s[3])**2 for p,s in zip(predictions,samples));mse=sse/len(samples)
+        require(math.isfinite(sse) and math.isfinite(mse),'RIDGE_DIAGNOSTIC_OVERFLOW')
+    except (ArithmeticError,ValueError):
+        return {'status':'UNAVAILABLE','reason':'NUMERICAL_OVERFLOW','n':len(samples),'sse_repr':None,'mse_repr':None,'rows':records}
+    return {'status':'OK','reason':None,'n':len(samples),'sse_repr':repr(sse),'mse_repr':repr(mse),'rows':records}
