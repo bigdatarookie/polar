@@ -11,6 +11,7 @@ const themeKey = 'polar-retained-theme-v1', sessionKey = 'polar-retained-workspa
 let state = {...restoredControls(null, 0), dataMode:'real',assetId:null, strategyId:null, cursor:0, inspect:0, measurement:null, infoId:null};
 let dataset = null, detail = null, view = emptyView(), catalog = [], runRows = [], datasetOffset = 0, runOffset = 0;
 let researchWorkspace=null;
+let mainResearchClient=null,mainResearch={page:null,loading:false,error:null,offset:0},mainResearchSelection=null;
 let chart, loading = false, loadError = null, flow = 0, assetQuery = '', assetOptionIndex = 0, rendering = false, restoreFrame = 0;
 let pendingSelection=null, failedSelection=null;
 let historyContext=null,historyCatalogCursor=null,pendingHistoryRequest=null,pendingPlotRange=null;
@@ -20,7 +21,7 @@ const historyDisplayed=()=>dataset?.kind==='history'||(!dataset&&state.dataMode=
 const loader = createLatestLoader((...args) => fetch(...args));
 function emptyView() {return {bars:[], equity:[], markers:[], sma:[], baseClose:null, initialCash:null};}
 function getAsset() {return {bars:view.bars, baseClose:view.baseClose, symbol:dataset?.instrument.ticker_history[0]?.ticker || dataset?.instrument.instrument_id || 'No instrument', name:dataset?.name || 'No dataset'};}
-function getStrategy() {return {name:detail?.run.strategy_version || (historyDisplayed()?'No strategy result':'No retained run'), id:detail?.run.id || null};}
+function getStrategy() {return {name:detail?.run.strategy_version || (historyDisplayed()?'No attributed NAV overlay':'No retained run'), id:detail?.run.id || null};}
 function getResult() {return view;}
 function sourceAvailable(source, index) {if(historyDisplayed())return source==='assetClose'&&index>=0&&index<view.bars.length&&view.bars[index].price_status==='OBSERVED'&&numberOrNull(view.bars[index].close)!==null;return index >= 0 && index < view.bars.length && indexValue(source === 'assetClose' ? view.bars[index].close : view.equity[index].value, source === 'assetClose' ? view.baseClose : view.initialCash) !== null;}
 function anySource(source) {return view.bars.some((_,i)=>(!historyDisplayed()||(i>=state.lo&&i<=state.hi))&&sourceAvailable(source,i));}
@@ -117,7 +118,7 @@ async function loadHistorySelection(request={}) {
     catalog=next.assets.map(a=>({kind:'history',dataset_id:a.instrument_id,name:a.display_symbol||a.source_symbol||a.instrument_id,instrument:{...a,ticker_history:[{ticker:a.display_symbol||a.source_symbol||a.instrument_id}]}}));state=nextState;
     state.cursorSource='assetClose';clampCursor();invalidateRange();if(!same)cancelGesture();
     loading=false;pendingSelection=pendingHistoryRequest=pendingPlotRange=pendingSeriesBuffer=null;closeAssets();keepScroll(renderAll);writeURL(!!request.push);scheduleViewportSeries();
-    tell(next.revision?'Stored immutable history · '+(next.bars?.data_status||'EMPTY_WINDOW')+' · no strategy result.':'No registered chart-ready history. Nothing was substituted.');
+    tell(next.revision?'Stored immutable history · '+(next.bars?.data_status||'EMPTY_WINDOW')+' · saved portfolio research is listed below.':'No registered chart-ready history. Saved portfolio research remains separately available.');
   }catch(error){if(!current())return;loading=false;loadError=/^[A-Z0-9_]+$/.test(error.message)?error.message:'HISTORY_UNAVAILABLE';failedSelection={history:true,request};pendingSelection=pendingHistoryRequest=pendingPlotRange=pendingSeriesBuffer=null;renderPending();syncToolbar();keepScroll(renderRail);renderSeriesState();if(!view.bars.length)renderChart();tell('History update failed · '+loadError+'. '+(dataset?'Last valid displayed context retained.':'No valid history display available.')+' Retry is available.');}
 }
 async function loadSelection(datasetId, runId, {push=false, catalogPage=null, runsPage=0, restore=null}={}) {
@@ -294,7 +295,7 @@ function renderRail() {
     ['auto','light','dark'].forEach(mode=>{const b=element('button',mode[0].toUpperCase()+mode.slice(1));b.id='theme-'+mode;b.setAttribute('aria-pressed',String(state.theme===mode));b.onclick=()=>setTheme(mode);group.append(b);});settings.append(group);
     panelNote(settings,state.theme==='auto'?'Auto · system resolves '+resolvedTheme()+'.':'Manual '+state.theme+' · overrides OS changes.');body.append(settings);
     checkbox(body,'marker-toggle','Execution markers','Show attributed actual signed fills; no inferred round trips.','markers',!view.markers.length);
-    const convention=element('div',undefined,'context-note');convention.append(element('b','Display convention'),element('p',historyDisplayed()?'Raw unadjusted OHLC in '+(historyContext?.revision?.basis.price_unit||'source units')+'. Provider-adjusted close and split-adjusted volume remain separate. No funded strategy result.':'Price ÷ first usable open × 100. Retained NAV ÷ report initial cash × 100. Separate bases; no range rebasing.'));body.append(convention);
+    const convention=element('div',undefined,'context-note');convention.append(element('b','Display convention'),element('p',historyDisplayed()?'Raw unadjusted OHLC in '+(historyContext?.revision?.basis.price_unit||'source units')+'. Provider-adjusted close and split-adjusted volume remain separate. Price candles remain separate from saved portfolio NAV.':'Price ÷ first usable open × 100. Retained NAV ÷ report initial cash × 100. Separate bases; no range rebasing.'));body.append(convention);
     panelNote(body,'Auto follows the OS. Unresolved preference uses Dark. Manual Light/Dark takes precedence until Auto or Reset.');
     const source=element('div',undefined,'settings-group');source.append(element('h4','Data source'));const choices=element('div',undefined,'theme-options');
     for(const [mode,label] of [['real','Stored history'],['retained-test','Retained test']]){const b=element('button',label);b.id='mode-'+mode;b.setAttribute('aria-pressed',String(state.dataMode===mode));b.onclick=()=>setDataMode(mode);choices.append(b);}source.append(choices);panelNote(source,'Stored history uses registered immutable revisions. Retained test records are explicitly separated synthetic fixtures, never a real-data fallback.');body.append(source);return;
@@ -313,7 +314,7 @@ function renderRail() {
   }
   if(historyDisplayed()) {
     panelNote(body,historyContext?.instrument?(getAsset().symbol+' · stored history'):'Choose registered stored history.');
-    panelNote(body,'NO_STRATEGY_RESULT · this history has no attributed orders, NAV or Sharpe. Nothing is inferred from price movement.');
+    panelNote(body,'NO_ATTRIBUTED_ORDERS · no order tape is bound to this price history. Open a saved portfolio from the main strategy list to inspect its supplied ledger.');
     if(historyContext?.revision)diagnosticPanel(body,'source','Pinned source details',historyContext.revision.dataset_revision+' · Calendar '+(historyContext.bars?.coverage.calendar_status||historyContext.revision.calendar_status||'UNVERIFIED')+' · PIT '+(historyContext.revision.fitness?.causal_PIT_fitness||'INSUFFICIENT_EVIDENCE'));return;
   }
   panelNote(body,dataset?getAsset().symbol+' · '+getStrategy().name:'Choose an available retained dataset and run.');
@@ -325,8 +326,46 @@ function renderRail() {
   report.orders.forEach(o=>{const row=element('article',undefined,'order-entry');row.append(element('b','Instruction · '+o.status),element('small','Decision '+o.decision_session_id),element('p',o.reason||'No additional reason'));const tape=report.order_tape.find(t=>t.decision_session_id===o.decision_session_id);if(tape)row.append(element('p',tape.quantity+' shares · '+fmtDate(tape.decision_at)));body.append(row);});
   panelNote(body,'Signed fills and instructions are separate; no closed-trade count or per-trade P&L is inferred.');
 }
+async function loadMainResearch(offset=mainResearch.offset){
+  if(!mainResearchClient)return;
+  mainResearch.loading=true;mainResearch.error=null;mainResearch.offset=offset;if(historyDisplayed())keepScroll(renderRows);
+  try{
+    const page=await mainResearchClient.load(offset,null,{includeDetails:true});if(!page)return;
+    mainResearch.page=page;mainResearch.loading=false;mainResearch.error=null;
+  }catch(error){mainResearch.loading=false;mainResearch.error=/^[A-Z0-9_]+$/.test(error.message)?error.message:'RESEARCH_API_UNAVAILABLE';}
+  if(historyDisplayed())keepScroll(renderRows);
+}
+function renderMainResearch(list){
+  list.setAttribute('role','list');list.setAttribute('aria-label','Saved portfolio research available from price history');
+  $('.table-head').hidden=true;$('#sort-label').textContent='Saved content-ID order';
+  const page=mainResearch.page;
+  $$('.list-heading h2 span').forEach(el=>el.textContent=page?page.catalog.total+' saved research records':'Saved portfolio research');
+  $('.list-heading p').textContent='Real saved results · portfolio NAV stays separate from the selected price history';
+  const status=element('p',mainResearch.loading?'Updating saved strategies · the last complete page is retained.':mainResearch.error?'Saved strategy update failed · '+mainResearch.error+(page?' · last complete page retained.':''):page?.catalog.total?'Choose a saved model/benchmark comparison below.':'No saved research records are available.','panel-note');
+  status.id='main-research-status';status.setAttribute('role','status');status.setAttribute('aria-live','polite');list.append(status);
+  const refresh=element('button',mainResearch.error?'Retry saved strategies':'Refresh saved strategies');refresh.id='main-research-refresh';refresh.type='button';refresh.onclick=()=>loadMainResearch();list.append(refresh);
+  for(const saved of page?.details||[]){
+    const r=saved.record,summary=researchHistoryCompatibility(saved,{...historyContext,visibleDates:[view.bars[state.lo]?.time,view.bars[state.hi]?.time].filter(Boolean)});
+    const row=element('article',undefined,'main-research-row');row.setAttribute('role','listitem');row.dataset.resultId=saved.result_id;
+    const title=element('div',undefined,'main-research-title');title.append(element('b',r.question.label),element('small',r.question.id),element('code',saved.result_id));
+    const info=element('div',undefined,'main-research-context');info.append(element('span',summary.period.join(' → ')+' · '+r.grid.length+' supplied NAV samples'),element('span','Recorded symbols: '+summary.symbols.join(', ')),element('span',r.basis.wealth_basis+' · '+r.basis.cost_basis+' · '+r.basis.currency));
+    const assessment=element('p','Financial '+saved.assessment.financial+' · '+saved.assessment.financial_evidence.status,'main-research-assessment');
+    const primary=r.series.find(s=>s.role==='STRATEGY'),metrics=element('div',undefined,'main-research-metrics');
+    for(const metric of r.metrics.filter(m=>['sharpe_252_rf0','sharpe_252','adjusted_reference_return_after_costs','price_return_after_costs','net_total_return'].includes(m.id))){
+      const value=metric.values[primary.id],line=element('span',metric.label+': '+(value.status==='OK'?researchDecimalDisplay(value.value)+' '+metric.unit:value.status+' · '+value.reason));line.title=value.status==='OK'?value.value+' '+metric.unit:line.textContent;metrics.append(line);
+    }
+    const compatibility=element('details',undefined,'main-research-compatibility');compatibility.append(element('summary',summary.label));
+    for(const reason of summary.reasons)compatibility.append(element('p',reason));
+    const open=element('button','Open saved portfolio');open.type='button';open.dataset.openResearch=saved.result_id;open.setAttribute('aria-label','Open '+r.question.label+' · '+saved.result_id);open.onclick=()=>{mainResearchSelection=saved.result_id;researchWorkspace?.openResult(saved.result_id,page.catalog.offset);};
+    row.append(title,info,assessment,metrics,compatibility,open);list.append(row);
+  }
+  $('#runs-page').textContent=page?.catalog.items.length?'Saved results '+(page.catalog.offset+1)+'–'+(page.catalog.offset+page.catalog.items.length)+' of '+page.catalog.total:'No saved results';
+  $('#runs-prev').disabled=mainResearch.loading||!page||page.catalog.offset===0;$('#runs-next').disabled=mainResearch.loading||page?.catalog.next_offset==null;
+}
 function renderRows() {
   const list=$('#strategy-list');list.replaceChildren();
+  if(historyDisplayed()){renderMainResearch(list);return;}
+  list.setAttribute('role','listbox');list.setAttribute('aria-label','Choose an actual retained run');$('.table-head').hidden=false;
   const sorted=[...runRows].sort((a,b)=>{
     let x,y;if(state.sortBy==='createdAt'){x=a.run.created_at;y=b.run.created_at;}else{const key=state.sortBy==='returnPct'?'total_return':'sharpe_252';x=numberOrNull(a.metrics?.[key]?.value);y=numberOrNull(b.metrics?.[key]?.value);if(x===null||y===null)return x===y?String(a.run.id).localeCompare(String(b.run.id)):x===null?1:-1;}
     return (x<y?-1:x>y?1:0)*(state.sortDir==='asc'?1:-1)||String(a.run.id).localeCompare(String(b.run.id));
@@ -370,7 +409,7 @@ function syncToolbar() {
   if(document.activeElement!==$('#asset-search'))$('#asset-search').value=dataset?getAsset().symbol+' · '+dataset.name:'';
   $('#asset-search').placeholder=historyDisplayed()?(loading?'Updating stored history…':'Choose registered history asset'):loading?'Updating retained dataset…':'Choose retained test dataset';
   $('#theme-indicator').textContent=(state.theme==='auto'?'Auto · ':'')+resolvedTheme();$('#granularity').value=state.granularity;
-  $('#source').options[1].textContent=historyDisplayed()?'Strategy equity · no result':'Retained NAV';$('#source').value=state.cursorSource;for(const option of $('#source').options)option.disabled=!anySource(option.value);$('#source').disabled=!anySource('assetClose')&&!anySource('strategyEquity');$('#chart-stage').setAttribute('aria-disabled',String($('#source').disabled));$('#chart-stage').tabIndex=$('#source').disabled?-1:0;
+  $('#source').options[1].textContent=historyDisplayed()?'Portfolio NAV · separate saved view':'Retained NAV';$('#source').value=state.cursorSource;for(const option of $('#source').options)option.disabled=!anySource(option.value);$('#source').disabled=!anySource('assetClose')&&!anySource('strategyEquity');$('#chart-stage').setAttribute('aria-disabled',String($('#source').disabled));$('#chart-stage').tabIndex=$('#source').disabled?-1:0;
   for(const option of $('#granularity').options){option.disabled=!GRANULARITIES.includes(option.value)||(historyDisplayed()&&option.value!=='1D');if(['1W','1M'].includes(option.value))option.textContent=option.value+(historyDisplayed()?' · daily history only':'');}$('#granularity').disabled=!view.bars.length;$$('[data-range]').forEach(b=>{b.disabled=!view.bars.length;b.setAttribute('aria-pressed',String(b.dataset.range===state.rangeId));});
   const first=view.bars[state.lo],last=view.bars[state.hi],visible=view.bars.slice(state.lo,state.hi+1),observed=visible.filter(b=>b.price_status==='OBSERVED').length;
   $('#range-caption').textContent=first&&last?(historyDisplayed()?observed+' observed provider dates'+(visible.length>observed?' / '+(visible.length-observed)+' reference-only gaps':''):(state.hi-state.lo+1)+' supplied buckets')+' · '+fmtDate(first.time)+'–'+fmtDate(last.endTime):'No available observations';
@@ -436,7 +475,7 @@ function derivedReadout(i){
 }
 function setRawReadout(text){$('#raw-readout').textContent=text;$('#diagnostic-summary').textContent=text.split('\n')[0];}
 function showRaw(i) {
-  const b=view.bars[i], n=view.equity[i];if(b?.missingBar){setRawReadout('Reference date '+b.session_date+' · no source OHLCV row. No candle/volume was fabricated.'+derivedReadout(i));state.inspect=i;return;}if(b&&historyDisplayed()){setRawReadout('Session '+b.session_date+' · '+getAsset().symbol+' · '+b.price_status+' · calendar '+(historyContext?.bars?.coverage.calendar_status||'UNVERIFIED')+'\nO '+usd(b.open)+' · H '+usd(b.high)+' · L '+usd(b.low)+' · C '+usd(b.close)+'\nAdjusted close '+usd(b.adjusted_close)+' · volume '+(b.volume??'Unavailable')+' '+(historyContext?.revision?.basis.volume_unit||'split-adjusted shares')+'\nEvent clock '+(b.event_at?fmtDate(b.event_at):'not supplied')+' · no strategy result'+derivedReadout(i));state.inspect=i;return;}if(!b){setRawReadout(loading?'Loading…':loadError?'Values unavailable · '+loadError:'No retained source observations.');return;}state.inspect=i;
+  const b=view.bars[i], n=view.equity[i];if(b?.missingBar){setRawReadout('Reference date '+b.session_date+' · no source OHLCV row. No candle/volume was fabricated.'+derivedReadout(i));state.inspect=i;return;}if(b&&historyDisplayed()){setRawReadout('Session '+b.session_date+' · '+getAsset().symbol+' · '+b.price_status+' · calendar '+(historyContext?.bars?.coverage.calendar_status||'UNVERIFIED')+'\nO '+usd(b.open)+' · H '+usd(b.high)+' · L '+usd(b.low)+' · C '+usd(b.close)+'\nAdjusted close '+usd(b.adjusted_close)+' · volume '+(b.volume??'Unavailable')+' '+(historyContext?.revision?.basis.volume_unit||'split-adjusted shares')+'\nEvent clock '+(b.event_at?fmtDate(b.event_at):'not supplied')+' · price observations only; saved portfolios remain separate'+derivedReadout(i));state.inspect=i;return;}if(!b){setRawReadout(loading?'Loading…':loadError?'Values unavailable · '+loadError:'No retained source observations.');return;}state.inspect=i;
   setRawReadout(fmtDate(b.time)+' – '+fmtDate(b.endTime)+' · '+getAsset().symbol+' · '+b.price_status+' ['+b.originalStatuses.join(', ')+'] · '+b.coverage.observed+'/'+b.coverage.supplied+' supplied sessions; calendar completeness not asserted\nO '+usd(b.open)+' · H '+usd(b.high)+' · L '+usd(b.low)+' · C '+usd(b.close)+' · volume unavailable\nNAV '+usd(n.value)+' at '+fmtDate(n.at)+' · cash '+usd(n.cash)+' · shares '+(n.shares??'Unavailable')+' · '+n.status);
 }
 function windowGeometry() {const box=plotBox(),r=$('#chart').getBoundingClientRect();return {lo:state.lo,hi:state.hi,count:view.bars.length?state.hi-state.lo+1:0,first:view.bars[state.lo]?.time,last:view.bars[state.hi]?.time,canvas:{left:r.left,top:r.top,width:r.width,height:r.height},grid:box};}
@@ -452,10 +491,10 @@ function initUI() {
   $('#tools-button').onclick=openTools;$('#close-tools').onclick=()=>{$('#rail-inner').classList.remove('mobile-open');$('#tools-button').focus({preventScroll:true});};
   $('#retry-selection').onclick=()=>{if(failedSelection){const f=failedSelection;f.history?loadHistorySelection(f.request):loadSelection(f.datasetId,f.runId,f.options)}};
   $('#open-test-mode').onclick=()=>setDataMode('retained-test');
-  $('#refresh').onclick=()=>researchWorkspace?.isActive()?researchWorkspace.refresh():state.dataMode==='real'?loadHistorySelection({datasetId:historyContext?.revision?.dataset_id,revision:historyContext?.revision?.dataset_revision,instrumentId:historyContext?.instrument?.instrument_id}):loadSelection(dataset?.dataset_id||urlSelection()[0],detail?.run.id||urlSelection()[1],{catalogPage:datasetOffset,runsPage:runOffset});
-  $('#reset').onclick=()=>{researchWorkspace?.reset();state={...restoredControls(null,0),dataMode:state.dataMode,assetId:null,strategyId:null,cursor:0,inspect:0,measurement:null,infoId:null};try{localStorage.removeItem(themeKey);sessionStorage.removeItem(sessionKey);}catch{}$('#rail-inner').classList.remove('mobile-open');state.dataMode==='real'?loadHistorySelection({}):loadSelection(null,null,{catalogPage:0});};
+  $('#refresh').onclick=()=>{if(researchWorkspace?.isActive())return researchWorkspace.refresh();if(state.dataMode==='real'){loadMainResearch();return loadHistorySelection({datasetId:historyContext?.revision?.dataset_id,revision:historyContext?.revision?.dataset_revision,instrumentId:historyContext?.instrument?.instrument_id});}return loadSelection(dataset?.dataset_id||urlSelection()[0],detail?.run.id||urlSelection()[1],{catalogPage:datasetOffset,runsPage:runOffset});};
+  $('#reset').onclick=()=>{mainResearchSelection=null;mainResearchClient?.cancel();mainResearch={page:null,loading:false,error:null,offset:0};researchWorkspace?.reset();loadMainResearch(0);state={...restoredControls(null,0),dataMode:state.dataMode,assetId:null,strategyId:null,cursor:0,inspect:0,measurement:null,infoId:null};try{localStorage.removeItem(themeKey);sessionStorage.removeItem(sessionKey);}catch{}$('#rail-inner').classList.remove('mobile-open');state.dataMode==='real'?loadHistorySelection({}):loadSelection(null,null,{catalogPage:0});};
   $('#datasets-prev').onclick=()=>loadSelection(null,null,{push:true,catalogPage:Math.max(0,datasetOffset-10)});$('#datasets-next').onclick=()=>loadSelection(null,null,{push:true,catalogPage:datasetOffset+10});
-  $('#runs-prev').onclick=()=>loadSelection(dataset?.dataset_id,null,{push:true,runsPage:Math.max(0,runOffset-10)});$('#runs-next').onclick=()=>loadSelection(dataset?.dataset_id,null,{push:true,runsPage:runOffset+10});
+  $('#runs-prev').onclick=()=>historyDisplayed()?loadMainResearch(Math.max(0,(mainResearch.page?.catalog.offset||0)-10)):loadSelection(dataset?.dataset_id,null,{push:true,runsPage:Math.max(0,runOffset-10)});$('#runs-next').onclick=()=>historyDisplayed()?loadMainResearch(mainResearch.page?.catalog.next_offset):loadSelection(dataset?.dataset_id,null,{push:true,runsPage:runOffset+10});
   const input=$('#asset-search');input.onfocus=()=>{assetQuery='';assetOptionIndex=0;renderAssets();input.select();};input.oninput=()=>{assetQuery=input.value.toLowerCase();assetOptionIndex=0;renderAssets();};input.onkeydown=e=>{const list=filteredAssets();if(['ArrowDown','ArrowUp'].includes(e.key)){e.preventDefault();assetOptionIndex=Math.max(0,Math.min(list.length-1,assetOptionIndex+(e.key==='ArrowDown'?1:-1)));renderAssets();}else if(e.key==='Enter'&&!$('#asset-options').hidden&&list[assetOptionIndex]){e.preventDefault();selectAsset(list[assetOptionIndex].dataset_id);}else if(e.key==='Escape')closeAssets();};input.onblur=()=>setTimeout(closeAssets,100);
   chart=echarts.init($('#chart'),null,{renderer:'canvas'});chart.on('datazoom',()=>{
     if(rendering||!view.bars.length)return;const d=chart.getOption().dataZoom[0],n=view.bars.length,index=v=>typeof v==='string'?view.bars.findIndex(b=>b.time===v):Number(v);
@@ -476,9 +515,10 @@ function initResearchWorkspace(){
   const foot=element('span');foot.id='research-footer';$('footer').prepend(foot);
   researchWorkspace=createResearchWorkspace({root,historyWorkspace:$('#workspace'),fetcher:fetch,
     theme:()=>state.theme,setTheme,
-    onToggle:active=>{document.body.dataset.workspace=active?'research':'price';foot.hidden=!active;if(!active)requestAnimationFrame(()=>{chart.resize();renderChart();drawMeasurement();});},
+    onToggle:active=>{document.body.dataset.workspace=active?'research':'price';foot.hidden=!active;if(!active)requestAnimationFrame(()=>{chart.resize();renderChart();drawMeasurement();if(mainResearchSelection){$('#strategy-list').querySelector('[data-open-research="'+mainResearchSelection+'"]')?.focus({preventScroll:true});}});},
     onContext:text=>{foot.textContent=text;foot.title=text;}});
   $('.topbar').insertBefore(researchWorkspace.navigation,$('.top-actions'));
+  mainResearchClient=createResearchClient(fetch);loadMainResearch(0);
 }
 function boot() {
   let restored=null;

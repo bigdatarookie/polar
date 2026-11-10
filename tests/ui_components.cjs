@@ -73,11 +73,27 @@ function appContext(fetcher) {
     document:{querySelector:node,getElementById:id=>node('#'+id),querySelectorAll:()=>[],createElement:tag=>new Node(tag)},
     matchMedia:()=>({matches:false}),innerWidth:800,innerHeight:900,scrollX:0,scrollY:0,cancelAnimationFrame(){},requestAnimationFrame(){},
     getComputedStyle:()=>({getPropertyValue:()=> '#7132c4'}),window:{scrollTo(){}},setTimeout,clearTimeout});
-  for(const file of ['data.js','chart-ui.js','interaction.js','history.js','app.js'])vm.runInContext(fs.readFileSync(path.join(web,file),'utf8'),context,{filename:file});
+  for(const file of ['data.js','chart-ui.js','interaction.js','history.js','research.js','app.js'])vm.runInContext(fs.readFileSync(path.join(web,file),'utf8'),context,{filename:file});
   vm.runInContext("state.dataMode='retained-test'",context);
   context.renderAll=()=>{};context.renderChart=()=>{};context.syncToolbar=()=>{};return {context,node,stored,location,history};
 }
 function projection(d,id='run-1'){return {dataset:d,run:{id,dataset_id:d.dataset_id,strategy_version:'cash-flat-v1',state:'completed',created_at:'2024-01-01T00:00:00Z'},report:report(),report_availability:'AVAILABLE'};}
+test('ordinary history main list discovers exact saved portfolio and routes without legacy run or overlay',()=>{
+  const env=appContext(async()=>{throw Error('no request');}),ctx=env.context,id='research-'+'a'.repeat(64);
+  ctx.saved={result_id:id,assessment:{financial:'NOT_SUPPORTED',financial_evidence:{status:'ASSESSED_WITH_LIMITS'}},record:{
+    question:{id:'model.FINAL',label:'Real <b>label</b>'},bindings:{data_revision:'research-source',data_sha256:'a'.repeat(64)},
+    basis:{wealth_basis:'SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT',cost_basis:'NET',currency:'USD'},grid:['2024-01-02T21:00:00Z'],
+    series:[{id:'model',role:'STRATEGY',ledger:[{positions:{AAPL:1,AMZN:0}}]}],metrics:[{id:'sharpe_252_rf0',label:'Sharpe',unit:'ratio',values:{model:{value:'0.8123',status:'OK',reason:null}}}],provenance:[]}};
+  ctx.opened=null;ctx.fakeWorkspace={openResult:(...args)=>ctx.opened=args};
+  vm.runInContext("state.dataMode='real';researchWorkspace=fakeWorkspace;mainResearch.page={catalog:{items:[saved],total:1,offset:0,next_offset:null},details:[saved]};historyContext={revision:{dataset_revision:'raw-history',manifest_sha256:'b'.repeat(64),basis:{ohlc_basis:'VENDOR_RAW_UNADJUSTED'}},instrument:{instrument_id:'raw-id',source_symbol:'AAPL'}};renderRows()",ctx);
+  const list=env.node('#strategy-list');assert.match(list.textContent,/Real <b>label<\/b>/);assert.match(list.textContent,/NOT_SUPPORTED/);
+  assert.match(list.textContent,/Not attributed to AAPL history/);assert.match(list.textContent,/Different data binding/);
+  assert(!list.textContent.includes('NO_STRATEGY_RESULT'));assert.equal(env.node('.table-head').hidden,true);
+  const button=list.children.find(n=>n.tag==='article').children.find(n=>n.tag==='button');button.onclick();
+  assert.deepEqual(Array.from(ctx.opened),[id,0]);assert.equal(vm.runInContext('detail',ctx),null);
+  vm.runInContext("mainResearch.page={catalog:{items:[],total:0,offset:0,next_offset:null},details:[]};renderRows()",ctx);
+  assert.match(list.textContent,/No saved research records/);assert.equal(env.node('#runs-next').disabled,true);
+});
 test('actual app selection flow retains coherent offline data and navigates explicit retained IDs',async()=>{
   const d=data(),view=projection(d);const calls=[];
   const env=appContext(async url=>{calls.push(url);return {ok:true,json:async()=>url.startsWith('/v1/ui/runs/')?view:url.includes('/runs?')?{items:[{run:view.run}],offset:0}:{items:[d],offset:0}};});
