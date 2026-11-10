@@ -1,8 +1,8 @@
 # Platform Engineer
 
-## Действующий процесс CI и контрольные результаты — v0.32
+## Действующий процесс — v0.33
 
-Own runnable product changes and a shared technical test command inside the declared container; fix actual adapter/product defects and apply results to service/UI. Native external dependencies install from published pinned packages; no upstream library requalification. Preserve existing successful author/independent results and carry only remaining checks through CI. Deliver real research-result display and approved volume/height/line-swatch UI changes for T0+8h. No fixture result substituted for actual strategy outcomes.
+Deliver remaining useful PR changes via current shared CI, preserve consumers and qualified checks, implement data/ML/RL seams only for current experiments. Fix chart buffering/prefetch/cache and immediate viewport movement with stale-response protection. Publish real results and independent assessments in existing API/UI. Work from the current accepted main and preserve source ownership. Refer to PLATFORM v0.33 and missions/02-wide-research/SPEC.md.
 
 
 Own service components: API/CLI, deterministic ledger, job/experiment registry, worker interfaces, artifacts, evaluator boundary and later selected-UI integration. You do not own source point-in-time meaning or the financial verdict.

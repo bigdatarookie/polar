@@ -1,11 +1,12 @@
 """Bounded immutable envelopes over the existing raw-SIP evidence graph."""
 from .import_contract import canonical, decode, digest, sha, require, ImportError
-from .import_raw_sip import page, records, commits, status
+from .import_raw_sip import page, records, commits, status, adjusted, kind
 
 
 def normalized_partitions(service, plan, prefix, *, deadline):
     """Partition by encoded bytes; keep job identity even across a row boundary."""
     limit=plan['policy']['partition_bytes'];store=service.store
+    all_adjusted=adjusted(store)
     states=status(service,plan['plan_id'])['states']
     grouped={}
     for start,response in records(service):
@@ -32,14 +33,14 @@ def normalized_partitions(service, plan, prefix, *, deadline):
             'calendar_validated_positions':None,'coverage_fraction':None,
             'economic_eligible_N_contribution':None} for jid,r in parents.items()])+b'\n')
         member('source-plan.json',canonical({
-            'schema':'polar.raw-sip-source-plan/1','source_plan_id':plan['plan_id'],
+            'schema':'polar.adjusted-sip-source-plan/1' if all_adjusted else 'polar.raw-sip-source-plan/1','source_plan_id':plan['plan_id'],
             'selected_symbols':[r['request']['symbols'] for r in parents.values()],
             'unit':{'jobs':[plan_job['relation'] for plan_job in plan['jobs']
                             if plan_job['job_id'] in parents]},
             'policy':plan['policy'],'scope_sha256':plan['unit']['scope_sha256'],
             'source_job_segments':segments,'fitness':'NOT_ASSESSED'})+b'\n')
         for name,ref in sorted(body_refs.items()):member(name,store.object_read(ref))
-        manifest={'schema':'polar.partial-raw-pv-source-content/1','objects':members,
+        manifest={'schema':'polar.vendor-all-adjusted-source-content/1' if all_adjusted else 'polar.partial-raw-pv-source-content/1','objects':members,
                   'recipe_sha256':digest(plan['source_projection']),'source_plan_id':plan['plan_id'],
                   'receipt_clocks':'ACTUAL_CAPTURE_ONLY_HISTORICAL_CLOCKS_UNKNOWN',
                   'scientific_fitness':'NOT_ASSESSED'}
@@ -50,7 +51,7 @@ def normalized_partitions(service, plan, prefix, *, deadline):
 
     for ordinal,job in enumerate(plan['jobs']):
         jid=job['job_id'];state=states[jid]
-        raw_state=('RECEIVED_EMPTY' if state['kind']=='RAW_NO_ROWS' else 'RECEIVED_COMPLETE'
+        raw_state=('RECEIVED_EMPTY' if state['kind']==kind(store,False) else 'RECEIVED_COMPLETE'
             if state['state']=='success' else 'RECEIVED_PARTIAL' if state['state']=='partial'
             else 'UNRECEIVED_OUTCOME_UNKNOWN' if state['reason']=='UNKNOWN_IN_FLIGHT'
             else 'REQUEST_FAILED' if state['state']=='permanent_error' else 'UNRECEIVED')
@@ -94,6 +95,9 @@ def normalized_partitions(service, plan, prefix, *, deadline):
                            'request_id':start['request_id'],'page':start['page']}}
                     for field,key in [('raw_open','o'),('raw_high','h'),('raw_low','l'),
                                       ('raw_close','c'),('raw_volume','v')]:row[field]=original.get(key)
+                    if all_adjusted:
+                        from .import_adjusted_sip import source_row
+                        row=source_row(row)
                     encoded=canonical(row)+b'\n'
                     require(len(encoded)<=limit,'IMPORT_SOURCE_ROW_SIZE')
                     if len(buffer)+len(encoded)>limit:
@@ -110,11 +114,12 @@ def normalized_partitions(service, plan, prefix, *, deadline):
         job_index.append({'global_job_ordinal':ordinal,'canonical_job_id':jid,
                           'source_plan_job_id':job['relation']['job_id'],
                           'population_record_id':job['relation']['population_record_id'],
+                          **({'source_record_ids':job['relation']['source_record_ids']} if all_adjusted else {}),
                           'request':job['request'],'transport_state':raw_state,'reason':state['reason'],
                           'first_partition':first_part,'last_partition':part,'rows':emitted})
     flush()
     emit('job-status-index.ndjson',b''.join(canonical(r)+b'\n' for r in job_index))
-    index={'schema':'polar.raw-sip-source-collection/1','objects':objects,'packets':packets,
+    index={'schema':'polar.vendor-all-adjusted-source-collection/1' if all_adjusted else 'polar.raw-sip-source-collection/1','objects':objects,'packets':packets,
            'source_plan_id':plan['plan_id'],'scope_sha256':plan['unit']['scope_sha256'],
            'prior_counter_lineage':plan['unit']['lineage'],'normalized_rows':sum(r['rows'] for r in job_index),
            'jobs':len(job_index),'source_reference_encoding':'bars/<literalAlias>',

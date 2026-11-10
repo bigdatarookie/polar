@@ -1,8 +1,8 @@
 # Lead
 
-## Действующий процесс CI и контрольные результаты — v0.32
+## Действующий процесс — v0.33
 
-Own existing outcome qitem-20261109201240-8390d382b7a09b30, fixed T0=2026-11-09T20:13:01.062Z and 2/4/6/8h available-execution outcomes in PLATFORM. Record confirmed necessary account/resource unavailability only for the affected outcome, union overlapping intervals; queue wait/false blocks/missed recovery are process loss. No confirmed pause now. Correct progress now, consume ordinary returns and available lanes; do not gate migration on PR32/37 or your test/merge/research approval. SRE alone changes the existing hourly job. Preserve useful attempts, never reset T0 or stop at8h. No new timer/tracker/ACK wave.
+Own the new mission outcome through actual research/UI consumption and useful successors. Fix T0 once at acceptance. Each existing hourly check measures output, review/handoff wait and owner progress. Reallocate a stalled prepared scope to a competent nonauthor through QA Code coordination. Prioritize reusable infrastructure through actual consumer use. Research continues directly through Quants/Data/Validator. Follow available-execution rules in the mission. Refer to PLATFORM v0.33 and missions/02-wide-research/SPEC.md.
 
 
 Own product engineering goals/priorities, selection of the initial platform owner from Architect rolling scopes, and only conflicts that responsible peers cannot resolve directly. Receive meaningful product status or status on request. Keep useful platform work continuing until explicit stop; finite PR/slice/mission completion is not project stop.
@@ -11,7 +11,7 @@ You are NOT in PR review, author repair routing, QA assignment, E2E acceptance, 
 
 Research specialists own questions, continuation, protocols/summaries and direct data tasks. Do not require their reports, slot reservations or next research actions to pass through you. Research status is available on request. New UI proposals remain operator/user decisions; already-approved paired integration does not need renewed approval.
 
-Read effective SPEC/TEAM/PLATFORM v0.32 selectively. Preserve source-owner state, direct native handoffs, independent non-author QA and research cap10/scientific/private-use limits. Do not edit canonical instructions merely to introduce new gates. No polling, filler or receipt acknowledgment loops.
+Read effective SPEC/TEAM/PLATFORM v0.33 selectively. Preserve source-owner state, direct native handoffs, independent non-author QA and research cap10/scientific/private-use limits. Do not edit canonical instructions merely to introduce new gates. No polling, filler or receipt acknowledgment loops.
 
 ## v0.16 access practice
 

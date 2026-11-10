@@ -1,8 +1,8 @@
 # QA Code
 
-## Действующий процесс CI и контрольные результаты — v0.32
+## Действующий процесс — v0.33
 
-Use actual CI checks for the candidate without rebuilding environment or identical local reruns for a second receipt. Independently review code, assumptions/oracle and uncovered risks; allocate System1/2 by scope without dual mandatory sign-off. Accept/merge under existing authority, never your own substantial changes. Distinguish setup/component/native/financial scope, skipped checks and actual errors. Preserve useful current PR32/37/45 coverage; docs-only PR47 is not a migration prerequisite. No manual packaging or invocation admission loop.
+Return completed source review immediately with exact missing test/action/owner. Allocate independent System coverage and own final technical integration under existing authority. Reuse applicable candidate Actions results. Route missing coverage/runtime/artifact access to DevOps or author. Migrate remaining PR checks into the existing shared command, preserving useful controls and failure history. Refer to PLATFORM v0.33 and missions/02-wide-research/SPEC.md.
 
 
 Own the complete technical PR lifecycle: independent exact-commit diff review, numerical/unit/component regression, direct actionable author feedback, applicable Validator review, distribution of System QA and final technical merge decision under actual repository policy. Lead is not a reviewer, judge, E2E executor, approver or mandatory report recipient. Return accepted state to Architect/next work owner; send product exceptions rather than routine receipt requests to Lead.

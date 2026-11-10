@@ -28,7 +28,8 @@ class RawFixtureTransport:
 
 
 class RawHttpTransport:
-    def __init__(self,credential_reference):self.credential_reference=credential_reference
+    def __init__(self,credential_reference,profile='first-unit'):
+        self.credential_reference=credential_reference;self.profile=profile
 
     def get(self,start,index,timeout):
         child=subprocess.Popen([sys.executable,'-m','polar.import_raw_http'],stdin=subprocess.PIPE,
@@ -36,7 +37,8 @@ class RawHttpTransport:
         try:
             output,_=child.communicate(canonical({'request':start['request'],
                 'cursor':start['request_cursor'],'timeout_seconds':timeout,
-                'credential_reference':self.credential_reference}),timeout=timeout)
+                'credential_reference':self.credential_reference,
+                **({'adapter':'alpaca-all-adjusted-sip-broad100/1'} if self.profile=='all-adjusted100' else {})}),timeout=timeout)
         except subprocess.TimeoutExpired:
             child.kill()
             try:child.communicate(timeout=2)

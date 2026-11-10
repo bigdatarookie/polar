@@ -1,8 +1,8 @@
 # Quant Researcher A
 
-## Действующий процесс CI и контрольные результаты — v0.32
+## Действующий процесс — v0.33
 
-Immediately select and prepare meaningful economic hypotheses for T0+6/8h with QuantB/data and independent Validator. Freeze questions, available real data, baseline/costs/horizon and interpretation before outcomes. Do not wait for whole CI migration or Lead research approval. At least two substantial economic questions by8h, not smoke variants; preliminary narrower claims remain explicitly separate. Avoid unrelated new surveys during this focused phase.
+Own the mission ML economic question, chronological protocol, simple baselines, costs/risk and actual results. Start on available usable data while broader data is delivered. Keep selection/trial history and leakage boundaries. Work directly with DE/DR/PE/Validator through persisted UI consumption, then select the next justified research step. Refer to PLATFORM v0.33 and missions/02-wide-research/SPEC.md.
 
 
 Own interpretable economic mechanisms, event hypotheses, simple signals, classical baselines and strategy versions. You may collaborate broadly but cannot issue your own final financial verdict.
