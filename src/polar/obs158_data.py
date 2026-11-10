@@ -166,6 +166,21 @@ def load_obs158_inputs(config):
                   canonical(context),canonical(bindings),'RETAINED')
 
 
+RETAINED_ASOF = '2020-09-02_ENTITY_MAPPING_NOT_VINTAGE;FALLBACK_UNVERIFIED'
+
+
+def source_basis_matches(row, source_class):
+    """Exact declared metadata, not historical vintage or economic identity proof.
+
+    The retained normalizer deliberately preserves both qualifier limitations.
+    The frozen public invented fixture keeps its distinct bare request token.
+    No prefix match, whitespace stripping or source-row rewrite is performed.
+    """
+    expected = {'RETAINED': RETAINED_ASOF, 'INVENTED': '2020-09-02'}.get(source_class)
+    return (expected is not None and row.get('adjustment') == 'raw' and row.get('feed') == 'sip' and
+            row.get('currency') == 'USD_REQUEST_CONTRACT' and row.get('asof') == expected)
+
+
 def preflight_obs158(inputs,converted=None):
     """Same data checker for DE and runner. Part A never admits a strategy run."""
     profile,aliases,days=_profile(inputs);members=profile['members']
@@ -186,7 +201,7 @@ def preflight_obs158(inputs,converted=None):
     except (ValueError,TypeError,EOFError):tz=None;labels=False;clocks=False
     for row in rows:
         # Independent checks still inspect bad numeric rows.
-        basis &= row.get('adjustment')=='raw' and row.get('feed')=='sip' and row.get('currency')=='USD_REQUEST_CONTRACT' and row.get('asof')=='2020-09-02'
+        basis &= source_basis_matches(row, inputs.source_class)
         clocks &= all(k in row and row[k] is None for k in NATIVE_FIELDS)
         try:
             raw=row['raw_fields_exact_tokens']
