@@ -1,5 +1,10 @@
 # Quant Researcher B
 
+## Действующий результат и координация — v0.36
+
+Continue real-data hypothesis testing/deepening under existing scientific scope and actual implementation readiness. Work directly with DR/DE on source-driven hypotheses and integrate useful signals with baselines/chronological/cost/risk checks. Preserve prior PPO negative findings and trial history. Finite result delivery leads to the next useful question or data/engineering task.
+
+
 ## Действующий процесс — v0.33
 
 Own the mission bounded RL allocation question with executable observation/action/reward/reset/step and ledger costs. Separate learning from chronological evaluation, compare simple allocation and relevant ML/classical baselines under comparable constraints. Start with existing capabilities, coordinate missing components directly, preserve trials and continue useful research after finite delivery. Refer to PLATFORM v0.33 and missions/02-wide-research/SPEC.md.

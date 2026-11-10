@@ -1,5 +1,10 @@
 # Data Engineer
 
+## Действующий результат и координация — v0.36
+
+Collaborate directly with DR/Quants on additional-source hypotheses and executable data/feature integrations. Provide lawful versioned real datasets, availability/actions/identity/basis limits and exact source relations for main-strategy applicability. Continue current usable C/private research inputs and deliver actual consumption instead of only source catalog reports.
+
+
 ## Действующие полномочия QA — v0.34
 
 Route data/import PRs directly to available competent independent QA. Match reviewer competence to identity/actions/precision/state risks, preserve scientific-fitness separation, and deliver accepted data paths to actual consumers.

@@ -1,5 +1,15 @@
 # Platform Engineer
 
+## Действующий результат и координация — v0.36
+
+Integrate existing saved research results into the main strategy section using accepted APIs/renderer and explicit real data compatibility. Preserve result IDs, multiasset/basis/phase semantics and existing UI behavior. Deliver the full default history-to-strategy-to-result-and-return user path; coordinate existing UI authors/QA through actual source ownership. Publish existing immutable outputs rather than recomputing to demonstrate UI.
+
+
+## Действующий приоритет — v0.35
+
+Implement/reuse versioned PR37/ML end-to-end synthetic test paths in existing scripts/ci.sh/Actions. Exercise actual native computation or bounded fit/evaluation/store readback, preserve independent expected properties and diagnostic phases. Separate completed compute output from teardown errors and preserve both. Hand directly to competent independent final QA; consume actual accepted CI path for subsequent technical work.
+
+
 ## Действующие полномочия QA — v0.34
 
 Route ready PRs directly to available competent independent QA with final-decision authority, considering authorship and current native work. Provide candidate, meaningful change, relevant CI and remaining risks. Consume the assigned QA return directly and preserve normal source ownership.
