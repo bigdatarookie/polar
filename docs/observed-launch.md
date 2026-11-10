@@ -38,7 +38,7 @@ Strict schema `polar.observed-launch-config/1`:
 }
 ```
 
-Expected and requested image IDs have separate meanings: creating image A while expecting B must produce a truthful mismatch receipt, never change the expected ID to A. Tags and registry manifest digests are unsupported identity types; resolve a local immutable expected ID explicitly before invocation. `build_fields` names bounded key paths in the referenced JSON composition/build receipt; those values must equal expected commit/tree/image. Byte hashes and these fields are verified. This does **not** inspect packaged source or reconstruct compiler provenance. Existing independent review/composition evidence remains responsible for that claim. Source overlays are unsupported and never implicitly mounted; unrecognized configuration fields fail closed. Use existing exact source export separately where applicable, without claiming the image ID proves its contents.
+Expected and requested image IDs have separate meanings: creating image A while expecting B must produce a truthful mismatch receipt, never change the expected ID to A. Tags and registry manifest digests are unsupported identity types; resolve a local immutable expected ID explicitly before invocation. `build_fields` names bounded key paths in the referenced JSON composition/build receipt; those values must equal expected commit/tree/image. Byte hashes and these fields are verified. Schema /1 does **not** inspect packaged source or reconstruct compiler provenance. Existing independent review/composition evidence remains responsible for that claim. Source overlays are unsupported and never implicitly mounted; unrecognized configuration fields fail closed. Use existing exact source export separately where applicable, without claiming the image ID proves its contents.
 
 `review` is an existing applicable independent non-author review reference, checked by exact bytes/hash. The launcher records it; it does not interpret arbitrary Markdown, authenticate reviewers, adjudicate scientific fitness or create another approval system. Task/QA custody must establish review applicability before product scenarios. A rejected or materially changed executable harness must receive independent review of the correction first. Tool author smoke uses only invented synthetic commands and is not tool acceptance.
 
@@ -67,3 +67,146 @@ Explicit cleanup checks the original config/root binding, exact resource IDs/nam
 ## Qualification
 
 Author components cover ordering, identity mismatch, absent observation, immutable publication, redaction, changed refs, unknown create outcome and root-specific ownership/cleanup. Author real smoke is synthetic only. Independent Code/System must qualify the exact frozen revision against real engine observations, including correct match, deliberately wrong expected image with zero marker, inspection/publication failure, exact cleanup and no owner interference. Do not infer runtime acceptance from this documentation or component tests, and do not repeat unrelated browser/Gym/financial checks.
+
+## Packaged source observation (launcher 2 / config 2)
+
+Set the same configuration fields with schema `polar.observed-launch-config/2`. The hash-bound source_build JSON must additionally contain `source_files`, the complete map of eligible packaged files under `/app/src/polar`: absolute canonical path to exactly `{sha256, bytes}`. Eligible suffixes are `.py`, `.json`, `.sql`, including nested package resources. Limit 500 files, 1 MiB per file, 16 MiB total eligible bytes, and the existing 1 MiB build receipt bound. Keep large inherited dependency maps in separately hash-bound evidence rather than this receipt.
+
+Before starting the same full container ID, the parent copies its packaged directory as a bounded (32 MiB) tar stream, hashes eligible regular files in memory without extraction, and rejects changed/missing/extra eligible files, duplicate/escaping paths, symlinks, hardlinks and other nonregular entries. A malformed archive fails closed. Reference mounts cannot overlap source, `/polar-launch`, or `/polar-output`; overlays remain unsupported. Source maps bind bytes, not source correctness or compiler provenance.
+
+The immutable preparation receipt includes `source_binding.packaged_source_independently_observed=true`, `observed_container_id`, and `observed_files` equal to the build map. The identical receipt bytes are exposed read-only at `/polar-launch/preparation.json` before start. The dedicated mounted directory is 0555 and file 0444, independently of the host root 0700 and private receipt 0600. The launcher verifies exact copy hashes; it observes configured user, while the consumer still verifies its actual UID/import origin and visible files. Preparation never imports candidate code.
+
+Legacy config /1 keeps its prior reference-only behavior. Source-boundary author tests use disposable shims; real-engine and consumer qualification belong to independent QA before adoption. No OBS158 native invocation is authorized by this interface change.
+
+## Pre-start receipt mount observation (launcher 2.1)
+
+Host chmod does not prove container-visible mode bits. For config /2, after
+publishing the read-only visible candidate receipt, the parent reads a bounded
+archive of `/polar-launch` from the same still-created full container ID. It does
+not execute a process. The archive must contain exactly the directory and one
+regular `preparation.json`, without links or extra entries. Directory mode0555,
+file mode0444 and exact receipt-byte hash must match before the canonical host
+preparation is published and before `docker start`.
+
+The final immutable `result.json` retains `prestart_receipt_mount`: observed
+container ID/time, directory and file modes separately, file bytes/hash, and
+individual directory-mode/file-mode/content matches. This observation is kept
+outside the receipt whose hash it measures, avoiding a self-reference. A mismatch
+publishes canonical NOT_PREPARED and starts no scenario, with distinct
+PREPARATION_DIRECTORY_MODE_MISMATCH, PREPARATION_FILE_MODE_MISMATCH or
+PREPARATION_MOUNT_CONTENT_MISMATCH. Copy/archive/file-set failures also fail closed.
+Cleanup remains exact-owned. A visible candidate copy created during a failed
+preparation is retained evidence, not independent launch authorization; the
+canonical preparation and final result remain authoritative.
+
+This records stopped-container archive metadata. It does not establish why an
+earlier process saw different modes, or replace applicable runtime consumer
+stat/readability checks. The original610fd3d System mode FAIL remains unchanged;
+whether its directory or file differed and the reason remain unlocalized.
+The mode contract and frozen consumer expectations have not been relaxed. A new
+real-container invocation requires its separately recorded execution continuation
+after independent review of changed source/harness. No runtime or native PASS is
+implied by this source correction or its prospective component fixtures.
+
+## Mount-root initialization correction (launcher 2.2)
+
+The later 2de4679 qualification observed directory0700, file0444 and matching
+receipt bytes in the stopped-container archive. The guard returned
+NOT_PREPARED/PREPARATION_DIRECTORY_MODE_MISMATCH without starting the consumer.
+That FAIL is retained; process-visible stat/readability remained NOT RUN.
+
+The earlier source created the bind root0700 before container creation and only
+changed it to0555 after receipt publication. The corrected source explicitly sets
+0555 before `docker create`, including under a restrictive caller umask. For
+atomic publication it temporarily enables host-owner write (0755) inside the
+private0700 output root while the container is still created, then restores0555
+in a `finally` block. File0444, the stopped-container archive checks and the
+independent UID10001 consumer requirements are unchanged.
+
+Docker29.8.0 source archives a temporary mounted container filesystem view;
+it does not execute the consumer's stat/readability checks. The source ordering
+and observed initial mode support this bounded correction, but the mechanism
+which retained0700 despite later host chmod is UNVERIFIED. Neither a Docker
+Desktop projection defect nor successful runtime correction is asserted.
+Prospective fake-engine coverage retains the bind-root mode observed at create
+instead of supplying a constant0555, and checks restrictive umask and failed
+publication restoration. These fixtures are not a substitute for the separately
+authorized actual consumer qualification after independent review.
+# Retained files and persistent artifact output (config3)
+
+`polar.observed-launch-config/3` extends the same observed launch/cleanup path.
+Config1/config2 retain their fields and behavior. Config3 additionally requires:
+
+```json
+{
+  "retained": {
+    "read_only": [
+      {"path":"/absolute/source/file","target":"/original/container/file","sha256":"64_HEX_SHA256","bytes":123}
+    ],
+    "artifact_root": {"path":"/private/task/artifacts","device":"DEVICE_NUMBER","inode":"INODE_NUMBER"}
+  }
+}
+```
+
+The caller creates and reconciles the persistent root once, under a private
+caller-owned parent. Record device/inode from `stat(...,{bigint:true})`; the root
+must be a caller-owned real directory writable by the configured unprivileged
+container user (the current portable check requires the other-write bit).
+The launcher never creates, chmods, resets or deletes that root or its ledger.
+The separate physical launch output must not overlap it. Runner authorization
+and the operational owner remain responsible for the same scientific family,
+original ledger and retained-start limit across physical launches and repairs.
+This tool adds no counter store or experiment policy.
+
+Selected input files are streamed in 64-KiB chunks into private, sealed per-launch
+staging, checked against exact byte count/SHA256, then mounted individually RO at
+their original absolute targets. No host directory/home/credential-store mount
+is added. The caller must supply only its authorized private read set. An exact
+existing six-ref alias reuses that already verified mount; conflicting aliases,
+duplicate/overlapping targets and application/entrypoint/preparation/output
+overlays fail closed. The bounds are 512 files, 256 MiB per file and 1 GiB total
+per invocation; these are streaming/path-complexity bounds, not a new task storage
+entitlement. The shared host storage policy still applies to staging plus output.
+
+`/polar-artifacts` is the sole additional RW target. The existing harness argument
+contract is unchanged: pass this root and the declared finite storage size to the
+existing runner/CLI through its reviewed config. No new environment variables,
+network access, engine or command dispatcher are introduced. The automatic
+pre-start receipt includes original file references/hashes, persistent-root
+identity and the exact effective bind-mount graph observed from the same stopped
+container. Image, packaged source and readable preparation-receipt checks remain.
+The root identity and staged bytes are rechecked before start. An unexpected
+mount/direction/identity or changed content prevents scenario start. Cleanup still
+removes only the observed owned container and keeps all host artifacts/inputs.
+
+Independent qualification should use invented files and a stdlib writer across
+two physical launches to observe RO inputs, UID/readability, persistent writes,
+automatic binding and exact cleanup. No retained data or native engine is needed
+to qualify this mount seam. Source tests are not that actual Docker proof.
+
+
+## Optional whole-container memory containment
+
+Config1/2/3 may include this closed optional field:
+
+```json
+"resources": {"memory_bytes": 2147483648, "memory_swap_total_bytes": 2147483648}
+```
+
+Both values are integer bytes. Memory must be 64 MiB through 64 GiB; total
+memory/swap must be at least memory and at most 64 GiB. Unlimited, fractional,
+missing or extra values fail before engine work. Equal totals allow no additional
+swap. The launcher sets Docker memory/memory-swap and keeps the OOM killer enabled.
+It reads exact HostConfig values from the same owned stopped container after
+create and immediately before start; mismatch prevents start and uses the existing
+exact-owned cleanup. Preparation and execution receipts retain those observations.
+Configurations without resources keep their existing behavior and send no such flags.
+
+This is a containment ceiling, not a measured peak, success guarantee or resource
+allocation. Actual current headroom/recovery and independent task review still
+belong to the operation owner. OOM/partial failure is preserved with no implicit
+retry. This change adds no sampling daemon, candidate operation or new launcher.
+Independent static review precedes create; the same stopped CID is then observed
+before start, and actual process UID/native checks happen inside it before the
+reviewed harness can admit its family event. No same-container observation can
+exist before that container is created.

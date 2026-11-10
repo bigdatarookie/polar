@@ -3,9 +3,16 @@ import argparse
 import json
 import sys
 import uuid
+from datetime import date, datetime
 from pathlib import Path
 
 from .models import RunConfig
+
+
+def json_default(value):
+    # Match HTTP's ISO timestamp encoding, retaining the CLI's exact decimal
+    # string convention rather than converting monetary Decimal values to float.
+    return value.isoformat() if isinstance(value, (date, datetime)) else str(value)
 
 
 def page_limit(value):
@@ -37,6 +44,25 @@ def main(argv=None):
     subs.add_parser("register").add_argument("file",type=Path)
     subs.add_parser("inspect-dataset").add_argument("file",type=Path)
     subs.add_parser("history-migrate")
+    subs.add_parser("import-plan").add_argument("file",type=Path)
+    imp = subs.add_parser("import-cache-import")
+    imp.add_argument("file",type=Path);imp.add_argument("--fixture",action="store_true")
+    subs.add_parser("import-status").add_argument("plan_id")
+    subs.add_parser("import-attempts").add_argument("plan_id")
+    imp = subs.add_parser("import-attempt-path");imp.add_argument("plan_id");imp.add_argument("attempt_id")
+    imp = subs.add_parser("import-result");imp.add_argument("plan_id");imp.add_argument("job_id")
+    for name in ("import-execute","import-resume"):
+        imp = subs.add_parser(name);imp.add_argument("plan_id")
+        imp.add_argument("--attempt-id")
+        imp.add_argument("--scope-file",type=Path)
+        source = imp.add_mutually_exclusive_group(required=True)
+        source.add_argument("--fixture",type=Path);source.add_argument("--network",action="store_true")
+    imp = subs.add_parser("import-control")
+    imp.add_argument("plan_id");imp.add_argument("action",choices=("pause","resume","stop"))
+    for name in ("import-terminal","import-consume"):
+        imp = subs.add_parser(name);imp.add_argument("plan_id");imp.add_argument("attempt_id")
+        imp.add_argument("--manifest-sha256",required=True)
+        if name=="import-consume": imp.add_argument("--assessment",type=Path,required=True)
     for name in ("hyp007-diagnostic-prepare", "hyp007-diagnostic-run"):
         subs.add_parser(name).add_argument("file", type=Path)
     subs.add_parser("hyp007-diagnostic-attempt").add_argument("attempt_id")
@@ -47,12 +73,26 @@ def main(argv=None):
         if name == "gym-replay": gym.add_argument("experiment_id")
     subs.add_parser("gym-attempt").add_argument("attempt_id")
     subs.add_parser("gym-report").add_argument("experiment_id")
+    for name in ("research-publish", "research-review", "research-preflight", "research-run", "research-config"):
+        subs.add_parser(name).add_argument("file", type=Path)
+    subs.add_parser("research-result").add_argument("result_id")
+    subs.add_parser("research-recompute").add_argument("semantic_id")
+    listing = subs.add_parser("research-results")
+    listing.add_argument("--limit", type=page_limit, default=10)
+    listing.add_argument("--offset", type=page_offset, default=0)
     partial = subs.add_parser("hyp003-prepare")
     partial.add_argument("config_file", type=Path)
     partial.add_argument("--output-dir", type=Path, required=True)
     partial = subs.add_parser("hyp003-preparation-report")
     partial.add_argument("preparation_id")
     partial.add_argument("--output-dir", type=Path, required=True)
+    partial = subs.add_parser("hyp003-availability")
+    partial.add_argument("config_file",type=Path)
+    partial.add_argument("--output-dir",type=Path,required=True)
+    subs.add_parser("hyp003-availability-report").add_argument("output_dir",type=Path)
+    partial = subs.add_parser("hyp003-observability")
+    partial.add_argument("config_file",type=Path)
+    partial.add_argument("--output-dir",type=Path,required=True)
     subs.add_parser("history-experiment").add_argument("config_file", type=Path)
     historical = subs.add_parser("history-register")
     historical.add_argument("directory", type=Path)
@@ -75,12 +115,63 @@ def main(argv=None):
     compare.add_argument("left",type=uuid.UUID)
     compare.add_argument("right",type=uuid.UUID)
     args = parser.parse_args(argv)
+    if args.command.startswith("import-"):
+        import hashlib
+        from .import_contract import ImportError, MAX_FILE, decode
+        def bounded(path):
+            with path.open("rb") as stream: value=stream.read(MAX_FILE+1)
+            if len(value)>MAX_FILE: raise ImportError("IMPORT_INPUT_LIMIT")
+            return decode(value)
+        def scope_ref(path):
+            if path is None:return None
+            with path.open("rb") as stream:value=stream.read(MAX_FILE+1)
+            if len(value)>MAX_FILE:raise ImportError("IMPORT_INPUT_LIMIT")
+            return {"path":str(path.absolute()),"sha256":hashlib.sha256(value).hexdigest()}
+        try:
+            from .config import Settings
+            from .service import Service
+            service = Service(Settings.load())
+            match args.command:
+                case "import-plan": result=service.import_plan(bounded(args.file))
+                case "import-cache-import": result=service.import_cache_import(bounded(args.file),args.fixture)
+                case "import-status": result=service.import_status(args.plan_id)
+                case "import-attempts": result=service.import_attempts(args.plan_id)
+                case "import-attempt-path": result=service.import_attempt_path(args.plan_id,args.attempt_id)
+                case "import-result": result=service.import_result(args.plan_id,args.job_id)
+                case "import-execute" | "import-resume":
+                    result=service.import_execute(args.plan_id,fixture=bounded(args.fixture) if args.fixture else None,
+                                                  network=args.network,attempt_id=args.attempt_id,
+                                                  scope=scope_ref(args.scope_file))
+                case "import-control": result=service.import_control(args.plan_id,args.action)
+                case "import-terminal": result=service.import_terminal(args.plan_id,args.attempt_id,args.manifest_sha256)
+                case "import-consume": result=service.import_consume(args.plan_id,args.attempt_id,args.manifest_sha256,
+                                                                     bounded(args.assessment))
+            print(json.dumps(result,sort_keys=True,allow_nan=False))
+            if result.get("status") in ("partial","failed","interrupted"): raise SystemExit(2)
+        except Exception as exc:
+            print(json.dumps({"schema":"polar.import-error/1","status":"ERROR",
+                              "code":exc.code if isinstance(exc,ImportError) else "IMPORT_DEPENDENCY_OR_RECORD_INVALID"}),
+                  file=sys.stderr)
+            raise SystemExit(1)
+        return
     if args.command.startswith("hyp003-"):
         from .hyp003_preparation import prepare_partial_input, write_preparation, read_preparation
         from .hyp003_source import PreparationError, Sources, CONFIG_LIMIT, decode
         from .history_bundle import HistoryError
         try:
-            if args.command == "hyp003-prepare":
+            if args.command == "hyp003-observability":
+                from .hyp003_observability import write_observability
+                path=args.config_file.absolute()
+                raw,_=Sources().read(path.parent,path.name,CONFIG_LIMIT)
+                result=write_observability(decode(raw),args.output_dir)
+            elif args.command in ("hyp003-availability","hyp003-availability-report"):
+                from .hyp003_availability import write_availability,read_availability
+                if args.command=="hyp003-availability":
+                    path=args.config_file.absolute()
+                    raw,_=Sources().read(path.parent,path.name,CONFIG_LIMIT)
+                    result=write_availability(decode(raw),args.output_dir)
+                else:result=read_availability(args.output_dir)
+            elif args.command == "hyp003-prepare":
                 path=args.config_file.absolute()
                 raw,_=Sources().read(path.parent,path.name,CONFIG_LIMIT)
                 prepared=prepare_partial_input(decode(raw))
@@ -93,6 +184,30 @@ def main(argv=None):
         except (PreparationError,HistoryError,OSError,ValueError,TypeError) as exc:
             code=exc.code if isinstance(exc,PreparationError) else "HYP003_INPUT_OR_OUTPUT_UNAVAILABLE"
             print(json.dumps({"schema":"polar.hyp003-preparation-error/1","status":"ERROR","code":code}),file=sys.stderr)
+            raise SystemExit(1)
+        return
+    if args.command.startswith("research-"):
+        from .config import Settings
+        from .service import Service
+        from .research_results import ResearchError, MAX_RESULT
+        from .history_bundle import decode, HistoryError
+        try:
+            service = Service(Settings.load_artifacts())
+            if args.command in ("research-publish", "research-review", "research-preflight", "research-run", "research-config"):
+                with args.file.open("rb") as stream:
+                    raw = stream.read(MAX_RESULT + 1)
+                if len(raw) > MAX_RESULT:
+                    raise ResearchError("RESEARCH_INPUT_TOO_LARGE", 413)
+                result = getattr(service, args.command.replace("-", "_"))(decode(raw))
+            elif args.command == "research-results":
+                result = service.research_catalog(args.limit, args.offset)
+            elif args.command == "research-recompute":
+                result = service.research_recompute(args.semantic_id)
+            else:
+                result = service.research_result(args.result_id)
+            print(json.dumps(result, sort_keys=True, allow_nan=False))
+        except (ResearchError, HistoryError, OSError, ValueError):
+            print(json.dumps({"status": "ERROR", "code": "RESEARCH_OPERATION_FAILED"}), file=sys.stderr)
             raise SystemExit(1)
         return
     if args.command.startswith("gym-"):
@@ -232,7 +347,7 @@ def main(argv=None):
                 from .worker import run_forever
                 run_forever()
                 return
-        print(json.dumps(result,default=str,sort_keys=True,allow_nan=False))
+        print(json.dumps(result,default=json_default,sort_keys=True,allow_nan=False))
     except Exception as exc:
         # Exception messages can contain DSNs or payloads. Stable type only.
         from .registry import BudgetExceeded, NotFound
