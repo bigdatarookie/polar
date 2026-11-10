@@ -21,3 +21,5 @@ body[data-workspace=research] footer #footer-context,body[data-workspace=researc
 
 .research-appearance button[aria-pressed=true]{border-color:var(--action);color:var(--action);background:var(--selected)}
 .research-disclosure>summary:focus-visible,.research-identity>summary:focus-visible,.research-exact-value>summary:focus-visible,.data-diagnostics>summary:focus-visible,.diagnostic-disclosure>summary:focus-visible{outline:2px solid var(--action);outline-offset:3px}
+
+.research-table-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 8px;color:var(--muted)}.research-table-controls[hidden]{display:none}.research-table-controls small{margin-right:auto;font-size:10px}.research-table-controls button{font-size:10px;padding:4px 7px}

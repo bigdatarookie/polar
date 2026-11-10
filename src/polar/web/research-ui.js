@@ -1,5 +1,10 @@
 // Existing-workspace saved-result view. No economic calculations or synthetic fallback.
 'use strict';
+function researchTableScrollTarget(left,max,key,width){
+  const step=Math.max(120,Math.floor(width*.75));
+  const target=key==='ArrowRight'?left+step:key==='ArrowLeft'?left-step:key==='Home'?0:key==='End'?max:null;
+  return target===null?null:Math.max(0,Math.min(max,target));
+}
 function createResearchWorkspace({root,historyWorkspace,fetcher,theme=()=> 'auto',setTheme,onToggle,onContext=()=>{}}){
   const client=createResearchClient(fetcher);
   let active=false,committed=null,loading=false,error=null,request={offset:0,selection:null},chart=null,inspect=0,renderFrame=0,chartResult=null;
@@ -88,7 +93,17 @@ function createResearchWorkspace({root,historyWorkspace,fetcher,theme=()=> 'auto
     pointInput.max=String(r.grid.length-1);inspect=Math.min(inspect,r.grid.length-1);pointInput.value=String(inspect);renderPoint();requestAnimationFrame(renderChart);
   }
   function renderValuesTable(parent,title,rows,legs,metrics){
-    const section=el('section');section.append(el('h2',title));const scroll=el('div',undefined,'research-table-scroll');scroll.tabIndex=0;scroll.setAttribute('aria-label',title+' table, scroll horizontally if needed');const table=el('table'),caption=el('caption',title+' · producer values; no frontend calculation');table.append(caption);
+    const section=el('section');section.append(el('h2',title));
+    const scroll=el('div',undefined,'research-table-scroll');scroll.tabIndex=0;scroll.id='research-table-'+title.toLowerCase().replace(/[^a-z]+/g,'-');
+    scroll.setAttribute('aria-label',title+' table. Left and Right move across columns; Home and End reach the first and last columns.');
+    scroll.setAttribute('aria-keyshortcuts','ArrowLeft ArrowRight Home End');
+    const controls=el('div',undefined,'research-table-controls'),previous=button('Previous columns',()=>navigate('ArrowLeft')),next=button('Next columns',()=>navigate('ArrowRight'));
+    controls.hidden=true;controls.append(el('small','Portfolio columns'),previous,next);for(const b of [previous,next])b.setAttribute('aria-controls',scroll.id);
+    function update(){const max=Math.max(0,scroll.scrollWidth-scroll.clientWidth);controls.hidden=max<1;previous.disabled=scroll.scrollLeft<=1;next.disabled=scroll.scrollLeft>=max-1;}
+    function navigate(key){const left=researchTableScrollTarget(scroll.scrollLeft,Math.max(0,scroll.scrollWidth-scroll.clientWidth),key,scroll.clientWidth);if(left===null)return false;scroll.scrollLeft=left;update();return true;}
+    scroll.onkeydown=e=>{if(e.target!==scroll||e.altKey||e.ctrlKey||e.metaKey)return;if(navigate(e.key))e.preventDefault();};
+    scroll.onscroll=update;scroll.updateColumnNavigation=update;section.append(controls);
+    const table=el('table'),caption=el('caption',title+' · producer values; no frontend calculation');table.append(caption);
     const tr=el('tr');tr.append(el('th','Metric / unit'));for(const leg of legs)tr.append(el('th',leg.label+' · '+leg.role));const thead=el('thead');thead.append(tr);table.append(thead);const tbody=el('tbody');
     for(const row of rows){const line=el('tr'),name=el('th',row.label);name.scope='row';name.append(el('small',row.unit));line.append(name);
       for(const leg of legs){const value=row.values[leg.id],cell=el('td'),summary=el('span',valueLabel(value,metrics?row.id:null),'research-number');cell.append(summary);
@@ -105,6 +120,7 @@ function createResearchWorkspace({root,historyWorkspace,fetcher,theme=()=> 'auto
   function renderChart(){
     if(!active||!committed?.detail||!canvas.clientWidth||!canvas.clientHeight)return;
     if(!chart){chart=echarts.init(canvas,null,{renderer:'canvas'});chart.on('click',p=>{if(Number.isInteger(p.dataIndex)){inspect=p.dataIndex;renderPoint();}});}
+    root.querySelectorAll('.research-table-scroll').forEach(s=>s.updateColumnNavigation?.());
     const r=committed.detail.record,c=style(),narrow=innerWidth<701;
     const previousZoom=chartResult===committed.detail.result_id?chart.getOption().dataZoom?.[0]:null,zoom=previousZoom?{start:previousZoom.start,end:previousZoom.end}:{start:0,end:100};chartResult=committed.detail.result_id;
     let precision=0;const series=r.series.map((leg,i)=>({id:leg.id,name:leg.label+' · '+leg.role,type:'line',data:leg.values.map(v=>{const n=researchPlotValue(v);if(n===null&&v.status==='OK')precision++;return n;}),connectNulls:false,showSymbol:false,smooth:false,lineStyle:legStyle(leg,i),emphasis:{disabled:true}}));
@@ -115,3 +131,5 @@ function createResearchWorkspace({root,historyWorkspace,fetcher,theme=()=> 'auto
   const themeObserver=new MutationObserver(()=>{if(active)render();});themeObserver.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
   open(false);return {navigation:nav,open,refresh:()=>load(request.offset,request.selection),isActive:()=>active,reset(){client.cancel();committed=null;loading=false;error=null;request={offset:0,selection:null};inspect=0;chartResult=null;chart?.clear();open(false);}};
 }
+
+if(typeof module!=='undefined')module.exports={researchTableScrollTarget};

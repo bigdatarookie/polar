@@ -54,3 +54,15 @@ test('empty catalog is empty and makes no fallback/detail request',async()=>{
  const result=await client.load();assert.equal(result.detail,null);assert.equal(result.catalog.items.length,0);assert.equal(urls.length,1);
 });
 module.exports={fixture};
+
+const {researchTableScrollTarget}=require('../src/polar/web/research-ui.js');
+test('focused table keys reveal hidden columns with bounded, reversible navigation',()=>{
+ const max=625-366;
+ assert.equal(researchTableScrollTarget(0,max,'ArrowRight',366),max);
+ assert.equal(researchTableScrollTarget(max,max,'ArrowLeft',366),0);
+ assert.equal(researchTableScrollTarget(30,max,'End',366),max);
+ assert.equal(researchTableScrollTarget(30,max,'Home',366),0);
+ assert.equal(researchTableScrollTarget(max,max,'ArrowRight',366),max);
+ assert.equal(researchTableScrollTarget(0,0,'ArrowRight',900),0);
+ assert.equal(researchTableScrollTarget(0,max,'Tab',366),null);
+});
