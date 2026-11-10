@@ -73,9 +73,10 @@ def main(argv=None):
         if name == "gym-replay": gym.add_argument("experiment_id")
     subs.add_parser("gym-attempt").add_argument("attempt_id")
     subs.add_parser("gym-report").add_argument("experiment_id")
-    for name in ("research-publish", "research-review"):
+    for name in ("research-publish", "research-review", "research-preflight", "research-run", "research-config"):
         subs.add_parser(name).add_argument("file", type=Path)
     subs.add_parser("research-result").add_argument("result_id")
+    subs.add_parser("research-recompute").add_argument("semantic_id")
     listing = subs.add_parser("research-results")
     listing.add_argument("--limit", type=page_limit, default=10)
     listing.add_argument("--offset", type=page_offset, default=0)
@@ -191,8 +192,8 @@ def main(argv=None):
         from .research_results import ResearchError, MAX_RESULT
         from .history_bundle import decode, HistoryError
         try:
-            service = Service(Settings.load())
-            if args.command in ("research-publish", "research-review"):
+            service = Service(Settings.load_artifacts())
+            if args.command in ("research-publish", "research-review", "research-preflight", "research-run", "research-config"):
                 with args.file.open("rb") as stream:
                     raw = stream.read(MAX_RESULT + 1)
                 if len(raw) > MAX_RESULT:
@@ -200,6 +201,8 @@ def main(argv=None):
                 result = getattr(service, args.command.replace("-", "_"))(decode(raw))
             elif args.command == "research-results":
                 result = service.research_catalog(args.limit, args.offset)
+            elif args.command == "research-recompute":
+                result = service.research_recompute(args.semantic_id)
             else:
                 result = service.research_result(args.result_id)
             print(json.dumps(result, sort_keys=True, allow_nan=False))

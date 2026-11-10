@@ -15,6 +15,16 @@ class Settings:
     history_calendar_dir: Path | None = None
 
     @classmethod
+    def load_artifacts(cls):
+        """File-only research operations never need or open a DB credential."""
+        allocation = os.environ.get("POLAR_STORAGE_BYTES", str(64 * 1024**3))
+        if (not allocation.isascii() or not allocation.isdecimal() or len(allocation) > 11 or
+                not 1 <= int(allocation) <= 64 * 1024**3):
+            raise ValueError("INVALID_STORAGE_ALLOCATION")
+        return cls("unused-file-only", Path(os.environ.get("POLAR_ARTIFACT_ROOT", "/data/artifacts")),
+                   storage_bytes=int(allocation))
+
+    @classmethod
     def load(cls):
         # Credentials are read from a mounted secret. Never log the DSN.
         secret = Path(os.environ.get("POLAR_DB_PASSWORD_FILE", "/run/secrets/db_password"))

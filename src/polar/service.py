@@ -27,6 +27,29 @@ class Service:
         from .research_results import ResearchResults
         return ResearchResults(self.artifacts.root, self.artifacts.limit)
 
+    def _research_engine(self):
+        from .ci_research_service import ResearchService
+        return ResearchService(self.artifacts.root, self.artifacts.limit)
+
+    def research_preflight(self, config):
+        from .ci_research_service import operation_binding
+        from .gym_contract import canonical, sha
+        plan, pins = self._research_engine().prepare(config)
+        return {"schema": "polar.ci-research-preflight/1", "status": "READY_FOR_BOUND_OPERATION",
+                "profile_id": config["profile_id"], "pins": pins, "nav_points": len(plan["grid"]),
+                "decisions": len(plan["decisions"]), "strategy_execution": "NOT_RUN",
+                "operation_binding_sha256": sha(canonical(operation_binding(config, pins)))}
+
+    def research_config(self, seed):
+        from .ci_research_service import config_from_seed
+        return config_from_seed(seed)
+
+    def research_run(self, config):
+        return self._research_engine().run(config)
+
+    def research_recompute(self, semantic_id):
+        return self._research_engine().recompute(semantic_id)
+
     def research_publish(self, result):
         return self._research_call("publish", result)
 
