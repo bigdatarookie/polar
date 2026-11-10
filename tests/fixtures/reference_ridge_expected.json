@@ -1,0 +1,179 @@
+{
+  "chronology_and_fit_expectations": {
+    "final_decisions": 2,
+    "final_first_entry": "2019-01-01",
+    "final_first_signal": "2018-12-31",
+    "final_nav_points": 49,
+    "final_returns": 48,
+    "fit_calls": 1,
+    "fresh_starting_cash_cents_each_phase": 10000000,
+    "same_fit_and_scaler_reused_for_validation_and_final": true,
+    "scaler_fits": 1,
+    "terminal_positions_zero": true,
+    "validation_decisions": 1,
+    "validation_first_entry": "2018-12-01",
+    "validation_first_signal": "2018-11-30",
+    "validation_nav_points": 31,
+    "validation_returns": 30
+  },
+  "execution_status": "NOT_RUN",
+  "explicitly_not_frozen": {
+    "economic_or_financial_verdict": "NOT_APPLICABLE_INVENTED",
+    "live_or_retained_claim": "NOT_AUTHORIZED",
+    "ridge_forecast_values_or_winners": "NOT_FROZEN"
+  },
+  "independent_fixture_checks": {
+    "all_training_labels_mature_before_fit_event": true,
+    "days": 400,
+    "fit_event": "2018-11-07T00:00:30+00:00",
+    "publication_and_historical_availability": "UNKNOWN_NOT_OBSERVED",
+    "rows": 1600,
+    "rows_per_training_cycle": 4,
+    "symbols": [
+      "AAA",
+      "BBB",
+      "CCC",
+      "DDD"
+    ],
+    "training_cycles": 2,
+    "training_label_exits": [
+      "2018-10-02",
+      "2018-10-24"
+    ],
+    "training_rows": 8
+  },
+  "independently_recomputed_allocation_controls": {
+    "FINAL": {
+      "EW4_ending_cash_cents": 809,
+      "EW4_fills": [
+        {
+          "cash_after_cents": 7496719,
+          "fee_cents": 2601,
+          "quantity": 1832,
+          "settled_cents": 2500680,
+          "symbol": "AAA"
+        },
+        {
+          "cash_after_cents": 4993255,
+          "fee_cents": 2601,
+          "quantity": 1832,
+          "settled_cents": 2500863,
+          "symbol": "BBB"
+        },
+        {
+          "cash_after_cents": 2489607,
+          "fee_cents": 2602,
+          "quantity": 1832,
+          "settled_cents": 2501046,
+          "symbol": "CCC"
+        },
+        {
+          "cash_after_cents": 809,
+          "fee_cents": 2587,
+          "quantity": 1821,
+          "settled_cents": 2486211,
+          "symbol": "DDD"
+        }
+      ],
+      "EW4_nav_cents": 9989609,
+      "EW4_targets": {
+        "AAA": 1832,
+        "BBB": 1832,
+        "CCC": 1832,
+        "DDD": 1832
+      },
+      "ending_cash_cents": 840,
+      "fee_cents": 10090,
+      "filled_quantity": 7318,
+      "formation_price_micro": 13640000,
+      "momentum_score_dates": [
+        "2018-04-23",
+        "2018-12-10"
+      ],
+      "momentum_winner": "AAA",
+      "next_close_micro": 13650000,
+      "one_position_nav_cents": 9989910,
+      "settled_cents": 9989070,
+      "target_quantity": 7331
+    },
+    "VALIDATION": {
+      "EW4_ending_cash_cents": 829,
+      "EW4_fills": [
+        {
+          "cash_after_cents": 7496148,
+          "fee_cents": 2602,
+          "quantity": 1875,
+          "settled_cents": 2501250,
+          "symbol": "AAA"
+        },
+        {
+          "cash_after_cents": 4992108,
+          "fee_cents": 2602,
+          "quantity": 1875,
+          "settled_cents": 2501438,
+          "symbol": "BBB"
+        },
+        {
+          "cash_after_cents": 2487881,
+          "fee_cents": 2602,
+          "quantity": 1875,
+          "settled_cents": 2501625,
+          "symbol": "CCC"
+        },
+        {
+          "cash_after_cents": 829,
+          "fee_cents": 2585,
+          "quantity": 1862,
+          "settled_cents": 2484467,
+          "symbol": "DDD"
+        }
+      ],
+      "EW4_nav_cents": 9989609,
+      "EW4_targets": {
+        "AAA": 1875,
+        "BBB": 1875,
+        "CCC": 1875,
+        "DDD": 1875
+      },
+      "ending_cash_cents": 919,
+      "fee_cents": 10089,
+      "filled_quantity": 7488,
+      "formation_price_micro": 13330000,
+      "momentum_score_dates": [
+        "2018-03-23",
+        "2018-11-09"
+      ],
+      "momentum_winner": "AAA",
+      "next_close_micro": 13340000,
+      "one_position_nav_cents": 9989911,
+      "settled_cents": 9988992,
+      "target_quantity": 7501
+    },
+    "method": "Exact integer quantities from fixture reference quotes; target quantities floor(decision NAV cents * 10000 / (price micro * denominator)); fills are capped by exact settled cents plus fee; fee=100+ceil(quantity*price_micro/10000000); cent conversion uses nearest with ties to even."
+  },
+  "runtime_verification_expectations": {
+    "actual_source_publication_or_historical_availability": "UNKNOWN_NOT_OBSERVED",
+    "duplicate_original": "REFERENCE_ORIGINAL_ALREADY_RECORDED_BEFORE_SECOND_FIT_OR_WRITE",
+    "financial_acceptance": "NOT_REVIEWED",
+    "publication_evidence_level": "INVENTED_CONTROL",
+    "stored_recompute": {
+      "model_calls": 0,
+      "native_calls": 0,
+      "status": "REPRODUCED",
+      "store_writes": 0
+    },
+    "wealth_basis": "SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT"
+  },
+  "schema": "polar.a-invented-system2-expected-controls/1",
+  "scope": {
+    "candidate_commit": "28eba03b43fa82f4f8a4d75db2d2523d4e254efe",
+    "candidate_tree": "9837ad3f8d2f1737413fcba90905fa5ecc48eb1f",
+    "classification": "INVENTED_PUBLIC_TEST",
+    "financial_verdict": "NOT_APPLICABLE_INVENTED",
+    "fixture_manifest_sha256": "c384c7b21750b9a8870bc14b92e15fb63a6dd7c0d9ae85acfb4005eadbf8ee45",
+    "image": "sha256:5a15271ce7b890719ea8c7f94d34eb9c91d189587828cc4da3cef3cfc64a42fa",
+    "protocol": "INVENTED-REFERENCE-RIDGE-CONTROL-V1",
+    "quote_rows_sha256": "cbc4494bab36d0d81df6b26d9fab7ad05f0dbe60f76584c62e6e7c93efbc0259"
+  },
+  "status": "FROZEN_BEFORE_RUNTIME"
+}

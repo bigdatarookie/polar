@@ -9,6 +9,7 @@ while (($#)); do
   case "$1" in
     --source) SOURCE_ROOT=$(cd "$2" && pwd); shift 2 ;;
     --reports) REPORT_DIR=$2; shift 2 ;;
+    --scenario) TESTS+=(--scenario "$2"); shift 2 ;;
     --test) TESTS+=(--test "$2"); shift 2 ;;
     *) echo 'usage: scripts/ci.sh [--source CHECKOUT] [--reports EMPTY_DIR] [--test tests/path.py]' >&2; exit 2 ;;
   esac

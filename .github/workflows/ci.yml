@@ -73,15 +73,35 @@ jobs:
           ARGS=()
           if [[ -n "$TEST_PATH" ]]; then ARGS+=(--test "$TEST_PATH"); fi
           ci-tools/scripts/ci.sh --source "$GITHUB_WORKSPACE/candidate" --reports "$GITHUB_WORKSPACE/ci-reports" "${ARGS[@]}"
+      - name: ML ridge synthetic end-to-end
+        id: ml
+        if: always()
+        run: |
+          if [[ -f candidate/src/polar/reference_service.py ]]; then
+            ci-tools/scripts/ci.sh --source "$GITHUB_WORKSPACE/candidate" --reports "$GITHUB_WORKSPACE/ci-reports-ml" --scenario ml-ridge
+          else
+            echo 'ML scenario NOT AVAILABLE on this historical selected candidate'
+          fi
+      - name: OBS158 synthetic end-to-end
+        id: obs
+        if: always()
+        run: |
+          if [[ -f candidate/src/polar/obs158_service.py ]]; then
+            ci-tools/scripts/ci.sh --source "$GITHUB_WORKSPACE/candidate" --reports "$GITHUB_WORKSPACE/ci-reports-obs" --scenario obs158
+          else
+            echo 'OBS158 scenario NOT AVAILABLE on this historical selected candidate'
+          fi
       - name: Publish exact candidate result
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_SHA: ${{ matrix.sha }}
           OUTCOME: ${{ steps.ci.outcome }}
+          ML_OUTCOME: ${{ steps.ml.outcome }}
+          OBS_OUTCOME: ${{ steps.obs.outcome }}
         run: |
           STATE=failure
-          if [[ "$OUTCOME" == success ]]; then STATE=success; fi
+          if [[ "$OUTCOME" == success && "$ML_OUTCOME" == success && "$OBS_OUTCOME" == success ]]; then STATE=success; fi
           if [[ -f ci-reports/result.json ]]; then
             jq -e --arg sha "$CANDIDATE_SHA" '.candidate_sha == $sha' ci-reports/result.json
             cat ci-reports/result.json >> "$GITHUB_STEP_SUMMARY"
@@ -92,6 +112,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ci-${{ matrix.name }}-${{ matrix.sha }}
-          path: ci-reports/
+          path: |
+            ci-reports/
+            ci-reports-ml/
+            ci-reports-obs/
           retention-days: 7
           if-no-files-found: warn
