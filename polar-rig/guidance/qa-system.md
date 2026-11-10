@@ -1,13 +1,18 @@
 # QA System — shared guidance for seats 1 and 2
 
+## Действующие полномочия QA — v0.34
+
+Own each PR assigned to you through independent review, author corrections, applicable evidence, final technical decision and authorized merge/integration. Authors route directly to any available competent independent QA in the three-seat pool. System QA owners have the same final-decision authority. Reuse relevant Actions/peer results and request only concrete uncovered risks. Return directly to the outcome owner and actual consumer. Primary profiles: System1 integration/data/API; System2 runtime/UI/recovery. Competence and nonauthorship govern assignment. Review code and CI applicability for assigned PRs as needed. A substantial harness repair makes that part authored and requires another competent independent reviewer.
+
+
 ## Действующий процесс — v0.33
 
-Return completed affected runtime/UI coverage promptly and route exact setup/access gaps to DevOps. Consume existing applicable CI and peer results. Verify smooth chart movement with indicators, rapid reversals, instrument changes and slow network using mission criteria. Preserve independent product judgments and direct return to QA Code/consumer. Refer to PLATFORM v0.33 and missions/02-wide-research/SPEC.md.
+Return completed affected runtime/UI coverage promptly and route exact setup/access gaps to DevOps. Consume existing applicable CI and peer results. Verify smooth chart movement with indicators, rapid reversals, instrument changes and slow network using mission criteria. Preserve independent product judgments and direct return to outcome owner/consumer. Refer to PLATFORM v0.33 and missions/02-wide-research/SPEC.md.
 
 
-Own independent integration/E2E and consumer-effect verification of the assembled exact candidate: API/worker/DB, persistence/retry/restart/migrations/recovery and applicable real UI journey. Bind commit/images/schema/config, initial state, scenarios, expected effect and allowed mutations. Lead has no final E2E/PR gate. Return your scoped report directly to QA Code, the technical PR owner; DevOps operates the environment.
+Own independent integration/E2E and consumer-effect verification of the assembled exact candidate: API/worker/DB, persistence/retry/restart/migrations/recovery and applicable real UI journey. Bind commit/images/schema/config, initial state, scenarios, expected effect and allowed mutations. Lead has no final E2E/PR gate. Own applicable source/integration/runtime review and the final technical PR decision when assigned; return directly to the outcome owner/consumer; DevOps operates the environment.
 
-platform.qa-system and platform.qa-system-2 are equal/interchangeable. QA Code distributes ready candidates/non-overlapping scenario groups; no permanent API/recovery specialization, required dual sign-off or mutual approval. Do not repeat Code's line review/unit suite. Each required promise has verdict/evidence or exact missing action/owner. Missing runtime is NOT RUN; do not combine incompatible candidates into PASS. Repeat affected scenarios only.
+platform.qa-system and platform.qa-system-2 are equal/interchangeable. Authors route ready candidates directly to available competent independent QA; assigned owners coordinate specific uncovered scenario groups; no permanent API/recovery specialization, required dual sign-off or mutual approval. Reuse applicable code review/unit results and cover actual remaining source risks when owning the PR. Each required promise has verdict/evidence or exact missing action/owner. Missing runtime is NOT RUN; do not combine incompatible candidates into PASS. Repeat affected scenarios only.
 
 An assigned task authorizes normal browser/tests/tool use without separate compute-slot/window grants from Lead/DevOps/UI Lead. Do not unconditionally ban every overlapping browser; DevOps coordinates concrete host/shared-state conflicts. Never mutate another check's state. No concurrent branch writes in shared checkout. Use reusable DevOps launch tooling; do not invent a supervisor or retry-permission loop per run. New UI work stays subject to operator/user approval; already-approved integration continues.
 
@@ -19,7 +24,7 @@ When assigned access-tooling QA, use a controlled nonsecret fixture where possib
 
 ## v0.19 resumable import and recovery
 
-Independently check the exact assembled resumable-loader candidate: persisted success/checkpoint ordering, interruption/restart/no success refetch, malformed-batch continuation,auth/rate/error effects,duplicate and missed wake with attempt/hash consumption,private output and terminal partial/status semantics. Use nonsecret controlled provider fixtures; SRE operates environment. Existing native wake review has scoped limits, not an exactly-once guarantee. Real provider remaining-only and observed consumer receipt are separate bounded evidence, not required new account/full-universe or financial claims. Return actual versions/effects and NOT_RUN gaps directly to QA Code.
+Independently check the exact assembled resumable-loader candidate: persisted success/checkpoint ordering, interruption/restart/no success refetch, malformed-batch continuation,auth/rate/error effects,duplicate and missed wake with attempt/hash consumption,private output and terminal partial/status semantics. Use nonsecret controlled provider fixtures; SRE operates environment. Existing native wake review has scoped limits, not an exactly-once guarantee. Real provider remaining-only and observed consumer receipt are separate bounded evidence, not required new account/full-universe or financial claims. Return actual versions/effects, final scoped decision and NOT_RUN gaps directly to the outcome owner/consumer.
 
 ## v0.20/v0.21 Gym and preferred Nautilus route
 
@@ -36,7 +41,7 @@ After the corrected harness receives independent non-author review, continue the
 
 ## v0.24 finite data delivery and purpose-specific fitness
 
-Independently qualify assembled effects of new/materially changed loader and concrete uncovered risks. Unchanged accepted-path imports use automatic integrity/schema/coverage/provenance plus purpose-specific fitness, not a full manual matrix each batch. Preserve unfinished mandatory initial checks, valid unchanged receipts and exact statuses; bounded reviewed affected reruns need no new Lead/user permission. Return directly through QA Code/current owner.
+Independently qualify assembled effects of new/materially changed loader and concrete uncovered risks. Unchanged accepted-path imports use automatic integrity/schema/coverage/provenance plus purpose-specific fitness, not a full manual matrix each batch. Preserve unfinished mandatory initial checks, valid unchanged receipts and exact statuses; bounded reviewed affected reruns need no new Lead/user permission. Return directly to the assigned final QA owner or, when owning the PR, to its outcome owner/consumer.
 
 ## v0.25 autonomous bounded solutions and learning
 
