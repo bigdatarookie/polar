@@ -32,12 +32,20 @@ function historyBufferedWindow(context,visible){
   const margin=Math.max(128,hi-lo),start=Math.max(0,lo-margin),end=Math.min(rows.length-1,hi+margin);
   return {start:rows[start].session_date,end_exclusive:historyDayAfter(rows[end].session_date)};
 }
+// Keep a visible-span reserve near a partial buffer edge. A full admitted
+// daily history has no missing edge and never schedules viewport I/O.
+function historyBufferNeedsPrefetch(context,buffer,visible){
+  if(!historyWindowContains(buffer,visible))return true;
+  const rows=context.rows,at=date=>{const i=rows.findIndex(r=>r.session_date>=date);return i<0?rows.length:i;};
+  const lo=at(visible.start),hi=at(visible.end_exclusive),left=at(buffer.start),right=at(buffer.end_exclusive),reserve=Math.max(32,hi-lo);
+  return left>0&&lo-left<reserve||right<rows.length&&right-hi<reserve;
+}
 function createHistoryClient(fetcher) {
   let controller=null;const seriesCache=new Map(),seriesPending=new Map();
   return {
     cancel(){controller?.abort();for(const p of seriesPending.values())p.controller.abort();seriesPending.clear();},
     async load(selection={}) {
-      controller?.abort();const own=new AbortController();controller=own;
+      controller?.abort();for(const p of seriesPending.values())p.controller.abort();seriesPending.clear();const own=new AbortController();controller=own;
       let pinnedSelection=selection;
       async function read(path) {
         const response=await fetcher(path,{signal:own.signal,cache:'no-store',credentials:'same-origin'});
@@ -116,8 +124,10 @@ function createHistoryClient(fetcher) {
       const prefix='/v1/history/datasets/'+encodeURIComponent(context.revision.dataset_id)+'/revisions/'+encodeURIComponent(context.revision.dataset_revision)+'/series?';
       let cursor=null,request=null,metadata=null,rows=[];const cursors=new Set();
       do {
+        historyRequire(!own.signal.aborted,'HISTORY_REQUEST_CANCELLED');
         const response=await fetcher(prefix+query+(cursor?'&cursor='+encodeURIComponent(cursor):''),{signal:own.signal,cache:'no-store',credentials:'same-origin'});
         const text=await response.text();historyRequire(new TextEncoder().encode(text).byteLength<=1048576,'HISTORY_RESPONSE_TOO_LARGE');
+        historyRequire(!own.signal.aborted,'HISTORY_REQUEST_CANCELLED');
         let page;try{page=JSON.parse(text);}catch{throw new Error('HISTORY_SERIES_RESPONSE_INVALID');}
         if(!response.ok){const code=page?.code||page?.detail?.code;throw new Error(typeof code==='string'&&/^[A-Z0-9_]+$/.test(code)?code:'HISTORY_HTTP_'+response.status);}
         historyRequire(page.schema_version==='polar.history-series/1'&&historyPin(page)===pin&&page.instrument_id===asset,'HISTORY_SERIES_IDENTITY_MISMATCH');
@@ -161,4 +171,4 @@ function buildHistoryView(context) {
   return {history:true,bars,cPoints:dates.map(date=>points.get(date)||null),equity:bars.map(b=>({time:b.time,value:null,at:null,status:'NO_STRATEGY_RESULT'})),markers:[],sma:[],baseClose:null,initialCash:null};
 }
 
-if(typeof module!=='undefined')module.exports={createHistoryClient,historySeriesCacheKey,historyWindowContains,historyBufferedWindow,buildHistoryView};
+if(typeof module!=='undefined')module.exports={createHistoryClient,historySeriesCacheKey,historyWindowContains,historyBufferedWindow,historyBufferNeedsPrefetch,buildHistoryView};

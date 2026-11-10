@@ -206,7 +206,7 @@ function scheduleViewportSeries(){
   if(!historyDisplayed()||!historyContext?.revision||!historyNeedsSeries(state)||!HISTORY_SERIES_RUNTIME.enabled||loading&&!pendingHistoryRequest?.seriesOnly)return;
   const window=visibleHistoryWindow();if(!window)return;
   const key=historySeriesCacheKey(historyContext,historyControls(state));
-  if(historyContext.series&&key===historySeriesCacheKey(historyContext,historyContext.series.controls)&&historyWindowContains(historyContext.series.window,window))return;
+  if(historyContext.series&&key===historySeriesCacheKey(historyContext,historyContext.series.controls)&&!historyBufferNeedsPrefetch(historyContext,historyContext.series.window,window))return;
   if(pendingSeriesBuffer?.key===key&&historyWindowContains(pendingSeriesBuffer.window,window))return;
   // Coalesce a burst before requesting a new backend buffer. Panning never waits.
   const intent=flow;historyViewportTimer=setTimeout(()=>{if(intent!==flow||!historyDisplayed())return;loadHistorySelection({...currentHistoryRequest(),seriesOnly:true,rangeId:state.rangeId,window:visibleHistoryWindow()});},80);
