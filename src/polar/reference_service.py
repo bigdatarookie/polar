@@ -90,12 +90,12 @@ class ReferenceResearchService:
                 require(importlib.metadata.version(name)==version,'REFERENCE_RUNTIME_VERSION')
         else:
             require(config['input_ref']['sha256']!=INPUT,'RETAINED_AS_INVENTED_FORBIDDEN')
-        market=load_reference(config['input_ref']);calendar=decode(calendar_raw)
-        require(calendar['source_schedule']['sha256']==decode(read_ref(config['input_ref']))['schedule']['sha256'], 'REFERENCE_CALENDAR_JOIN')
+        manifest=decode(read_ref(config['input_ref']))
+        calendar=decode(calendar_raw)
+        require(calendar['source_schedule']['sha256']==manifest['schedule']['sha256'], 'REFERENCE_CALENDAR_JOIN')
         if not retained:
-            require(market['dataset_revision'].startswith('INVENTED-') and market['rights']=='INVENTED_PUBLIC_TEST',
-                    'REFERENCE_INVENTED_RIGHTS_PROVENANCE')
-            manifest=decode(read_ref(config['input_ref']))
+            require(str(manifest.get('parent_dataset_revision','')).startswith('INVENTED-')
+                    and manifest.get('rights')=='INVENTED_PUBLIC_TEST', 'REFERENCE_INVENTED_RIGHTS_PROVENANCE')
             require(manifest.get('provenance')=={'kind':'DETERMINISTIC_INVENTED_FIXTURE',
                     'producer':'polar-public-tests','source_payloads':'NONE'},'REFERENCE_INVENTED_RIGHTS_PROVENANCE')
             control=decode(protocol)
@@ -104,6 +104,7 @@ class ReferenceResearchService:
                     and control['profile_id']==INVENTED_A and control['classification']=='INVENTED'
                     and control['calendar_sha256']==sha(calendar_raw) and control['timezone_sha256']==sha(tzraw)
                     and control['input_sha256']==config['input_ref']['sha256'],'REFERENCE_INVENTED_PROTOCOL_BINDING')
+        market=load_reference(config['input_ref'])
         tz=ZoneInfo.from_file(io.BytesIO(tzraw),key='America/New_York')
         fit_event=(datetime(2021,1,1,0,0,30,tzinfo=tz) if retained else datetime.fromisoformat(decode(protocol)['fit_event']))
         if retained:

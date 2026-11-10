@@ -97,6 +97,9 @@ def test_retained_source_cannot_be_relabeled_invented(tmp_path,monkeypatch):
 def test_invented_requires_positive_rights_and_provenance(tmp_path,monkeypatch,field,value):
     root,cfg=fixture(tmp_path,monkeypatch);path=Path(cfg['input_ref']['path'])
     manifest=json.loads(path.read_text());manifest[field]=value;cfg['input_ref']=write(path,manifest)
+    import polar.reference_service as service
+    def forbidden(*a,**k):raise AssertionError('UNADMITTED_SOURCE_NUMERIC_LOADER')
+    monkeypatch.setattr(service,'load_reference',forbidden)
     with pytest.raises(ValueError,match='REFERENCE_INVENTED_RIGHTS_PROVENANCE'):
         ReferenceResearchService(root,64*1024**2).preflight(cfg)
 
@@ -109,6 +112,9 @@ def test_invented_control_rejects_unbound_protocol_calendar_timezone(tmp_path,mo
         cfg[target]={'path':str(path),'sha256':hashlib.sha256(path.read_bytes()).hexdigest()}
     else:
         value=json.loads(path.read_text());value['changed']=True;cfg[target]=write(path,value)
+    import polar.reference_service as service
+    def forbidden(*a,**k):raise AssertionError('UNADMITTED_SOURCE_NUMERIC_LOADER')
+    monkeypatch.setattr(service,'load_reference',forbidden)
     with pytest.raises(ValueError,match='REFERENCE_INVENTED_PROTOCOL_BINDING'):
         ReferenceResearchService(root,64*1024**2).preflight(cfg)
 
