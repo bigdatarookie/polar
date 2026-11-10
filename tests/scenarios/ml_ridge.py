@@ -37,6 +37,9 @@ def execute(report):
     value = {'schema': 'polar.synthetic-scenario/1', 'scenario': 'ml-ridge',
              'classification': 'PUBLIC_DETERMINISTIC_SYNTHETIC', 'phases': phases,
              'compute_status': 'NOT_RUN', 'cleanup_status': 'NOT_RUN', 'financial': 'NOT_ASSESSED'}
+    temporary = None
+    expected = json.loads((Path(__file__).parents[1]/'fixtures/reference_ridge_expected.json').read_text())
+    simulations = []
     try:
         with tempfile.TemporaryDirectory(prefix='polar-ci-ridge-') as temporary:
             with pytest.MonkeyPatch.context() as patch:
@@ -76,6 +79,7 @@ def execute(report):
                         calls['native'] += 1
                         simulation = actual_native(plan)
                         assert len(simulation['legs']) == 4
+                        simulations.append(simulation)
                         item.update(native_accounts=len(simulation['legs']), engine=simulation['engine'])
                         return simulation
                 patch.setattr(implementation, 'fit_ridge', fit)
@@ -96,7 +100,36 @@ def execute(report):
                         assert record['primary_benchmark_id'] == 'EW4_MONTHLY'
                         assert len(record['criteria']) == (4 if name == 'FINAL' else 0)
                         assert len(record['series']) == 4
-                    item.update(result_ids=records)
+                    observed = {}
+                    for phase_name, simulation in zip(['VALIDATION', 'FINAL'], simulations):
+                        control = expected['independently_recomputed_allocation_controls'][phase_name]
+                        legs = {leg['id']:leg for leg in simulation['legs']}
+                        count = expected['chronology_and_fit_expectations'][phase_name.lower()+'_nav_points']
+                        assert all(len(leg['nav']) == count and not any(leg['nav'][-1]['positions'].values())
+                                   for leg in legs.values())
+                        assert all(leg['nav'][0]['nav_cents'] == 10000000 for leg in legs.values())
+                        momentum = legs['MOM252_21_TOP1_OR_CASH']
+                        first = next(f for f in momentum['fills'] if f['side']=='BUY')
+                        assert first['symbol'] == control['momentum_winner']
+                        for field, key in [('q','filled_quantity'),('fee_cents','fee_cents'),
+                                           ('settled_cents','settled_cents'),('cash_after_cents','ending_cash_cents')]:
+                            assert first[field] == control[key], (phase_name, field, first[field], control[key])
+                        first_day = first['id'].split('/')[1]
+                        first_nav = next(n for n in momentum['nav'] if n['date']==first_day)
+                        assert first_nav['nav_cents'] == control['one_position_nav_cents']
+                        ew = legs['EW4_MONTHLY']
+                        actual_ew = [{key:f[field] for key,field in [('symbol','symbol'),('quantity','q'),
+                                      ('fee_cents','fee_cents'),('settled_cents','settled_cents'),
+                                      ('cash_after_cents','cash_after_cents')]}
+                                     for f in ew['fills'] if f['side']=='BUY'][:4]
+                        assert actual_ew == control['EW4_fills']
+                        assert next(n for n in ew['nav'] if n['date']==first_day)['nav_cents'] == control['EW4_nav_cents']
+                        observed[phase_name] = {'nav_points_per_leg': count,'first_momentum_fill': first,
+                            'first_momentum_nav_cents':first_nav['nav_cents'],'EW4_first_fills': actual_ew,
+                            'terminal_nav_cents':{k:v['nav'][-1]['nav_cents'] for k,v in legs.items()},
+                            'terminal_positions_zero':True,'initial_nav_cents_each_leg':10000000}
+                    item.update(result_ids=records, independent_public_controls='PASS', observed=observed)
+
                 before = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
                           for p in root.rglob('*') if p.is_file()}
                 def forbidden(*args, **kwargs):
@@ -122,9 +155,11 @@ def execute(report):
         value['cleanup_status'] = 'PASS_TASK_DIRECTORY_REMOVED'
         assert not Path(temporary).exists()
     except BaseException:
-        value['compute_status'] = 'FAIL'
+        if value['compute_status'] != 'PASS':value['compute_status'] = 'FAIL'
         raise
     finally:
+        value['cleanup_status'] = ('PASS_TASK_DIRECTORY_REMOVED' if temporary is not None and not Path(temporary).exists()
+                                   else 'FAIL_TASK_DIRECTORY_REMAINS' if temporary is not None else 'NOT_CREATED')
         value['status'] = 'PASS' if value['compute_status'] == 'PASS' and value['cleanup_status'].startswith('PASS') else 'FAIL'
         report.write_text(json.dumps(value, indent=2) + '\n')
 

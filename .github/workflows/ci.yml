@@ -75,18 +75,18 @@ jobs:
           ci-tools/scripts/ci.sh --source "$GITHUB_WORKSPACE/candidate" --reports "$GITHUB_WORKSPACE/ci-reports" "${ARGS[@]}"
       - name: ML ridge synthetic end-to-end
         id: ml
-        if: always() && steps.ci.outcome == 'success'
+        if: always()
         run: |
-          if [[ -f candidate/tests/scenarios/ml_ridge.py ]]; then
+          if [[ -f candidate/src/polar/reference_service.py ]]; then
             ci-tools/scripts/ci.sh --source "$GITHUB_WORKSPACE/candidate" --reports "$GITHUB_WORKSPACE/ci-reports-ml" --scenario ml-ridge
           else
             echo 'ML scenario NOT AVAILABLE on this historical selected candidate'
           fi
       - name: OBS158 synthetic end-to-end
         id: obs
-        if: always() && steps.ci.outcome == 'success'
+        if: always()
         run: |
-          if [[ -f candidate/tests/scenarios/obs158.py ]]; then
+          if [[ -f candidate/src/polar/obs158_service.py ]]; then
             ci-tools/scripts/ci.sh --source "$GITHUB_WORKSPACE/candidate" --reports "$GITHUB_WORKSPACE/ci-reports-obs" --scenario obs158
           else
             echo 'OBS158 scenario NOT AVAILABLE on this historical selected candidate'
