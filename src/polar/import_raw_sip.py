@@ -31,7 +31,22 @@ def request(value):
     return value
 
 
-def job_id(value):
+def adjusted(store):
+    return store.raw_profile=='all-adjusted100'
+
+
+def schema(store,name):
+    return 'polar.'+('adjusted-sip-' if adjusted(store) else 'raw-sip-')+name+'/1'
+
+
+def kind(store,has_rows):
+    return ('ADJUSTED_' if adjusted(store) else 'RAW_')+('COMPLETE' if has_rows else 'NO_ROWS')
+
+
+def job_id(value,profile='first-unit'):
+    if profile=='all-adjusted100':
+        from .import_adjusted_sip import ADAPTER as adapter,request as validate
+        return digest({'adapter':adapter,'request':validate(value)})
     return digest({'adapter':ADAPTER,'request':request(value)})
 
 
@@ -63,8 +78,8 @@ def records(service):
     rows=[]
     for name in service.store.list('requests'):
         start=service.store.read(name)
-        require(start['schema']=='polar.raw-sip-request-start/1'
-                and Path(name).stem==start['request_id'] and start['job_id']==job_id(start['request'])
+        require(start['schema']==schema(service.store,'request-start')
+                and Path(name).stem==start['request_id'] and start['job_id']==job_id(start['request'],service.store.raw_profile)
                 and start['page'] in (0,1),'IMPORT_REQUEST_INTEGRITY')
         require(start['request_cursor'] is None if start['page']==0 else
                 type(start['request_cursor']) is str and 0<len(start['request_cursor'])<=4096,
@@ -86,10 +101,10 @@ def commits(store):
     result={}
     for name in store.list('successes')+store.list('cache-imports'):
         row=store.read(name)
-        require(row['schema']=='polar.raw-sip-cache-commit/1' and Path(name).stem==digest(row),
+        require(row['schema']==schema(store,'cache-commit') and Path(name).stem==digest(row),
                 'IMPORT_CACHE_SCHEMA')
-        jid=job_id(row['request'])
-        require(row['job_id']==jid and row['kind'] in ('RAW_COMPLETE','RAW_NO_ROWS'),
+        jid=job_id(row['request'],store.raw_profile)
+        require(row['job_id']==jid and row['kind'] in (kind(store,True),kind(store,False)),
                 'IMPORT_CACHE_INTEGRITY')
         previous=None;count=0
         require(0<len(row['pages'])<=2,'IMPORT_CACHE_INTEGRITY')
@@ -99,7 +114,7 @@ def commits(store):
             require(not (set(body['bars'])-{row['request']['symbols']}),'IMPORT_CACHE_INTEGRITY')
             previous=body.get('next_page_token')
             count+=sum(len(v) for v in body['bars'].values())
-        require(previous is None and row['kind']==('RAW_COMPLETE' if count else 'RAW_NO_ROWS'),
+        require(previous is None and row['kind']==kind(store,count),
                 'IMPORT_CACHE_INTEGRITY')
         wrapped={**row,'response':{'pages':row['pages']},'response_sha256':digest(row['pages']),
                  'sources':row['sources']}
@@ -139,8 +154,8 @@ def status(service,pid):
                            reason=None if len(unique)==1 else 'CONFLICTING_RESPONSE_VERSIONS')
     counts={k:sum(v['state']==k for v in states.values())
             for k in ('pending','success','partial','permanent_error')}
-    counts['no_rows']=sum(v['kind']=='RAW_NO_ROWS' for v in states.values())
-    return {'schema':'polar.raw-sip-status/1','plan_id':pid,'states':states,'counts':counts,
+    counts['no_rows']=sum(v['kind']==kind(service.store,False) for v in states.values())
+    return {'schema':schema(service.store,'status'),'plan_id':pid,'states':states,'counts':counts,
             'scope_physical_gets':len(rows),'scientific_fitness':'NOT_ASSESSED'}
 
 
@@ -148,11 +163,16 @@ def plan(service,value):
     from .import_service import bound_file,code_projection
     from .import_raw_profile import aggregate_unit,AGGREGATE_POLICY,AGGREGATE_ADAPTER
     aggregate=service.store.raw_profile=='remaining3490'
+    all_adjusted=adjusted(service.store)
     require(value.get('mode') in ('fixture','provider'),'IMPORT_POLICY_MISMATCH')
     fixture=value['mode']=='fixture'
+    from .import_adjusted_sip import unit as adjusted_unit,POLICY as ADJUSTED_POLICY
     expected_fixture_prefix='imports-rawsip-aggregate-fixture-v1/' if aggregate else 'imports-rawsip-fixture-v1/'
+    if all_adjusted:expected_fixture_prefix='imports-adjustedsip100-fixture-v1/'
     require(fixture==service.store.base.startswith(expected_fixture_prefix),'IMPORT_MODE_MISMATCH')
-    if aggregate:
+    if all_adjusted:
+        unit=adjusted_unit(value,fixture);policy=ADJUSTED_POLICY
+    elif aggregate:
         unit=aggregate_unit(value,fixture);policy=AGGREGATE_POLICY
     else:
         exact(value,('schema','adapter','mode','unit_ref','reuse_ref','seed_refs'))
@@ -162,26 +182,27 @@ def plan(service,value):
         if not fixture:require(sha(raw)==UNIT_SHA and sha(reuse)==REUSE_SHA,'IMPORT_SCOPE_MISMATCH')
         require(type(unit.get('jobs')) is list and 0<len(unit['jobs'])<=20,'IMPORT_SCOPE_MISMATCH')
         policy=POLICY
-    jobs=[{'job_id':job_id(j['request']),'request':j['request'],'relation':j} for j in unit['jobs']]
+    jobs=[{'job_id':job_id(j['request'],service.store.raw_profile),'request':j['request'],'relation':j} for j in unit['jobs']]
     require(len({j['job_id'] for j in jobs})==len(jobs),'IMPORT_DUPLICATE_JOB')
     data={'schema':'polar.import-plan/1','config':value,'scope':service.store.base,'jobs':jobs,
           'source_projection':code_projection(),'unit':unit,'policy':policy}
     prefix=('rawsipaggregatefixture-' if fixture else 'rawsipaggregate-') if aggregate else (
             'rawsipfixture-' if fixture else 'rawsip-')
+    if all_adjusted:prefix='adjustedsip100fixture-' if fixture else 'adjustedsip100-'
     pid=prefix+digest(data);data['plan_id']=pid
     require(type(value['seed_refs']) is list and len(value['seed_refs'])<=policy['jobs']*2,'IMPORT_CACHE_SCHEMA')
     with service.store.locked():
-        service.store.admit_storage()
+        service.store.admit_storage(ADJUSTED_POLICY['additional_bytes']) if all_adjusted else service.store.admit_storage()
         service.store.write('policy.json',policy)
         service.store.write('plans/'+pid+'.json',data)
         # Explicit legacy migration: exact request, complete cursor chain, bound raw bodies.
         for ref in value['seed_refs']:
             seed=decode(bound_file(ref))
             exact(seed,('schema','request','pages','completeness','provenance'))
-            require(seed['schema']=='polar.raw-sip-seed/1' and seed['completeness']=='COMPLETE'
+            require(seed['schema']==schema(service.store,'seed') and seed['completeness']=='COMPLETE'
                     and seed['provenance'] and type(seed['pages']) is list
                     and 0<len(seed['pages'])<=2,'IMPORT_CACHE_SCHEMA')
-            jid=job_id(seed['request']);require(jid in {j['job_id'] for j in jobs},'IMPORT_JOB_NOT_IN_PLAN')
+            jid=job_id(seed['request'],service.store.raw_profile);require(jid in {j['job_id'] for j in jobs},'IMPORT_JOB_NOT_IN_PLAN')
             entries=[];cursor=None;count=0
             for i,entry in enumerate(seed['pages']):
                 exact(entry,('body_ref','request_cursor'))
@@ -191,8 +212,8 @@ def plan(service,value):
                 entries.append({'page':i,'request_cursor':cursor,'body':service.store.object(body)})
                 cursor=parsed.get('next_page_token');count+=sum(len(r) for r in parsed['bars'].values())
             require(cursor is None,'IMPORT_CACHE_INTEGRITY')
-            commit={'schema':'polar.raw-sip-cache-commit/1','job_id':jid,'request':seed['request'],
-                    'kind':'RAW_COMPLETE' if count else 'RAW_NO_ROWS','pages':entries,
+            commit={'schema':schema(service.store,'cache-commit'),'job_id':jid,'request':seed['request'],
+                    'kind':kind(service.store,count),'pages':entries,
                     'sources':[{'seed_ref':ref,'provenance':seed['provenance']}]}
             service.store.write('cache-imports/'+digest(commit)+'.json',commit)
         commits(service.store)
@@ -234,13 +255,13 @@ def disposition(service,start,response):
                 entries.append({'page':start['page'],'request_cursor':start['request_cursor'],'body':response['body']})
                 count=sum(sum(len(rows) for rows in page(service.store.object_read(e['body']))['bars'].values())
                           for e in entries)
-                commit={'schema':'polar.raw-sip-cache-commit/1','job_id':start['job_id'],
-                        'request':start['request'],'kind':'RAW_COMPLETE' if count else 'RAW_NO_ROWS',
+                commit={'schema':schema(service.store,'cache-commit'),'job_id':start['job_id'],
+                        'request':start['request'],'kind':kind(service.store,count),
                         'pages':entries,'sources':[{'request_id':start['request_id'],
                                                    'request_start_sha256':digest(start)}]}
                 save_commit(service.store,commit)
         except ImportError as exc:reason=exc.code;state='permanent_error'
-    outcome={'schema':'polar.raw-sip-outcome/1','request_start_sha256':digest(start),
+    outcome={'schema':schema(service.store,'outcome'),'request_start_sha256':digest(start),
              'state':state,'reason':reason,'next_cursor':cursor}
     service.store.write(name,outcome)
     return outcome
@@ -333,9 +354,11 @@ def execute(service,pid,*,fixture=None,network=False,attempt_id=None,scope=None)
     from .import_raw_transport import RawFixtureTransport,RawHttpTransport
     plan=service.load(pid);mode=plan['config']['mode'];is_fixture=mode=='fixture'
     aggregate=service.store.raw_profile=='remaining3490'
+    all_adjusted=adjusted(service.store)
     policy=plan['policy']
     from .import_raw_profile import AGGREGATE_POLICY
-    require(policy==(AGGREGATE_POLICY if aggregate else POLICY),'IMPORT_POLICY_MISMATCH')
+    from .import_adjusted_sip import POLICY as ADJUSTED_POLICY
+    require(policy==(ADJUSTED_POLICY if all_adjusted else AGGREGATE_POLICY if aggregate else POLICY),'IMPORT_POLICY_MISMATCH')
     require(plan['source_projection']==code_projection(),'IMPORT_SOURCE_CHANGED')
     require(is_fixture==(fixture is not None) and network==(not is_fixture),'IMPORT_NETWORK_NOT_AUTHORIZED')
     if is_fixture:
@@ -347,8 +370,8 @@ def execute(service,pid,*,fixture=None,network=False,attempt_id=None,scope=None)
         authority=decode(bound_file(scope))
         exact(authority,('schema','unit_sha256','source_projection','python_sha256','binding_refs',
                          'attempt_id','credential_reference','terminal_owner'))
-        expected_scope=plan['unit']['scope_sha256'] if aggregate else UNIT_SHA
-        require(authority['schema']=='polar.raw-sip-execution-authority/1'
+        expected_scope=plan['unit']['scope_sha256'] if aggregate or all_adjusted else UNIT_SHA
+        require(authority['schema']==schema(service.store,'execution-authority')
                 and authority['unit_sha256']==expected_scope and authority['source_projection']==code_projection()
                 and authority['attempt_id']==attempt_id and authority['terminal_owner'],
                 'IMPORT_SCOPE_MISMATCH')
@@ -364,10 +387,10 @@ def execute(service,pid,*,fixture=None,network=False,attempt_id=None,scope=None)
             credential=completed['credentials']['reference']
         else:credential=plan['unit']['credentials']['reference']
         require(authority['credential_reference']==credential,'IMPORT_SCOPE_MISMATCH')
-        transport=RawHttpTransport(authority['credential_reference'])
+        transport=RawHttpTransport(authority['credential_reference'],profile=service.store.raw_profile)
     aid=attempt_name(attempt_id or str(uuid.uuid4()));prefix='attempts/'+aid
     with service.store.locked():
-        service.store.admit_storage()
+        service.store.admit_storage(ADJUSTED_POLICY['additional_bytes']) if all_adjusted else service.store.admit_storage()
         require(not service.store.exists(prefix+'/started.json'),'IMPORT_ATTEMPT_EXISTS')
         # Immutable metadata/body graphs are validated once at executor entry;
         # append updates below keep the same evidence-first order. No persistent
@@ -382,7 +405,7 @@ def execute(service,pid,*,fixture=None,network=False,attempt_id=None,scope=None)
             budget=service.store.read('budget.json')
             require(budget['policy_sha256']==digest(policy),'IMPORT_POLICY_MISMATCH')
         else:
-            budget={'schema':'polar.raw-sip-budget/1','policy_sha256':digest(policy),
+            budget={'schema':schema(service.store,'budget'),'policy_sha256':digest(policy),
                     'started_at':timestamp(service.clock.now()),
                     'deadline':timestamp(service.clock.now()+policy['wall_seconds'])}
             service.store.write('budget.json',budget)
@@ -400,7 +423,7 @@ def execute(service,pid,*,fixture=None,network=False,attempt_id=None,scope=None)
                     current=status(service,pid)['states'][job['job_id']]
                     if current['state'] not in ('pending','partial') or current['reason']:break
                     if service.store.exists('auth-pause.json'):reason='AUTH_OR_RIGHTS_REFUSAL';break
-                    if aggregate and service.store.exists('provider-pause.json'):
+                    if (aggregate or all_adjusted) and service.store.exists('provider-pause.json'):
                         reason='PROVIDER_RATE_LIMIT_PAUSED';break
                     control=service.store.read('control.json') if service.store.exists('control.json') else {}
                     if control.get('action') in ('pause','stop'):reason='CONTROL_'+control['action'].upper();break
@@ -416,7 +439,7 @@ def execute(service,pid,*,fixture=None,network=False,attempt_id=None,scope=None)
                     if timeout<=0 or service.clock.now()>=seconds(budget['deadline']):
                         reason='OPERATION_DEADLINE';break
                     pages=current['pages'];cursor=pages[-1]['outcome']['next_cursor'] if pages else None
-                    start={'schema':'polar.raw-sip-request-start/1','request_id':str(uuid.uuid4()),
+                    start={'schema':schema(service.store,'request-start'),'request_id':str(uuid.uuid4()),
                            'attempt_id':aid,'sequence':len(previous),'job_id':job['job_id'],
                            'request':job['request'],'page':len(pages),'request_cursor':cursor,
                            'started_at':timestamp(service.clock.now()),'timeout_seconds':timeout}
@@ -434,7 +457,7 @@ def execute(service,pid,*,fixture=None,network=False,attempt_id=None,scope=None)
                     service.store.write('responses/'+start['request_id']+'.json',response)
                     service.store._raw_execution_rows[-1]=(start,response)
                     disposition(service,start,response)
-                    if aggregate and response['status']==429:
+                    if (aggregate or all_adjusted) and response['status']==429:
                         service.store.write('provider-pause.json',{
                             'reason':'PROVIDER_RATE_LIMIT_PAUSED','request_id':start['request_id'],
                             'headers':response['headers'],'automatic_retry':False})
@@ -450,7 +473,7 @@ def execute(service,pid,*,fixture=None,network=False,attempt_id=None,scope=None)
                              else 'partial' if counts['success'] or counts['partial'] else 'failed')
             source_manifest=None
             try:
-                if aggregate:
+                if aggregate or all_adjusted:
                     from .import_raw_bundle import normalized_partitions
                     source_manifest=normalized_partitions(service,plan,prefix,deadline=deadline-4)
                 else:source_manifest=normalized(service,plan,prefix)
