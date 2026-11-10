@@ -14,6 +14,7 @@ from .models import Dataset, RunConfig
 from .registry import BudgetExceeded, Conflict, NotFound
 from .service import DatasetIntegrityError, Service
 from .ui import UIError
+from .research_results import ResearchError
 
 
 def create_app(service=None):
@@ -24,6 +25,18 @@ def create_app(service=None):
 
     from .history_router import install_history_routes
     install_history_routes(app, svc)
+
+    @app.exception_handler(ResearchError)
+    def research_error(req, exc):
+        return JSONResponse(status_code=exc.status, content={"code": exc.code})
+
+    @app.get("/v1/research/results")
+    def research_catalog(limit: int = Query(10, ge=1, le=10), offset: int = Query(0, ge=0, le=4096)):
+        return svc().research_catalog(limit, offset)
+
+    @app.get("/v1/research/results/{result_id}")
+    def research_result(result_id: str):
+        return svc().research_result(result_id)
 
     @app.middleware("http")
     async def bounded_body(request,call_next):

@@ -23,6 +23,30 @@ class Service:
         self.history_cursor_key_file = settings.history_cursor_key_file
         self.history_calendar_dir = settings.history_calendar_dir or settings.artifacts/"history-calendar"
 
+    def _research(self):
+        from .research_results import ResearchResults
+        return ResearchResults(self.artifacts.root, self.artifacts.limit)
+
+    def research_publish(self, result):
+        return self._research_call("publish", result)
+
+    def research_review(self, review):
+        return self._research_call("review", review)
+
+    def research_catalog(self, limit=10, offset=0):
+        return self._research_call("catalog", limit, offset)
+
+    def research_result(self, result_id):
+        return self._research_call("read", result_id)
+
+    def _research_call(self, operation, *args):
+        from .history_bundle import HistoryError
+        from .research_results import ResearchError
+        try:
+            return getattr(self._research(), operation)(*args)
+        except HistoryError:
+            raise ResearchError("RESEARCH_INTEGRITY_ERROR") from None
+
     def history_read(self, operation, **kwargs):
         import psycopg
         from .history_bundle import HistoryError
