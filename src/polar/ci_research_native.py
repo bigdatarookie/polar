@@ -102,7 +102,19 @@ def simulate(plan, diagnostics=None):
                 self.reconcile()
                 require(d["known_ns"] < event.ts_event < d["open_ns"], "DECISION_CLOCK")
                 targets = dict(self.held); budgets = {}; signal = None
-                if d["kind"] == "EXIT" and (profile["kind"] == "A_MOMENTUM" or leg_index == 0 or d["day"] == profile["end"]):
+                if profile["kind"] == "REFERENCE_TARGETS":
+                    instruction = d["instructions"][leg]
+                    require(set(instruction) <= {"kind", "weights", "signal"} and
+                            instruction["kind"] in ("TARGET", "HOLD", "EXIT"), "REFERENCE_INSTRUCTION")
+                    if instruction["kind"] == "EXIT":
+                        targets = {s: 0 for s in symbols}
+                    elif instruction["kind"] == "TARGET":
+                        from .research_allocation import desired_targets
+                        marks = {s: prices[d["formation"]][s]["close_micro"] for s in symbols}
+                        weights = {s: Fraction(v[0],v[1]) for s,v in instruction["weights"].items()}
+                        targets = desired_targets(self.expected_cash, self.held, marks, weights)
+                    signal = instruction.get("signal")
+                elif d["kind"] == "EXIT" and (profile["kind"] == "A_MOMENTUM" or leg_index == 0 or d["day"] == profile["end"]):
                     targets = {s: 0 for s in symbols}
                 elif profile["kind"] == "A_MOMENTUM":
                     if leg_index == 0:
@@ -210,7 +222,7 @@ def simulate(plan, diagnostics=None):
             quotes = []
             for d in plan["decisions"]:
                 for i,s in enumerate(symbols):
-                    micro = prices[d["day"]][s]["open_micro"]
+                    micro = prices[d["day"]][s]["close_micro" if profile["kind"] == "REFERENCE_TARGETS" else "open_micro"]
                     p = Price.from_str(f"{micro//1000000}.{micro%1000000:06d}"); ns = d["open_ns"]+i
                     require(Fraction(p.as_decimal())*1000000 == micro, "NATIVE_PRICE_ROUNDTRIP")
                     quotes.append(QuoteTick(ids[s], p, p, Quantity.from_int(1000000000), Quantity.from_int(1000000000), ns, ns))
@@ -236,4 +248,6 @@ def simulate(plan, diagnostics=None):
         finally:
             engine.dispose()
     return {"schema": "polar.ci-research-simulation/1", "legs": results,
+            **({"quote_basis": "SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT", "execution_phase": "REFERENCE_CLOSE",
+                "quantity_unit": "WHOLE_SYNTHETIC_REFERENCE_UNIT_NOT_RAW_SHARE"} if profile["kind"] == "REFERENCE_TARGETS" else {}),
             "engine": "nautilus_trader-1.231.0", "native_account_rule": "EXACT_CENT_HALF_EVEN"}
