@@ -144,9 +144,10 @@ class ReferenceResearchService:
                 and candidate.get('candidate_id')==config['candidate_id']
                 and candidate.get('experiment_registration_id')==profile['registration'],'REFERENCE_CANDIDATE_PIN')
         qualification=__import__('json').loads(read_ref(authority['qualification_ref']))
+        required_test=('tests/test_reference_ppo_service.py' if profile['kind']=='PPO' else 'tests/test_reference_service.py')
         require(qualification.get('schema')=='polar.ci-result/1' and qualification.get('status')=='PASS' and
                 qualification.get('candidate_sha')==config['code_revision'] and
-                any(s in ('tests','tests/test_reference_service.py','tests/test_reference_ppo_service.py') for s in qualification.get('selection',[])),
+                any(s in ('tests',required_test) for s in qualification.get('selection',[])),
                 'REFERENCE_EXACT_TECHNICAL_QUALIFICATION')
         return authority
 

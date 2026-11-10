@@ -44,3 +44,41 @@ def test_three_seed_service_one_selected_test_and_stored_only(tmp_path,monkeypat
     assert service.recompute(out['semantic_id'])['status']=='REPRODUCED'
     after={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob('*') if p.is_file()};assert before==after
     with pytest.raises(ValueError,match='REFERENCE_ORIGINAL_ALREADY_RECORDED'):service.run(cfg)
+
+
+@pytest.mark.parametrize('profile,selection,accepted', [
+    ('PPO',['tests/test_reference_service.py'],False),
+    ('PPO',['tests/test_reference_ppo_service.py'],True),
+    ('PPO',['tests'],True),
+    ('PPO',[],False),
+    ('RIDGE',['tests/test_reference_ppo_service.py'],False),
+    ('RIDGE',['tests/test_reference_service.py'],True),
+    ('RIDGE',['tests'],True)])
+def test_retained_authority_requires_the_applicable_learner_exam(tmp_path,monkeypatch,profile,selection,accepted):
+    # Pure authority boundary: entirely invented metadata, no source, model or native invocation.
+    import polar.reference_service as module
+    from polar.gym_contract import canonical,sha
+    identity=module.B if profile=='PPO' else module.A
+    expected=module.PROFILES[identity]
+    method={'method_definition_verdict':'PASS','protocol_sha256':expected['protocol']}
+    method_ref=write(tmp_path/'method.json',method)
+    monkeypatch.setitem(module.PROFILES,identity,{**expected,'method':method_ref['sha256']})
+    candidate_ref=write(tmp_path/'candidate.json',{'schema':'polar.native-hypothesis-reservation/1',
+        'state':'RESERVED','candidate_id':identity,'experiment_registration_id':expected['registration']})
+    revision='a'*40
+    qualification_ref=write(tmp_path/'qualification.json',{'schema':'polar.ci-result/1',
+        'status':'PASS','candidate_sha':revision,'selection':selection})
+    cfg={'namespace':'RETAINED','profile_id':identity,'candidate_id':identity,'code_revision':revision,
+         'execution_authority_ref':None}
+    authority={'schema':'polar.reference-research-operation/1','action':'ORIGINAL',
+        'binding_sha256':sha(canonical(module.binding(cfg))),'method_ref':method_ref,
+        'candidate_ref':candidate_ref,'qualification_ref':qualification_ref}
+    cfg['execution_authority_ref']=write(tmp_path/'authority.json',authority)
+    def forbidden(*a,**k):raise AssertionError('QUALIFICATION_CHECK_CALLED_MODEL_NATIVE_OR_SOURCE')
+    monkeypatch.setattr(module,'fit_ridge',forbidden);monkeypatch.setattr(module,'bounded_native',forbidden)
+    monkeypatch.setattr(module,'load_reference',forbidden)
+    service=ReferenceResearchService(tmp_path/'store',1024**2)
+    if accepted:assert service._authority(cfg)['action']=='ORIGINAL'
+    else:
+        with pytest.raises(ValueError,match='REFERENCE_EXACT_TECHNICAL_QUALIFICATION'):service._authority(cfg)
+    assert not (service.store.root/'reference-research-attempts').exists()
