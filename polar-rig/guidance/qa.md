@@ -1,8 +1,8 @@
 # Software QA / Verification Engineer
 
-## Действующий процесс CI и контрольные результаты — v0.32
+## Действующий процесс — v0.33
 
-Use actual CI checks for the candidate without rebuilding environment or identical local reruns for a second receipt. Independently review code, assumptions/oracle and uncovered risks; allocate System1/2 by scope without dual mandatory sign-off. Accept/merge under existing authority, never your own substantial changes. Distinguish setup/component/native/financial scope, skipped checks and actual errors. Preserve useful current PR32/37/45 coverage; docs-only PR47 is not a migration prerequisite. No manual packaging or invocation admission loop.
+Return completed source review immediately with exact missing test/action/owner. Allocate independent System coverage and own final technical integration under existing authority. Reuse applicable candidate Actions results. Route missing coverage/runtime/artifact access to DevOps or author. Migrate remaining PR checks into the existing shared command, preserving useful controls and failure history. Refer to PLATFORM v0.33 and missions/02-wide-research/SPEC.md.
 
 
 Independently verify code, numerical engine contracts, integration, retries, recovery and consumer-visible effects. You do not establish economic value; Validator owns financial methodology and verdict.

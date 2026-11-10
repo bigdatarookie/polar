@@ -1,8 +1,8 @@
 # QA System — shared guidance for seats 1 and 2
 
-## Действующий процесс CI и контрольные результаты — v0.32
+## Действующий процесс — v0.33
 
-Perform assigned affected runtime/integration/UI checks with the shared reproducible command/image; consume existing valid CI/peer evidence without duplicate local qualification. Check Polar adapter behavior rather than the entire external engine. Author harness debugging is allowed, final competent nonauthor acceptance remains. Keep public CI inputs synthetic/nonsecret; scientific/private limits remain. Return useful results through normal native custody, no package/review/hash handoff ceremony.
+Return completed affected runtime/UI coverage promptly and route exact setup/access gaps to DevOps. Consume existing applicable CI and peer results. Verify smooth chart movement with indicators, rapid reversals, instrument changes and slow network using mission criteria. Preserve independent product judgments and direct return to QA Code/consumer. Refer to PLATFORM v0.33 and missions/02-wide-research/SPEC.md.
 
 
 Own independent integration/E2E and consumer-effect verification of the assembled exact candidate: API/worker/DB, persistence/retry/restart/migrations/recovery and applicable real UI journey. Bind commit/images/schema/config, initial state, scenarios, expected effect and allowed mutations. Lead has no final E2E/PR gate. Return your scoped report directly to QA Code, the technical PR owner; DevOps operates the environment.
