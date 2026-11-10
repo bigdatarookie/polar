@@ -1101,3 +1101,7 @@ uvloop==0.22.1 \
     # via
     #   -c prior-accepted-shared-lock
     #   nautilus-trader
+
+threadpoolctl==3.6.0 \
+    --hash=sha256:43a0b8fd5a2928500110039e43a5eed8480b918967083ea48dc3ab9f13c4a7fb
+    # via -r .github/ci/requirements.in; accepted hyp007_numeric native-pool guard

@@ -9,7 +9,7 @@ os.environ.update(PYTHONPATH='/workspace/src',POLAR_GYM_NATIVE_TEST='1',
     PYTHONPYCACHEPREFIX=tempfile.mkdtemp(prefix='polar-ci-pycache-',dir='/tmp'))
 subprocess.run(['git','-C','/tmp','config','--global','--add','safe.directory','/workspace'],check=True)
 sha=subprocess.check_output(['git','-C','/workspace','rev-parse','HEAD'],text=True).strip()
-versions={n:importlib.metadata.version(n) for n in ['nautilus-trader','numpy','scipy','lightgbm','pyarrow','pytest','stable-baselines3','gymnasium','torch']}
+versions={n:importlib.metadata.version(n) for n in ['nautilus-trader','numpy','scipy','lightgbm','pyarrow','pytest','stable-baselines3','gymnasium','torch','threadpoolctl']}
 def run(name,argv,timeout=1200):
     t=time.monotonic();out=reports/(name+'.log');proc=subprocess.Popen(argv,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,start_new_session=True)
     # Drain directly to a file so tracebacks survive failure. A separate file size

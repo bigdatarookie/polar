@@ -24,7 +24,8 @@ The official Python 3.13.18 and Node 24.22.1 multi-platform images are pinned by
 manifest digest. All Python dependencies are public, version- and hash-locked,
 including NautilusTrader 1.231.0, NumPy 2.2.6, SciPy 1.15.3 and LightGBM 4.6.0.
 The CPU RL stack pins Stable-Baselines3 2.9.2, Gymnasium 1.4.0 and
-PyTorch 2.15.0+cpu. Torch uses official, hash-pinned Python 3.13 CPU wheel
+PyTorch 2.15.0+cpu and threadpoolctl 3.6.0. All six accepted numeric thread
+environment variables are set to one before imports. Torch uses official, hash-pinned Python 3.13 CPU wheel
 URLs selected for Linux x86_64 or aarch64, with no CUDA dependencies.
 The same recipe supports Linux amd64 in Actions and arm64 locally. Regenerate the
 lock with `uv pip compile .github/ci/requirements.in --python-version 3.13
@@ -80,7 +81,8 @@ it does not require a legacy QA package or create new scientific authority.
 
 The existing command also runs a mandatory CPU-only import/API check and a
 32-step PPO smoke on an invented 23-observation/five-action environment. It
-checks one-thread execution, reset/step/predict and absence of CUDA, and records
+checks one-thread execution, the accepted `hyp007_numeric` guarded NumPy/ridge
+API on tiny invented arrays, reset/step/predict and absence of CUDA, and records
 versions and scope in `runtime-smoke.log` plus the ordinary result steps. This
 qualifies library API compatibility; it does not qualify Polar's ledger, an RL
 economic policy, a private training budget or financial performance. It downloads
