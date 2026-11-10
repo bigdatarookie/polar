@@ -55,3 +55,9 @@ financial reviews remain separate content-bound sidecars. No client calculates
 finance. The current service does not yet expose a retained PPO training route;
 the causal Gymnasium environment is a separately qualified component and is not
 an A execution prerequisite.
+
+Invented controls use the separate `INVENTED-REFERENCE-RIDGE-CONTROL-V1` profile,
+explicit invented public rights and deterministic-fixture provenance. Its closed
+control protocol pins the exact invented input, calendar and timezone; it cannot
+use the frozen A scientific profile. Retained A always requires its original
+frozen protocol/calendar/timezone/input identities and bound original authority.

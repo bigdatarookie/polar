@@ -29,10 +29,12 @@ from .reference_evaluation import evaluate_reference
 from .reference_projection import public_reference
 
 A='V033-A-RIDGE-LONG4-ADJREF-V1'
+INVENTED_A='INVENTED-REFERENCE-RIDGE-CONTROL-V1'
 PROFILES={A:{'kind':'RIDGE','protocol':'078966157ce332e7c870b76030d5c6670633abb9a76bdd8ca15004f65d4835a0',
     'method':'780c13e99226029507616752b75af349cceaa03bf28b16c4f86dfbc027abac96',
     'calendar':'4c4d27655b543a4961a2ffc83474bb0d7e3e4df27ef0e2197fe675e0bc49259d',
     'registration':A+'-EXPERIMENT-01'}}
+PROFILES[INVENTED_A]={'kind':'RIDGE','registration':'INVENTED-REFERENCE-RIDGE-CONTROL-V1'}
 INPUT='070ea3eb9363894aa37ec4254997be34116b745166b173e1ab1e7dcc4182e3cd'
 
 
@@ -74,6 +76,8 @@ class ReferenceResearchService:
         require(config['code']==code_binding() and re.fullmatch('[a-f0-9]{40}',config['code_revision']) and
                 re.fullmatch('sha256:[a-f0-9]{64}',config['runtime_image_id']),'REFERENCE_CODE_RUNTIME')
         profile=PROFILES[config['profile_id']]
+        require((config['namespace']=='RETAINED' and config['profile_id']==A) or
+                (config['namespace']=='INVENTED' and config['profile_id']==INVENTED_A),'REFERENCE_PROFILE_NAMESPACE')
         protocol=read_ref(config['protocol_ref']);calendar_raw=read_ref(config['calendar_ref']);tzraw=read_ref(config['timezone_ref'])
         retained=config['namespace']=='RETAINED'
         if retained:
@@ -89,7 +93,17 @@ class ReferenceResearchService:
         market=load_reference(config['input_ref']);calendar=decode(calendar_raw)
         require(calendar['source_schedule']['sha256']==decode(read_ref(config['input_ref']))['schedule']['sha256'], 'REFERENCE_CALENDAR_JOIN')
         if not retained:
-            require(not market['dataset_revision'].startswith('histrev-'),'RETAINED_AS_INVENTED_FORBIDDEN')
+            require(market['dataset_revision'].startswith('INVENTED-') and market['rights']=='INVENTED_PUBLIC_TEST',
+                    'REFERENCE_INVENTED_RIGHTS_PROVENANCE')
+            manifest=decode(read_ref(config['input_ref']))
+            require(manifest.get('provenance')=={'kind':'DETERMINISTIC_INVENTED_FIXTURE',
+                    'producer':'polar-public-tests','source_payloads':'NONE'},'REFERENCE_INVENTED_RIGHTS_PROVENANCE')
+            control=decode(protocol)
+            require(set(control)=={'schema','profile_id','classification','fit_event','calendar_sha256','timezone_sha256','input_sha256'}
+                    and control['schema']=='polar.invented-reference-protocol/1'
+                    and control['profile_id']==INVENTED_A and control['classification']=='INVENTED'
+                    and control['calendar_sha256']==sha(calendar_raw) and control['timezone_sha256']==sha(tzraw)
+                    and control['input_sha256']==config['input_ref']['sha256'],'REFERENCE_INVENTED_PROTOCOL_BINDING')
         tz=ZoneInfo.from_file(io.BytesIO(tzraw),key='America/New_York')
         fit_event=(datetime(2021,1,1,0,0,30,tzinfo=tz) if retained else datetime.fromisoformat(decode(protocol)['fit_event']))
         if retained:
