@@ -148,6 +148,13 @@ def public_projection(config, pins, simulation, evaluation, semantic_id, semanti
                    "mean_close_exposure": "mean_close_equity_fraction"}
         for item in metrics:
             item["id"] = aliases.get(item["id"], item["id"])
+            labels = {"price_return_after_costs": "Modeled price-ledger cumulative return after costs",
+                      "price_cagr_after_costs": "Modeled price-ledger CAGR after costs",
+                      "net_sharpe": "Price-ledger Sharpe after costs, RF zero",
+                      "annual_volatility": "Annualized daily sample volatility",
+                      "mean_close_equity_fraction": "Mean marked equity to NAV over post-initial closes",
+                      "invested_close_fraction": "Invested share of post-initial closes"}
+            item["label"] = labels.get(item["id"], item["label"])
     costs = [{"id": "FLAT_ORDER_COST", "label": "Flat order costs", "kind": "CHARGED_FEES", "unit": "USD",
               "values": {leg["id"]: leg["metrics"]["flat_fee_usd"] for leg in evaluation["legs"]},
               "description": "Modeled USD1 per positive fill, debited once inside native commission."},

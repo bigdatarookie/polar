@@ -145,6 +145,9 @@ def test_invented_service_publication_and_stored_only_recompute(tmp_path, monkey
     public = ResearchResults(tmp_path, 64*1024**3).read(finish["result_id"])
     assert public["record"]["evidence_level"] == "INVENTED_CONTROL"
     assert public["record"]["series"][1]["values"][-1]["value"] == "99978.00"
+    public_metrics = {m["id"]: m for m in public["record"]["metrics"]}
+    assert public_metrics["price_return_after_costs"]["label"] == "Modeled price-ledger cumulative return after costs"
+    assert public_metrics["price_cagr_after_costs"]["label"] == "Modeled price-ledger CAGR after costs"
     assert public["assessment"]["financial"] == "NOT_REVIEWED"
     before = {str(p): sha(p.read_bytes()) for p in tmp_path.rglob("*") if p.is_file()}
     import polar.ci_research_service as module
