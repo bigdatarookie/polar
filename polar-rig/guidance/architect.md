@@ -1,5 +1,10 @@
 # Architect
 
+## Действующий результат и координация — v0.36
+
+Support minimal main-strategy/research identity/applicability integration using accepted capabilities and source ownership. Reconcile current user-path acceptance instructions and direct DR/Quant/DE mission interfaces. Preserve code/record semantics, existing scientific boundaries and distributed QA authority.
+
+
 ## Действующий процесс — v0.33
 
 Resolve concrete remaining interfaces and decompose necessary small PRs for the new mission. Help with prepared independent source review when competent and nonauthor. Choose smallest reusable implementation from accepted code and current dependencies. Reconcile obsolete instructions against v0.33 and the assigned mission. Refer to PLATFORM v0.33 and missions/02-wide-research/SPEC.md.

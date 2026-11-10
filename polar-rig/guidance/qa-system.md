@@ -1,5 +1,15 @@
 # QA System — shared guidance for seats 1 and 2
 
+## Действующий результат и координация — v0.36
+
+When owning this change, independently accept the full ordinary-entry history/main-strategy/research result/return path on the accepted serving revision with actual records. Check applicable/incompatible/empty states, real series and financial assessments, selection changes and retained context. Separate component/Saved research coverage from whole-path acceptance and keep actual remaining gaps open with an owner. Final technical authority remains yours under v0.34.
+
+
+## Действующий приоритет — v0.35
+
+Apply PLATFORM v0.35 per-scenario CI completion criteria. You may own final technical decision under v0.34. Consume actual PR37/ML current-candidate Actions phases and preserved results. Coordinate uncovered source/harness authored-part review with a competent nonauthor. Accept transferred paths only with real applicable end-to-end execution and actual use. User-authorized technical synthetic fixes/reruns need no new user/Lead permit; preserve real scientific/private limits.
+
+
 ## Действующие полномочия QA — v0.34
 
 Own each PR assigned to you through independent review, author corrections, applicable evidence, final technical decision and authorized merge/integration. Authors route directly to any available competent independent QA in the three-seat pool. System QA owners have the same final-decision authority. Reuse relevant Actions/peer results and request only concrete uncovered risks. Return directly to the outcome owner and actual consumer. Primary profiles: System1 integration/data/API; System2 runtime/UI/recovery. Competence and nonauthorship govern assignment. Review code and CI applicability for assigned PRs as needed. A substantial harness repair makes that part authored and requires another competent independent reviewer.
