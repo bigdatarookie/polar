@@ -15,7 +15,7 @@ class ImportStore(HistoryStore):
     def __init__(self, root, limit, fixture=False, raw_sip=False, raw_profile='first-unit'):
         super().__init__(root, limit)
         self.raw_sip=raw_sip
-        require(raw_profile in ('first-unit','remaining3490'),'IMPORT_POLICY_MISMATCH')
+        require(raw_profile in ('first-unit','remaining3490','all-adjusted100'),'IMPORT_POLICY_MISMATCH')
         self.raw_profile=raw_profile
         self._read_cache=None
         self._lock_held=False
@@ -28,6 +28,10 @@ class ImportStore(HistoryStore):
                 from .import_raw_profile import AGGREGATE_SHA
                 self.base=('imports-rawsip-aggregate-fixture-v1/' if fixture else
                            'imports-rawsip-aggregate-v1/')+AGGREGATE_SHA
+            if raw_profile=='all-adjusted100':
+                from .import_adjusted_sip import SCOPE_SHA
+                self.base=('imports-adjustedsip100-fixture-v1/' if fixture else
+                           'imports-adjustedsip100-v1/')+SCOPE_SHA
 
     @contextmanager
     def locked(self):
@@ -81,8 +85,10 @@ class ImportStore(HistoryStore):
             require(self.raw(name) == raw,"IMPORT_IMMUTABLE_CONFLICT")
             return
         previous=target.stat().st_size if target.exists() else 0
-        if self.raw_sip and self.raw_profile=='remaining3490':
+        if self.raw_sip and self.raw_profile in ('remaining3490','all-adjusted100'):
             from .import_raw_profile import AGGREGATE_POLICY
+            if self.raw_profile=='all-adjusted100':
+                from .import_adjusted_sip import POLICY as AGGREGATE_POLICY
             if not self._lock_held:
                 # The existing control channel intentionally remains writable
                 # from another process while the executor holds its lock.

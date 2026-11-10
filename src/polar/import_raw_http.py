@@ -15,8 +15,13 @@ CREDENTIAL=Path('/Users/garry/Documents/git/polar/.artifacts/alpaca-api-credenti
 
 def main():
     value=decode(sys.stdin.buffer.read(16385))
-    exact(value,('request','cursor','timeout_seconds','credential_reference'))
-    req=request(value['request'])
+    adjusted='adapter' in value
+    exact(value,('request','cursor','timeout_seconds','credential_reference',*(['adapter'] if adjusted else [])))
+    validator=request
+    if adjusted:
+        from .import_adjusted_sip import request as validator,ADAPTER
+        require(value['adapter']==ADAPTER,'IMPORT_POLICY_MISMATCH')
+    req=validator(value['request'])
     require(value['credential_reference']==str(CREDENTIAL),'IMPORT_CREDENTIAL_REFERENCE')
     require(type(value['timeout_seconds']) in (int,float) and 0<value['timeout_seconds']<=45)
     cursor=value['cursor']
