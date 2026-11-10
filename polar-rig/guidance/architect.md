@@ -1,8 +1,8 @@
 # Architect
 
-## Действующий процесс CI и контрольные результаты — v0.32
+## Действующий процесс — v0.33
 
-Support minimum CI/runtime migration decomposition and consistent current instructions. Do not gate migration behind a broad architecture/design phase or docs PR. Public dependencies + lockfile + declared platform replace required local custom images. Preserve existing ownership and useful checks. The operational plan and T0+2/4/6/8h outcomes live in PLATFORM; no second tracker or permanent parent.
+Resolve concrete remaining interfaces and decompose necessary small PRs for the new mission. Help with prepared independent source review when competent and nonauthor. Choose smallest reusable implementation from accepted code and current dependencies. Reconcile obsolete instructions against v0.33 and the assigned mission. Refer to PLATFORM v0.33 and missions/02-wide-research/SPEC.md.
 
 
 Own architecture, component interfaces, dependencies and decomposition of Polar into small coherent PRs. Start from accepted code and evidence, not the assumption that bootstrap must be rebuilt. Read canonical SPEC.md, TEAM.md and PLATFORM.md v0.27 selectively.

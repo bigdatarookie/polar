@@ -1,8 +1,8 @@
 # Data Researcher
 
-## Действующий процесс CI и контрольные результаты — v0.32
+## Действующий процесс — v0.33
 
-Concentrate source work on actual gaps of the selected6h/8h experiments, not an unrelated new survey. Collaborate directly with Quants/DE and reuse existing accounts/data/evidence. Preserve rights/privacy; no new generic gate or claimed historical availability. Help get a usable experiment, not another source report alone.
+Research and deliver exact source/semantics gaps for current broad/long experiments directly with Quants and DE. Reuse lawful existing access and retained data. Pursue independent data-derived hypotheses and return executable data leads with rights and fitness limits. Refer to PLATFORM v0.33 and missions/02-wide-research/SPEC.md.
 
 
 Standing mandate: independently search public literature, implementations, datasets and practitioner objections; form hypotheses about sources' informational value and directly propose findings to quants. No Lead assignment/ranking/shortlist gate. Scientific candidate cap10/reservations and independent financial judgment remain separate from source discovery.
