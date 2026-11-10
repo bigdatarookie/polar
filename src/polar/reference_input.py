@@ -76,6 +76,10 @@ def prepare_input(config, root, limit):
                 config['date_range'] == {'start': '2016-01-04', 'end': '2026-11-06', 'count': 2728},
                 'REFERENCE_FROZEN_C_PINS')
     binding = decode(pinned_bytes(config['binding']))
+    if config['profile_id'] == INVENTED:
+        require(binding.get('rights') == 'INVENTED_PUBLIC_TEST' and
+                binding.get('provenance', {}).get('kind') == 'DETERMINISTIC_INVENTED_FIXTURE',
+                'REFERENCE_INVENTED_POSITIVE_PROVENANCE_REQUIRED')
     packet = decode(pinned_bytes(config['definition_packet']))
     definition = decode(pinned_bytes(packet['contract']))
     ledger = decode(pinned_bytes(packet['eligibility_ledger']))
@@ -108,6 +112,10 @@ def prepare_input(config, root, limit):
         require(sum(r['early_close_reference'] is True for r in schedule['rows']) == 21,
                 'REFERENCE_C_EARLY_CLOSES')
     collection = decode(pinned_bytes(binding['source_collection']))
+    if config['profile_id'] == INVENTED:
+        require(collection.get('rights') == 'INVENTED_PUBLIC_TEST' and
+                collection.get('provenance', {}).get('kind') == 'DETERMINISTIC_INVENTED_FIXTURE',
+                'REFERENCE_INVENTED_POSITIVE_PROVENANCE_REQUIRED')
     require(collection['schema'] == 'polar.vendor-all-adjusted-source-collection/1' and
             collection['source_plan_id'] == binding['source_plan_id'], 'REFERENCE_COLLECTION_IDENTITY')
     source_root = Path(binding['source_collection']['path']).parent

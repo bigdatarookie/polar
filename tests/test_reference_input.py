@@ -75,7 +75,8 @@ def fixture(tmp_path, mutate=None):
                 'member_first_line_1based':n*(1 if part==0 else 2)+1,
                 'rows':1 if part==0 else 2,'first_job_row_0based':0 if part==0 else 1})
     collection=put(source/'content-manifest.json',{'schema':'polar.vendor-all-adjusted-source-collection/1',
-        'source_plan_id':'INVENTED-PLAN','objects':objects,'packets':packets})
+        'source_plan_id':'INVENTED-PLAN','objects':objects,'packets':packets,
+        'rights':'INVENTED_PUBLIC_TEST','provenance':{'kind':'DETERMINISTIC_INVENTED_FIXTURE'}})
     all_days=['2024-01-30']+days
     schedule=put(root/'schedule.json',{'schema':'polar.xnys-reference-schedule/1','time_status':'MODELED_NOT_OBSERVED',
         'rows':[{'date':d,'reference_open_utc':d+'T14:30:00+00:00','reference_close_utc':d+'T21:00:00+00:00',
@@ -84,7 +85,8 @@ def fixture(tmp_path, mutate=None):
             'clock_status':'MODELED_NOT_OBSERVED','next_reference_date':all_days[i+1] if i+1<len(all_days) else None,
             'month_end_in_reference_range':False if i+1<len(all_days) else None} for i,d in enumerate(all_days)]})
     binding=put(root/'binding.json',{'schema':'polar.C-source-consumer-metadata-binding/1','source_collection':collection,
-        'source_plan_id':'INVENTED-PLAN','portfolio_symbol_order':aliases[:2],'records':records,'rights':'INVENTED_PUBLIC_TEST'})
+        'source_plan_id':'INVENTED-PLAN','portfolio_symbol_order':aliases[:2],'records':records,'rights':'INVENTED_PUBLIC_TEST',
+        'provenance':{'kind':'DETERMINISTIC_INVENTED_FIXTURE'}})
     contract=put(root/'definition.json',{'clock_binding':{'schedule':schedule}})
     ledger=put(root/'ledger.json',{'eligible_aliases_fixed_order':aliases[:2],'all_records':records})
     packet=put(root/'packet.json',{'schema':'polar.prospective-definition-packet/1','contract':contract,'eligibility_ledger':ledger})
@@ -174,4 +176,14 @@ def test_invalid_calendar_does_not_publish_a_revision(tmp_path):
     packet['contract']=put(Path(packet['contract']['path']),definition)
     cfg['definition_packet']=put(Path(cfg['definition_packet']['path']),packet)
     with pytest.raises(ValueError,match='REFERENCE_SESSION_CLOCK'):prepare_input(cfg,store,10**8)
+    assert not (store/'reference-inputs').exists()
+
+
+@pytest.mark.parametrize('field,value',[('rights','PRIVATE_RESEARCH'),('provenance',{}),('provenance',{'kind':'RETAINED_SOURCE'})])
+def test_invented_profile_never_relabels_retained_source_as_public(tmp_path,field,value):
+    store,cfg,_,_=fixture(tmp_path);binding=json.loads(Path(cfg['binding']['path']).read_text())
+    binding[field]=value;cfg['binding']=put(Path(cfg['binding']['path']),binding)
+    # Remove normalized payloads: the positive-rights rejection must precede numeric reads.
+    for path in (tmp_path/'source').rglob('bars.ndjson'):path.unlink()
+    with pytest.raises(ValueError,match='REFERENCE_INVENTED_POSITIVE_PROVENANCE_REQUIRED'):prepare_input(cfg,store,10**8)
     assert not (store/'reference-inputs').exists()
