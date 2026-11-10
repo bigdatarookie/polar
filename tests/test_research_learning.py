@@ -3,10 +3,21 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import copy
 import unittest
+import os
+from unittest.mock import patch
+from threadpoolctl import threadpool_limits
+from polar.hyp007_numeric import THREAD_ENV
 from polar.research_learning import feature_row, training_rows, fit_ridge, score_ridge, quantized_prediction
 
 
 class ChronologicalRidge(unittest.TestCase):
+    def setUp(self):
+        self.env = patch.dict(os.environ, THREAD_ENV); self.env.start()
+        self.pool = threadpool_limits(limits=1); self.pool.__enter__()
+
+    def tearDown(self):
+        self.pool.__exit__(None,None,None); self.env.stop()
+
     def market(self):
         days = [(date(2018,1,1)+timedelta(days=i)).isoformat() for i in range(400)]
         return {'dates': days, 'symbols': ['AAA', 'BBB'], 'dataset_revision': 'invented',
