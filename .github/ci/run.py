@@ -1,11 +1,12 @@
 """The shared public/invented author and QA test entry, inside the locked image."""
-import argparse,datetime,hashlib,signal,importlib.metadata,json,os,pathlib,platform,subprocess,sys,time,xml.etree.ElementTree as ET
+import argparse,datetime,hashlib,signal,tempfile,importlib.metadata,json,os,pathlib,platform,subprocess,sys,time,xml.etree.ElementTree as ET
 p=argparse.ArgumentParser();p.add_argument('--test',action='append',default=[]);a=p.parse_args()
 for x in a.test:
     if not x.startswith('tests/') or '..' in pathlib.PurePosixPath(x.split('::')[0]).parts or any(c in x for c in '\n\r\x00'):
         p.error('--test must be a repository tests/ path or node ID')
 reports=pathlib.Path('/reports');reports.mkdir(exist_ok=True);start=time.monotonic();steps=[];limit=4*1024*1024
-os.environ.update(PYTHONPATH='/workspace/src',POLAR_GYM_NATIVE_TEST='1')
+os.environ.update(PYTHONPATH='/workspace/src',POLAR_GYM_NATIVE_TEST='1',
+    PYTHONPYCACHEPREFIX=tempfile.mkdtemp(prefix='polar-ci-pycache-',dir='/tmp'))
 subprocess.run(['git','-C','/tmp','config','--global','--add','safe.directory','/workspace'],check=True)
 sha=subprocess.check_output(['git','-C','/workspace','rev-parse','HEAD'],text=True).strip()
 versions={n:importlib.metadata.version(n) for n in ['nautilus-trader','numpy','scipy','lightgbm','pyarrow','pytest']}
@@ -40,7 +41,7 @@ try:
     # Selected adapter tests never silently replace the native-engine control.
     if a.test and not any(x in ['tests','tests/test_gym.py'] or x.startswith('tests/test_gym.py::test_native_invented_pair') for x in a.test):
         code=max(code,run('native',[sys.executable,'-m','pytest','-ra','-q','-p','no:cacheprovider','--junitxml=/reports/native.xml','tests/test_gym.py::test_native_invented_pair_and_fresh_replay']))
-    js=sorted({str(x) for pattern in ['test_*.mjs','*.test.mjs'] for x in pathlib.Path('tests').glob(pattern)})
+    js=sorted({str(x) for pattern in ['test_*.mjs','*.test.mjs','*.cjs'] for x in pathlib.Path('tests').glob(pattern)})
     if js:code=max(code,run('node',['node','--test',*js],600))
     status=code
 except Exception as e:
@@ -53,6 +54,6 @@ finally:
                 child=case.find('skipped')
                 if child is not None:skipped.append({'test':case.attrib.get('classname','')+'::'+case.attrib.get('name',''),'reason':child.attrib.get('message','')})
         except ET.ParseError:pass
-    result={'schema':'polar.ci-result/1','candidate_sha':sha,'platform':platform.platform(),'python':platform.python_version(),'dependencies':versions,'selection':a.test or ['tests'],'native_requested':True,'postgres_configured':bool(os.environ.get('POLAR_TEST_DATABASE_URL')),'status':'PASS' if status==0 else 'FAIL','exit':status,'steps':steps,'skipped':skipped,'duration_seconds':round(time.monotonic()-start,3),'finished_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'scope':'Public/invented technical checks; no financial or retained-data qualification'}
+    result={'schema':'polar.ci-result/1','candidate_sha':sha,'platform':platform.platform(),'python':platform.python_version(),'dependencies':versions,'selection':a.test or ['tests'],'native_requested':True,'source_bytecode_policy':'fresh task-private prefix; writes disabled','postgres_configured':bool(os.environ.get('POLAR_TEST_DATABASE_URL')),'status':'PASS' if status==0 else 'FAIL','exit':status,'steps':steps,'skipped':skipped,'duration_seconds':round(time.monotonic()-start,3),'finished_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'scope':'Public/invented technical checks; no financial or retained-data qualification'}
     (reports/'result.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result),flush=True)
 sys.exit(status)
