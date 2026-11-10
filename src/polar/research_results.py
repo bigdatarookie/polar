@@ -129,6 +129,22 @@ class Criterion(Closed):
     reason: Identifier | None
 
 
+class SourceCoverage(Closed):
+    alias: Identifier
+    eligibility: Literal['ELIGIBLE', 'INELIGIBLE_OR_UNKNOWN']
+    reason_codes: Annotated[list[Identifier], Field(max_length=10)]
+    source_record_ids: Annotated[list[Identifier], Field(max_length=20)]
+    source_complete: bool | None
+    raw_overlap_compared: bool | None
+    paired_dates: Annotated[int, Field(ge=0, le=10000)] | None
+    common_bar_consistency: Identifier
+    action_status: Identifier
+    timing_status: Identifier
+    economic_mapping_status: Identifier
+    scientific_eligibility: Identifier
+    financial_result: Literal['MODELED_CONDITIONAL_COHORT', 'NOT_EVALUATED_FOR_FIXED_CONDITIONAL_COHORT']
+
+
 class ResearchResult(Closed):
     schema_version: Literal["polar.research-result/1"]
     question: Question
@@ -146,9 +162,16 @@ class ResearchResult(Closed):
     financial_claim: Text
     criteria: Annotated[list[Criterion], Field(max_length=20)]
     point_interpretation: Text
+    source_coverage: Annotated[list[SourceCoverage], Field(min_length=1, max_length=100)] | None = None
 
     @model_validator(mode="after")
     def aligned(self):
+        if self.source_coverage is not None:
+            aliases = [r.alias for r in self.source_coverage]
+            if len(aliases) != len(set(aliases)) or any(
+                    (r.eligibility == 'ELIGIBLE') != (r.financial_result == 'MODELED_CONDITIONAL_COHORT') or
+                    (r.eligibility == 'INELIGIBLE_OR_UNKNOWN' and not r.reason_codes) for r in self.source_coverage):
+                raise ValueError('SOURCE_COVERAGE_IDENTITY_STATUS')
         ids = [s.id for s in self.series]
         if len(set(ids)) != len(ids) or sum(s.role == "STRATEGY" for s in self.series) != 1:
             raise ValueError("SERIES_IDENTITY")
@@ -212,6 +235,9 @@ class ResearchError(Exception):
 def validate_result(value):
     try:
         public = ResearchResult.model_validate(value).model_dump(mode="json")
+        # Backward-compatible extension: old immutable A/B bytes and IDs remain exact.
+        if public['source_coverage'] is None:
+            del public['source_coverage']
         public_text(public)
         return public
     except (ValidationError, ValueError, TypeError):

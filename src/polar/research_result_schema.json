@@ -21,7 +21,8 @@
         "wealth_basis": {
           "enum": [
             "PRICE_ONLY",
-            "TOTAL_RETURN"
+            "TOTAL_RETURN",
+            "SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT"
           ],
           "title": "Wealth Basis",
           "type": "string"
@@ -577,6 +578,127 @@
       ],
       "title": "Value",
       "type": "object"
+    },
+    "SourceCoverage": {
+      "additionalProperties": false,
+      "properties": {
+        "action_status": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Action Status",
+          "type": "string"
+        },
+        "alias": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Alias",
+          "type": "string"
+        },
+        "common_bar_consistency": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Common Bar Consistency",
+          "type": "string"
+        },
+        "economic_mapping_status": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Economic Mapping Status",
+          "type": "string"
+        },
+        "eligibility": {
+          "enum": [
+            "ELIGIBLE",
+            "INELIGIBLE_OR_UNKNOWN"
+          ],
+          "title": "Eligibility",
+          "type": "string"
+        },
+        "financial_result": {
+          "enum": [
+            "MODELED_CONDITIONAL_COHORT",
+            "NOT_EVALUATED_FOR_FIXED_CONDITIONAL_COHORT"
+          ],
+          "title": "Financial Result",
+          "type": "string"
+        },
+        "paired_dates": {
+          "anyOf": [
+            {
+              "maximum": 10000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Paired Dates"
+        },
+        "raw_overlap_compared": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Raw Overlap Compared"
+        },
+        "reason_codes": {
+          "items": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Reason Codes",
+          "type": "array"
+        },
+        "scientific_eligibility": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Scientific Eligibility",
+          "type": "string"
+        },
+        "source_complete": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Complete"
+        },
+        "source_record_ids": {
+          "items": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Source Record Ids",
+          "type": "array"
+        },
+        "timing_status": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Timing Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "alias",
+        "eligibility",
+        "reason_codes",
+        "source_record_ids",
+        "source_complete",
+        "raw_overlap_compared",
+        "paired_dates",
+        "common_bar_consistency",
+        "action_status",
+        "timing_status",
+        "economic_mapping_status",
+        "scientific_eligibility",
+        "financial_result"
+      ],
+      "title": "SourceCoverage",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -690,6 +812,23 @@
       "minLength": 1,
       "title": "Point Interpretation",
       "type": "string"
+    },
+    "source_coverage": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/SourceCoverage"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Coverage"
     }
   },
   "required": [

@@ -47,8 +47,11 @@ def simulate(plan, diagnostics=None):
     for leg_index, leg in enumerate(profile["legs"]):
         venue = Venue("CIRESEARCH" + uuid.uuid4().hex.upper())
         ids = {s: InstrumentId(Symbol(s), venue) for s in symbols}
+        # A close may submit one sell and one buy per alias. Keep the risk engine
+        # active while admitting C54's frozen same-close tape (at most108 orders).
+        submit_limit = max(20, 2*len(symbols)) if profile['kind'] == 'REFERENCE_TARGETS' else 20
         engine = BacktestEngine(BacktestEngineConfig(logging=LoggingConfig(bypass_logging=True),
-             risk_engine=RiskEngineConfig(bypass=False, max_order_submit_rate="20/00:00:01"),
+             risk_engine=RiskEngineConfig(bypass=False, max_order_submit_rate=f"{submit_limit}/00:00:01"),
              run_analysis=False))
 
         class Adapter(Strategy):
