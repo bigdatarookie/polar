@@ -8,5 +8,6 @@ COPY requirements.lock /opt/polar-ci/requirements.lock
 RUN python -m pip install --no-cache-dir --require-hashes --only-binary=:all: -r /opt/polar-ci/requirements.lock \
     && python -m pip check && git --version && node --version
 COPY run.py /opt/polar-ci/run.py
+COPY runtime_smoke.py /opt/polar-ci/runtime_smoke.py
 WORKDIR /workspace
 ENTRYPOINT ["python", "/opt/polar-ci/run.py"]

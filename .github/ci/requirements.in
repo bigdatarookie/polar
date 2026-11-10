@@ -7,3 +7,8 @@ numpy==2.2.6
 scipy==1.15.3
 lightgbm==4.6.0
 editables==0.5
+
+stable-baselines3==2.9.2
+gymnasium==1.4.0
+torch @ https://download-r2.pytorch.org/whl/cpu/torch-2.15.0%2Bcpu-cp313-cp313-manylinux_2_28_aarch64.whl#sha256=ab35875b15ac536a645e165b296300fed71df7b4f2ddbae40c725ab08f0a5e78 ; platform_machine == "aarch64" and sys_platform == "linux"
+torch @ https://download-r2.pytorch.org/whl/cpu/torch-2.15.0%2Bcpu-cp313-cp313-manylinux_2_28_x86_64.whl#sha256=0f6f69701b2d38ddc412364dfb92e2e13e74960d33fa3573b4930ced626e81c7 ; platform_machine == "x86_64" and sys_platform == "linux"

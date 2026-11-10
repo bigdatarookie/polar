@@ -9,7 +9,7 @@ os.environ.update(PYTHONPATH='/workspace/src',POLAR_GYM_NATIVE_TEST='1',
     PYTHONPYCACHEPREFIX=tempfile.mkdtemp(prefix='polar-ci-pycache-',dir='/tmp'))
 subprocess.run(['git','-C','/tmp','config','--global','--add','safe.directory','/workspace'],check=True)
 sha=subprocess.check_output(['git','-C','/workspace','rev-parse','HEAD'],text=True).strip()
-versions={n:importlib.metadata.version(n) for n in ['nautilus-trader','numpy','scipy','lightgbm','pyarrow','pytest']}
+versions={n:importlib.metadata.version(n) for n in ['nautilus-trader','numpy','scipy','lightgbm','pyarrow','pytest','stable-baselines3','gymnasium','torch']}
 def run(name,argv,timeout=1200):
     t=time.monotonic();out=reports/(name+'.log');proc=subprocess.Popen(argv,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,start_new_session=True)
     # Drain directly to a file so tracebacks survive failure. A separate file size
@@ -36,6 +36,8 @@ try:
     # are already hash-locked; no resolver or network runs here.
     code=run('project-install',[sys.executable,'-m','pip','install','--no-deps','--no-build-isolation','--no-cache-dir','-e','/workspace'],120)
     if code:raise RuntimeError('PROJECT_INSTALL_FAILED')
+    code=run('runtime-smoke',[sys.executable,'/opt/polar-ci/runtime_smoke.py'],120)
+    if code:raise RuntimeError('CPU_RL_RUNTIME_SMOKE_FAILED')
     selected=a.test or ['tests']
     code=run('pytest',[sys.executable,'-m','pytest','-ra','-q','-p','no:cacheprovider','--basetemp=/tmp/polar-ci-tests','--junitxml=/reports/pytest.xml',*selected])
     # Selected adapter tests never silently replace the native-engine control.

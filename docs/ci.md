@@ -23,8 +23,15 @@ can be cached; a pre-existing local image is not an admission requirement.
 The official Python 3.13.18 and Node 24.22.1 multi-platform images are pinned by
 manifest digest. All Python dependencies are public, version- and hash-locked,
 including NautilusTrader 1.231.0, NumPy 2.2.6, SciPy 1.15.3 and LightGBM 4.6.0.
+The CPU RL stack pins Stable-Baselines3 2.9.2, Gymnasium 1.4.0 and
+PyTorch 2.15.0+cpu. Torch uses official, hash-pinned Python 3.13 CPU wheel
+URLs selected for Linux x86_64 or aarch64, with no CUDA dependencies.
 The same recipe supports Linux amd64 in Actions and arm64 locally. Regenerate the
-lock with the command recorded at its beginning; review dependency changes as
+lock with `uv pip compile .github/ci/requirements.in --python-version 3.13
+--python-platform x86_64-unknown-linux-gnu --generate-hashes` and the equivalent
+`aarch64-unknown-linux-gnu` target, constraining existing accepted versions.
+Keep both explicitly marked Torch CPU wheel entries and verify other versions
+and hashes agree across targets; review dependency changes as
 part of the affected application change, without qualifying third-party libraries
 as a separate project.
 
@@ -67,3 +74,17 @@ under its frozen protocol, source rights, candidate/trial accounting and separat
 scientific authority. It uses the same official locked runtime with private
 read-only inputs and task-owned outputs, through the application's ordinary CLI;
 it does not require a legacy QA package or create new scientific authority.
+
+
+## CPU RL runtime check
+
+The existing command also runs a mandatory CPU-only import/API check and a
+32-step PPO smoke on an invented 23-observation/five-action environment. It
+checks one-thread execution, reset/step/predict and absence of CUDA, and records
+versions and scope in `runtime-smoke.log` plus the ordinary result steps. This
+qualifies library API compatibility; it does not qualify Polar's ledger, an RL
+economic policy, a private training budget or financial performance. It downloads
+no model or environment dataset. Application-specific synthetic tests remain
+ordinary selections under the same command. Actual private training uses the
+accepted source, frozen method and explicitly authorized private CLI/storage
+scope; the toy smoke confers no authority to fit private data.
