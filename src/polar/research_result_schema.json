@@ -1,0 +1,715 @@
+{
+  "$defs": {
+    "Basis": {
+      "additionalProperties": false,
+      "properties": {
+        "currency": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Currency",
+          "type": "string"
+        },
+        "frequency": {
+          "const": "DAILY",
+          "title": "Frequency",
+          "type": "string"
+        },
+        "timezone": {
+          "pattern": "^(?:UTC|[A-Za-z_]+/[A-Za-z_]+(?:/[A-Za-z_]+)?)$",
+          "title": "Timezone",
+          "type": "string"
+        },
+        "wealth_basis": {
+          "enum": [
+            "PRICE_ONLY",
+            "TOTAL_RETURN"
+          ],
+          "title": "Wealth Basis",
+          "type": "string"
+        },
+        "cost_basis": {
+          "enum": [
+            "NET",
+            "GROSS_SAME_TAPE"
+          ],
+          "title": "Cost Basis",
+          "type": "string"
+        },
+        "cash_basis": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Cash Basis",
+          "type": "string"
+        },
+        "risk_free_basis": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Risk Free Basis",
+          "type": "string"
+        }
+      },
+      "required": [
+        "currency",
+        "frequency",
+        "timezone",
+        "wealth_basis",
+        "cost_basis",
+        "cash_basis",
+        "risk_free_basis"
+      ],
+      "title": "Basis",
+      "type": "object"
+    },
+    "Bindings": {
+      "additionalProperties": false,
+      "properties": {
+        "protocol_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Protocol Id",
+          "type": "string"
+        },
+        "protocol_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Protocol Sha256",
+          "type": "string"
+        },
+        "data_revision": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Data Revision",
+          "type": "string"
+        },
+        "data_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Data Sha256",
+          "type": "string"
+        },
+        "code_revision": {
+          "pattern": "^[a-f0-9]{40}$",
+          "title": "Code Revision",
+          "type": "string"
+        },
+        "evaluator_revision": {
+          "pattern": "^[a-f0-9]{40}$",
+          "title": "Evaluator Revision",
+          "type": "string"
+        },
+        "runtime_id": {
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "title": "Runtime Id",
+          "type": "string"
+        },
+        "producer_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Producer Id",
+          "type": "string"
+        },
+        "candidate_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "experiment_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Experiment Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol_id",
+        "protocol_sha256",
+        "data_revision",
+        "data_sha256",
+        "code_revision",
+        "evaluator_revision",
+        "runtime_id",
+        "producer_id",
+        "candidate_id",
+        "experiment_id"
+      ],
+      "title": "Bindings",
+      "type": "object"
+    },
+    "Comparison": {
+      "additionalProperties": false,
+      "properties": {
+        "metric_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Metric Id",
+          "type": "string"
+        },
+        "left_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Left Id",
+          "type": "string"
+        },
+        "right_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Right Id",
+          "type": "string"
+        },
+        "unit": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Unit",
+          "type": "string"
+        },
+        "result": {
+          "$ref": "#/$defs/Value"
+        },
+        "interpretation": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Interpretation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "metric_id",
+        "left_id",
+        "right_id",
+        "unit",
+        "result",
+        "interpretation"
+      ],
+      "title": "Comparison",
+      "type": "object"
+    },
+    "Cost": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "CHARGED_FEES",
+            "MODELED_SPREAD",
+            "MODELED_SLIPPAGE",
+            "UNMODELED"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "unit": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Unit",
+          "type": "string"
+        },
+        "values": {
+          "patternProperties": {
+            "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$": {
+              "$ref": "#/$defs/Value"
+            }
+          },
+          "title": "Values",
+          "type": "object"
+        },
+        "description": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "kind",
+        "unit",
+        "values",
+        "description"
+      ],
+      "title": "Cost",
+      "type": "object"
+    },
+    "Criterion": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "MET",
+            "NOT_MET",
+            "UNAVAILABLE"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "status",
+        "reason"
+      ],
+      "title": "Criterion",
+      "type": "object"
+    },
+    "LedgerPoint": {
+      "additionalProperties": false,
+      "properties": {
+        "cash": {
+          "anyOf": [
+            {
+              "pattern": "^-?(?:0|[1-9][0-9]{0,255})(?:\\.[0-9]{1,4096})?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cash"
+        },
+        "exposure": {
+          "anyOf": [
+            {
+              "pattern": "^-?(?:0|[1-9][0-9]{0,255})(?:\\.[0-9]{1,4096})?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Exposure"
+        },
+        "cumulative_flat_fees": {
+          "anyOf": [
+            {
+              "pattern": "^-?(?:0|[1-9][0-9]{0,255})(?:\\.[0-9]{1,4096})?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cumulative Flat Fees"
+        },
+        "cumulative_bps_fees": {
+          "anyOf": [
+            {
+              "pattern": "^-?(?:0|[1-9][0-9]{0,255})(?:\\.[0-9]{1,4096})?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cumulative Bps Fees"
+        },
+        "positions": {
+          "patternProperties": {
+            "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$": {
+              "maximum": 1000000000,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "title": "Positions",
+          "type": "object"
+        },
+        "net_return": {
+          "$ref": "#/$defs/Value"
+        }
+      },
+      "required": [
+        "cash",
+        "exposure",
+        "cumulative_flat_fees",
+        "cumulative_bps_fees",
+        "positions",
+        "net_return"
+      ],
+      "title": "LedgerPoint",
+      "type": "object"
+    },
+    "Limitation": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Code",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "scope": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "text",
+        "scope"
+      ],
+      "title": "Limitation",
+      "type": "object"
+    },
+    "Metric": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "unit": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Unit",
+          "type": "string"
+        },
+        "values": {
+          "patternProperties": {
+            "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$": {
+              "$ref": "#/$defs/Value"
+            }
+          },
+          "title": "Values",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "unit",
+        "values"
+      ],
+      "title": "Metric",
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Role",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "id",
+        "sha256"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    },
+    "Question": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "summary": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "summary"
+      ],
+      "title": "Question",
+      "type": "object"
+    },
+    "Series": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "STRATEGY",
+            "BENCHMARK",
+            "CONTROL"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "unit": {
+          "const": "USD",
+          "title": "Unit",
+          "type": "string"
+        },
+        "values": {
+          "items": {
+            "$ref": "#/$defs/Value"
+          },
+          "maxItems": 10000,
+          "minItems": 1,
+          "title": "Values",
+          "type": "array"
+        },
+        "ledger": {
+          "items": {
+            "$ref": "#/$defs/LedgerPoint"
+          },
+          "maxItems": 10000,
+          "minItems": 1,
+          "title": "Ledger",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "role",
+        "unit",
+        "values",
+        "ledger"
+      ],
+      "title": "Series",
+      "type": "object"
+    },
+    "Value": {
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "anyOf": [
+            {
+              "pattern": "^-?(?:0|[1-9][0-9]{0,255})(?:\\.[0-9]{1,4096})?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value"
+        },
+        "status": {
+          "enum": [
+            "OK",
+            "UNAVAILABLE",
+            "INVALID",
+            "NOT_APPLICABLE",
+            "NOT_RUN"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        }
+      },
+      "required": [
+        "value",
+        "status",
+        "reason"
+      ],
+      "title": "Value",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "polar.research-result/1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "question": {
+      "$ref": "#/$defs/Question"
+    },
+    "bindings": {
+      "$ref": "#/$defs/Bindings"
+    },
+    "basis": {
+      "$ref": "#/$defs/Basis"
+    },
+    "grid": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 10000,
+      "minItems": 1,
+      "title": "Grid",
+      "type": "array"
+    },
+    "series": {
+      "items": {
+        "$ref": "#/$defs/Series"
+      },
+      "maxItems": 5,
+      "minItems": 2,
+      "title": "Series",
+      "type": "array"
+    },
+    "primary_benchmark_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+      "title": "Primary Benchmark Id",
+      "type": "string"
+    },
+    "metrics": {
+      "items": {
+        "$ref": "#/$defs/Metric"
+      },
+      "maxItems": 40,
+      "minItems": 1,
+      "title": "Metrics",
+      "type": "array"
+    },
+    "comparisons": {
+      "items": {
+        "$ref": "#/$defs/Comparison"
+      },
+      "maxItems": 40,
+      "title": "Comparisons",
+      "type": "array"
+    },
+    "costs": {
+      "items": {
+        "$ref": "#/$defs/Cost"
+      },
+      "maxItems": 20,
+      "minItems": 1,
+      "title": "Costs",
+      "type": "array"
+    },
+    "limitations": {
+      "items": {
+        "$ref": "#/$defs/Limitation"
+      },
+      "maxItems": 30,
+      "minItems": 1,
+      "title": "Limitations",
+      "type": "array"
+    },
+    "provenance": {
+      "items": {
+        "$ref": "#/$defs/Provenance"
+      },
+      "maxItems": 30,
+      "minItems": 1,
+      "title": "Provenance",
+      "type": "array"
+    },
+    "evidence_level": {
+      "enum": [
+        "INVENTED_CONTROL",
+        "RETAINED_DESCRIPTIVE",
+        "HISTORICAL_RESEARCH"
+      ],
+      "title": "Evidence Level",
+      "type": "string"
+    },
+    "financial_claim": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Financial Claim",
+      "type": "string"
+    },
+    "criteria": {
+      "items": {
+        "$ref": "#/$defs/Criterion"
+      },
+      "maxItems": 20,
+      "title": "Criteria",
+      "type": "array"
+    },
+    "point_interpretation": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Point Interpretation",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "question",
+    "bindings",
+    "basis",
+    "grid",
+    "series",
+    "primary_benchmark_id",
+    "metrics",
+    "comparisons",
+    "costs",
+    "limitations",
+    "provenance",
+    "evidence_level",
+    "financial_claim",
+    "criteria",
+    "point_interpretation"
+  ],
+  "title": "ResearchResult",
+  "type": "object"
+}
