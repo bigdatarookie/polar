@@ -86,7 +86,13 @@ def train_seed(market,anchor,terminal,tz,seed,*,invented_steps=None):
     require(model._n_updates==(steps//256)*10 and len(optimizer_steps)==(steps//256)*40,'PPO_UPDATE_BUDGET')
     require(all(not row['truncated'] for row in audit.rows),'PPO_UNEXPECTED_TRUNCATION')
     model.policy.set_training_mode(False)
-    return model,{'seed':seed,'defaults':manifest,'transitions':audit.rows,'resets':audit.resets,
+    represented={'rollout_buffer':{name:str(getattr(model.rollout_buffer,name).dtype) for name in
+        ['observations','actions','rewards','returns','advantages','values','log_probs','episode_starts']},
+        'policy_parameter_dtypes':sorted({str(p.dtype) for p in model.policy.parameters()}),
+        'policy_device':str(model.device),'emitted_reward':'numpy.float64 returned as Python float',
+        'optimizer_class':type(model.policy.optimizer).__module__+'.'+type(model.policy.optimizer).__qualname__,
+        'optimizer_defaults':dict(model.policy.optimizer.defaults)}
+    return model,{'seed':seed,'defaults':manifest,'represented_runtime':represented,'transitions':audit.rows,'resets':audit.resets,
         'actual_timesteps':model.num_timesteps,'actual_rollouts':steps//256,
         'actual_epoch_updates':model._n_updates,'actual_optimizer_steps':len(optimizer_steps),
         'budget_stop_is_episode_terminal':audit.rows[-1]['terminated'],
@@ -144,3 +150,56 @@ def reconcile_selected(episode,simulation):
     keys=['symbol','side','q','fee_cents','settled_cents','cash_after_cents']
     require([[x[k] for k in keys] for x in actual['fills']]==[[x[k] for k in keys] for x in episode['fills']], 'PPO_NATIVE_FILL_MISMATCH')
     return {'status':'MATCHED','nav_points':len(actual['nav']),'fills':len(actual['fills'])}
+
+
+def select_development(candidates):
+    from decimal import Decimal
+    eligible=[]
+    for item in candidates:
+        value=item['metrics']['sharpe_252_rf0']
+        if value['status']=='OK' and value['value'] is not None and Decimal(value['value']).is_finite():
+            eligible.append((Decimal(value['value']),item['seed']))
+    return min(eligible,key=lambda x:(-x[0],x[1]))[1] if eligible else None
+
+
+def fit_select_test(market,partitions,tz,persist,*,invented_steps=None,native=None):
+    """Three exact fits, three frozen DEV runs and only the selected TEST.
+
+    persist is the operation owner's immutable checkpoint writer. A checkpoint
+    failure propagates; this function never retries a fit or resets an attempt.
+    """
+    import io
+    from .ci_research_evaluation import evaluate_legs
+    from .reference_evaluation import evaluate_reference
+    if native is None:
+        from .ci_research_service import bounded_native
+        native=bounded_native
+    require(set(partitions)=={'TRAIN','DEV','TEST'},'PPO_PARTITIONS')
+    for p in partitions.values():
+        actual=[d for d in market['dates'] if p['cash_anchor_date']<=d<=p['terminal_date']]
+        require(actual==p['date_grid'] and len(actual)==p['nav_points'] and len(actual)-1==p['step_intervals'], 'PPO_PARTITION_GRID')
+    models={};development=[]
+    train,dev,test=(partitions[k] for k in ['TRAIN','DEV','TEST'])
+    for seed in (0,1,2):
+        persist('seed-'+str(seed)+'/intent.json',{'status':'FIT_INTENT_CONSERVATIVE_DEBIT','seed':seed,'budget':20480 if invented_steps is None else invented_steps})
+        model,audit=train_seed(market,train['cash_anchor_date'],train['terminal_date'],tz,seed,invented_steps=invented_steps)
+        output=io.BytesIO();model.save(output);persist('seed-'+str(seed)+'/model.zip',output.getvalue())
+        # Bound each member independently; the whole family trace is not one giant JSON field.
+        transitions=audit.pop('transitions')
+        for start in range(0,len(transitions),256):persist(f'seed-{seed}/rollout-{start//256:03d}.json',transitions[start:start+256])
+        persist(f'seed-{seed}/training.json',audit)
+        episode=deterministic_episode(model,market,dev['cash_anchor_date'],dev['terminal_date'],tz)
+        metrics,_=evaluate_legs({'legs':[{'id':'PPO_SELECTED','nav':episode['nav'],'fills':episode['fills']}]})
+        item={'seed':seed,'metrics':metrics[0]['metrics']};development.append(item)
+        persist(f'seed-{seed}/development.json',{'episode':episode,**item});models[seed]=model
+    selected=select_development(development)
+    selection={'schema':'polar.reference-ppo-selection/1','candidates':development,'selected_seed':selected,
+        'reason':'MAX_CANONICAL_DEV_SHARPE_LOWEST_SEED_TIE' if selected is not None else 'NO_ELIGIBLE_DEV_SEED',
+        'retained_fits':3,'development_runs':3,'selected_test_runs':int(selected is not None)}
+    persist('selection.json',selection)
+    if selected is None:return {'status':'INDETERMINATE','selection':selection,'simulation':None,'evaluation':None}
+    episode=deterministic_episode(models[selected],market,test['cash_anchor_date'],test['terminal_date'],tz)
+    simulation=native(native_test_plan(market,episode,tz));matched=reconcile_selected(episode,simulation)
+    evaluation=evaluate_reference(simulation,kind='PPO',strategy=LEGS[0],benchmark=LEGS[1])
+    persist('final.json',{'episode':episode,'simulation':simulation,'evaluation':evaluation,'native_reconciliation':matched})
+    return {'status':'SUCCESS','selection':selection,'simulation':simulation,'evaluation':evaluation}

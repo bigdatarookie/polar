@@ -30,11 +30,17 @@ from .reference_projection import public_reference
 
 A='V033-A-RIDGE-LONG4-ADJREF-V1'
 INVENTED_A='INVENTED-REFERENCE-RIDGE-CONTROL-V1'
+B='V033-B-PPO-LONG4-ADJREF-V1'
+INVENTED_B='INVENTED-REFERENCE-PPO-CONTROL-V1'
 PROFILES={A:{'kind':'RIDGE','protocol':'078966157ce332e7c870b76030d5c6670633abb9a76bdd8ca15004f65d4835a0',
     'method':'780c13e99226029507616752b75af349cceaa03bf28b16c4f86dfbc027abac96',
     'calendar':'4c4d27655b543a4961a2ffc83474bb0d7e3e4df27ef0e2197fe675e0bc49259d',
     'registration':A+'-EXPERIMENT-01'}}
 PROFILES[INVENTED_A]={'kind':'RIDGE','registration':'INVENTED-REFERENCE-RIDGE-CONTROL-V1'}
+PROFILES[B]={'kind':'PPO','protocol':'9abfb523089c37d4f67c3b1f490273948a70c3b57aff1b1103c1bcb9b0a75b15',
+    'method':'4f1312f36b88f9315ff26030bf3ee8025b8dad00b1150db76af7a84d9fb1d019',
+    'calendar':'6953950f2b8811f42515d667a807a988586620452ec63185981e419851cc3823','registration':B+'-EXPERIMENT-01'}
+PROFILES[INVENTED_B]={'kind':'PPO','registration':INVENTED_B}
 INPUT='070ea3eb9363894aa37ec4254997be34116b745166b173e1ab1e7dcc4182e3cd'
 
 
@@ -76,8 +82,8 @@ class ReferenceResearchService:
         require(config['code']==code_binding() and re.fullmatch('[a-f0-9]{40}',config['code_revision']) and
                 re.fullmatch('sha256:[a-f0-9]{64}',config['runtime_image_id']),'REFERENCE_CODE_RUNTIME')
         profile=PROFILES[config['profile_id']]
-        require((config['namespace']=='RETAINED' and config['profile_id']==A) or
-                (config['namespace']=='INVENTED' and config['profile_id']==INVENTED_A),'REFERENCE_PROFILE_NAMESPACE')
+        require((config['namespace']=='RETAINED' and config['profile_id'] in (A,B)) or
+                (config['namespace']=='INVENTED' and config['profile_id'] in (INVENTED_A,INVENTED_B)),'REFERENCE_PROFILE_NAMESPACE')
         protocol=read_ref(config['protocol_ref']);calendar_raw=read_ref(config['calendar_ref']);tzraw=read_ref(config['timezone_ref'])
         retained=config['namespace']=='RETAINED'
         if retained:
@@ -92,7 +98,8 @@ class ReferenceResearchService:
             require(config['input_ref']['sha256']!=INPUT,'RETAINED_AS_INVENTED_FORBIDDEN')
         manifest=decode(read_ref(config['input_ref']))
         calendar=decode(calendar_raw)
-        require(calendar['source_schedule']['sha256']==manifest['schedule']['sha256'], 'REFERENCE_CALENDAR_JOIN')
+        require((calendar['source_schedule']['sha256'] if profile['kind']=='RIDGE' else
+                 calendar['source_reference_schedule_sha256'])==manifest['schedule']['sha256'], 'REFERENCE_CALENDAR_JOIN')
         if not retained:
             require(str(manifest.get('parent_dataset_revision','')).startswith('INVENTED-')
                     and manifest.get('rights')=='INVENTED_PUBLIC_TEST', 'REFERENCE_INVENTED_RIGHTS_PROVENANCE')
@@ -101,22 +108,27 @@ class ReferenceResearchService:
             control=decode(protocol)
             require(set(control)=={'schema','profile_id','classification','fit_event','calendar_sha256','timezone_sha256','input_sha256'}
                     and control['schema']=='polar.invented-reference-protocol/1'
-                    and control['profile_id']==INVENTED_A and control['classification']=='INVENTED'
+                    and control['profile_id']==config['profile_id'] and control['classification']=='INVENTED'
                     and control['calendar_sha256']==sha(calendar_raw) and control['timezone_sha256']==sha(tzraw)
                     and control['input_sha256']==config['input_ref']['sha256'],'REFERENCE_INVENTED_PROTOCOL_BINDING')
         market=load_reference(config['input_ref'])
         tz=ZoneInfo.from_file(io.BytesIO(tzraw),key='America/New_York')
-        fit_event=(datetime(2021,1,1,0,0,30,tzinfo=tz) if retained else datetime.fromisoformat(decode(protocol)['fit_event']))
+        fit_event=(datetime(2021,1,1,0,0,30,tzinfo=tz) if retained else datetime.fromisoformat(decode(protocol)['fit_event'])) if profile['kind']=='RIDGE' else None
         if retained:
             require(market['symbols']==['AAPL','AMZN','TSLA','VTI'] and len(market['dates'])==2770 and
-                    calendar['training_rows']==192,'REFERENCE_SELECTED_COHORT')
+                    (calendar['training_rows']==192 if profile['kind']=='RIDGE' else
+                     [(p['partition'],p['nav_points'],p['step_intervals']) for p in calendar['partitions']]==
+                     [('TRAIN',1241,1240),('DEV',504,503),('TEST',967,966)]),'REFERENCE_SELECTED_COHORT')
+        if profile['kind']=='PPO':
+            from .reference_ppo import runtime_manifest
+            runtime_manifest()
         return market,calendar,tz,fit_event
 
     def preflight(self,config):
         market,calendar,_,_=self.prepare(config)
         return {'schema':'polar.reference-preflight/1','status':'READY_FOR_BOUND_OPERATION',
             'profile_id':config['profile_id'],'operation_binding_sha256':sha(canonical(binding(config))),
-            'input_rows':len(market['dates'])*len(market['symbols']),'training_rows':calendar['training_rows'],
+            'input_rows':len(market['dates'])*len(market['symbols']),'training_rows':calendar.get('training_rows'),
             'strategy_execution':'NOT_RUN','scientific_starts':0}
 
     def _authority(self,config):
@@ -134,12 +146,15 @@ class ReferenceResearchService:
         qualification=__import__('json').loads(read_ref(authority['qualification_ref']))
         require(qualification.get('schema')=='polar.ci-result/1' and qualification.get('status')=='PASS' and
                 qualification.get('candidate_sha')==config['code_revision'] and
-                any(s in ('tests','tests/test_reference_service.py') for s in qualification.get('selection',[])),
+                any(s in ('tests','tests/test_reference_service.py','tests/test_reference_ppo_service.py') for s in qualification.get('selection',[])),
                 'REFERENCE_EXACT_TECHNICAL_QUALIFICATION')
         return authority
 
     def run(self,config):
         market,calendar,tz,fit_event=self.prepare(config);authority=self._authority(config)
+        if PROFILES[config['profile_id']]['kind']=='PPO':
+            from .reference_ppo_service import run_ppo
+            return run_ppo(self,config,market,calendar,tz,authority)
         family=sha(canonical({'profile':config['profile_id'],'input':config['input_ref']['sha256'],'namespace':config['namespace']}))
         parent='reference-research-attempts/'+family;aid=str(uuid.uuid4());directory=self.store.root/parent
         with self.store.locked():
@@ -208,11 +223,15 @@ class ReferenceResearchService:
         parent='reference-research-experiments/'+semantic_id
         raw=read_file(self.store.root,parent+'/manifest.json',32*1024**2);require(semantic_id=='reference-experiment-'+sha(raw),'REFERENCE_MANIFEST_HASH')
         manifest=decode(raw);files={}
-        require(set(manifest['files'])=={'model.json','phases.json','diagnostics.json','bindings.json'},'REFERENCE_SEMANTIC_MEMBERS')
+        require(manifest['schema']=='polar.reference-ppo-semantic-manifest/1' or
+                set(manifest['files'])=={'model.json','phases.json','diagnostics.json','bindings.json'},'REFERENCE_SEMANTIC_MEMBERS')
         for name,pin in manifest['files'].items():
             body=read_file(self.store.root,parent+'/'+name,32*1024**2)
             require(len(body)==pin['bytes'] and sha(body)==pin['sha256'],'REFERENCE_SEMANTIC_HASH')
             files[name]=body
+        if manifest['schema']=='polar.reference-ppo-semantic-manifest/1':
+            from .reference_ppo_service import recompute_ppo
+            return {**recompute_ppo(files),'semantic_id':semantic_id}
         diagnostics=decode(files['diagnostics.json'])
         for diagnostic in diagnostics.values():
             require(canonical(diagnostic_from_records(diagnostic['rows']))==canonical(diagnostic),'REFERENCE_DIAGNOSTIC_RECOMPUTE')
