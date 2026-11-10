@@ -216,6 +216,17 @@ class Service:
     def hyp007_capability_report(self, packet_id):
         return self._hyp007_capability().report(packet_id)
 
+    def _obs158(self):
+        from .obs158_service import Obs158Service
+        from .obs158_store import Obs158Store
+        return Obs158Service(Obs158Store(self.artifacts.root,self.artifacts.limit))
+
+    def obs158_preflight(self,config):return self._obs158().preflight(config)
+    def obs158_run(self,config):return self._obs158().run(config)
+    def obs158_replay(self,config,experiment_id):return self._obs158().replay(config,experiment_id)
+    def obs158_attempt(self,attempt_id):return self._obs158().attempt(attempt_id)
+    def obs158_report(self,experiment_id):return self._obs158().report(experiment_id)
+
     def ready(self):
         self.registry.check()
         self.artifacts.check()

@@ -1,0 +1,29 @@
+{
+  "schema": "polar.obs158-public-ci-fixture/1",
+  "classification": "PUBLIC_METADATA_AND_DETERMINISTIC_SYNTHETIC_ONLY",
+  "original_public_definition_sha256": "716fd2791a415d096ef98d1839baa5d7cde0260a6ab8ca5569d7a5981901c5a0",
+  "original_metric_definition_sha256": "5ec3128a0142032cd012e1d894bfe35c5f7f573d338332235858675dde9ccec1",
+  "members": {
+    "cohort-order-v1.json": {
+      "sha256": "183b654ea0d22867cca5aee7d7b5c5fde1b6d20dd87f213bfc560b377232d08c",
+      "bytes": 2106
+    },
+    "calendar-profile-v1.json": {
+      "sha256": "b94b6ae000d545cb33ec91d0518ea6318d82f5642309345459b6316cb9bc939e",
+      "bytes": 9094
+    },
+    "action-profile-v1.json": {
+      "sha256": "9adbf3ce94b58fd734c4c99207882fada67259f7fed2ed1e51a2b6dcd48c1491",
+      "bytes": 2050
+    },
+    "calendar.json": {
+      "sha256": "803aaef74549c4887ce7838a1667b7c5e3068e5d6ea661b421baa7331b2de1bb",
+      "bytes": 37178
+    },
+    "timezone.tzif": {
+      "sha256": "d7f2206b3a45989fc9ad63d558922532fa7352280d5f87176bf1db79cb1d1fa9",
+      "bytes": 1744
+    }
+  },
+  "private_protocol_paths": "NOT_COPIED; economic and schedule controls use exact public cohort/calendar/action members"
+}

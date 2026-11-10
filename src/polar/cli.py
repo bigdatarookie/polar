@@ -80,6 +80,17 @@ def main(argv=None):
     listing = subs.add_parser("research-results")
     listing.add_argument("--limit", type=page_limit, default=10)
     listing.add_argument("--offset", type=page_offset, default=0)
+    subs.add_parser("obs158-code")
+    for name in ("obs158-preflight","obs158-run","obs158-replay"):
+        command=subs.add_parser(name)
+        command.add_argument("file",type=Path)
+        command.add_argument("--artifact-root",type=Path,required=True)
+        command.add_argument("--storage-bytes",type=int,default=64*1024**3)
+        if name=="obs158-replay":command.add_argument("experiment_id")
+    for name,key in (("obs158-attempt","attempt_id"),("obs158-report","experiment_id")):
+        command=subs.add_parser(name);command.add_argument(key)
+        command.add_argument("--artifact-root",type=Path,required=True)
+        command.add_argument("--storage-bytes",type=int,default=64*1024**3)
     partial = subs.add_parser("hyp003-prepare")
     partial.add_argument("config_file", type=Path)
     partial.add_argument("--output-dir", type=Path, required=True)
@@ -228,6 +239,34 @@ def main(argv=None):
             print(json.dumps(result, sort_keys=True, allow_nan=False))
         except (ResearchError, HistoryError, OSError, ValueError):
             print(json.dumps({"status": "ERROR", "code": "RESEARCH_OPERATION_FAILED"}), file=sys.stderr)
+            raise SystemExit(1)
+        return
+    if args.command.startswith("obs158-"):
+        from .obs158_contract import decode,source_code
+        from .obs158_math import Obs158Error
+        try:
+            if args.command=="obs158-code":
+                result={"schema":"polar.obs158-code/1","source_code":source_code()}
+            else:
+                from .obs158_service import Obs158Service
+                from .obs158_store import Obs158Store
+                if not 1<=args.storage_bytes<=64*1024**3:raise Obs158Error("INVALID_STORAGE_ALLOCATION")
+                service=Obs158Service(Obs158Store(args.artifact_root,args.storage_bytes))
+                operation=args.command.removeprefix("obs158-")
+                if operation in ("preflight","run","replay"):
+                    with args.file.open("rb") as stream:raw=stream.read(1024**2+1)
+                    if len(raw)>1024**2:raise Obs158Error("OBS158_CONFIG_BOUND")
+                    config=decode(raw)
+                    result=(service.replay(config,args.experiment_id) if operation=="replay"
+                            else getattr(service,operation)(config))
+                else:result=getattr(service,operation)(
+                    args.attempt_id if operation=="attempt" else args.experiment_id)
+            print(json.dumps(result,sort_keys=True,allow_nan=False))
+            if result.get("status") in ("FAILED","UNFINALIZED"):raise SystemExit(1)
+        except Exception as exc:
+            print(json.dumps({"schema":"polar.obs158-error/1","status":"ERROR",
+                  "code":str(exc) if isinstance(exc,Obs158Error) else "OBS158_DEPENDENCY_OR_RECORD_INVALID"}),
+                  file=sys.stderr)
             raise SystemExit(1)
         return
     if args.command.startswith("gym-"):

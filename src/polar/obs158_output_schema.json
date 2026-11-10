@@ -1,0 +1,484 @@
+{
+  "actual_decision_extra_fields": [
+    "status"
+  ],
+  "array_orders": {
+    "aliases": "158 frozen lexical aliases, never native identifiers",
+    "barriers": "actual model timestamp/channel; complete158 before dependent operation",
+    "coverage": "source_symbol",
+    "intents": "decision time then lexical alias",
+    "intervals": "252 increasing end then start; no deletion",
+    "metric_details": "exact fractions; earliest model time then lexical alias, tail tie order end then start",
+    "observations": "known-by delivery, bars in lexical alias order",
+    "orders_and_fills": "actual model route timestamp, SELL100+i before BUY1000+i",
+    "samples": "253 increasing nominal closes",
+    "strategies": [
+      "OBS158_EW_BH_V1",
+      "OBS158_EW_MONTHLY_V1"
+    ],
+    "unit_actions": "applied model timestamp then alias",
+    "zero_volume_flags": "reference date then alias"
+  },
+  "closed_record_fields": {
+    "barrier": [
+      "channel",
+      "date",
+      "ts_init",
+      "expected_aliases",
+      "observed_ns",
+      "observed_aliases"
+    ],
+    "concentration_detail": [
+      "nominal_ns",
+      "alias",
+      "exact_fraction"
+    ],
+    "drawdown_detail": [
+      "peak_ns",
+      "trough_ns",
+      "recovery_ns",
+      "recovery_status",
+      "exact_fraction"
+    ],
+    "evaluated_strategy": [
+      "strategy_id",
+      "price_ledger_interval_changes",
+      "metrics",
+      "details"
+    ],
+    "expiry": [
+      "order_date",
+      "at_ns",
+      "unrouted_quantity",
+      "status"
+    ],
+    "fill": [
+      "order_id",
+      "alias",
+      "route_ns",
+      "raw_open",
+      "cash_before_cents",
+      "side",
+      "intended_quantity",
+      "filled_quantity",
+      "unrouted_quantity",
+      "fee_cents",
+      "gross_exact_notional_USD",
+      "settled_notional_cents",
+      "epsilon_USD",
+      "signed_cash_rounding_USD",
+      "cash_delta_cents",
+      "expected_cash_after_cents",
+      "reasons",
+      "ts_event",
+      "ts_init",
+      "native_cash_after_cents",
+      "cash_reconciled_at_ns"
+    ],
+    "fraction": [
+      "numerator",
+      "denominator"
+    ],
+    "input_inventory_record": [
+      "role",
+      "sha256",
+      "bytes"
+    ],
+    "intent": [
+      "strategy_id",
+      "alias",
+      "snapshot_date",
+      "known_by_ns",
+      "decision_ns",
+      "order_date",
+      "open_ns",
+      "snapshot_value_cents",
+      "target_quantity",
+      "held_at_decision",
+      "sell_intended",
+      "buy_intended"
+    ],
+    "interval": [
+      "start_nominal_ns",
+      "end_nominal_ns",
+      "exact_fraction",
+      "decimal50",
+      "status",
+      "reason"
+    ],
+    "metric": [
+      "value",
+      "status",
+      "reason",
+      "evidence_scope"
+    ],
+    "metric_details": [
+      "drawdown",
+      "concentration",
+      "exact_exposure",
+      "worst_interval",
+      "ES95_intervals"
+    ],
+    "native_unit_bridge": [
+      "alias",
+      "native_quantity",
+      "physical_quantity",
+      "factor",
+      "exact_mark_micro",
+      "position_cents"
+    ],
+    "observation": [
+      "date",
+      "known_by_ns",
+      "delivered_ns",
+      "price_ledger_value_cents",
+      "raw_closes",
+      "bars"
+    ],
+    "order": [
+      "order_id",
+      "alias",
+      "route_ns",
+      "raw_open",
+      "cash_before_cents",
+      "side",
+      "intended_quantity",
+      "filled_quantity",
+      "unrouted_quantity",
+      "fee_cents",
+      "gross_exact_notional_USD",
+      "settled_notional_cents",
+      "epsilon_USD",
+      "signed_cash_rounding_USD",
+      "cash_delta_cents",
+      "cash_after_cents",
+      "reasons"
+    ],
+    "paired": [
+      "order",
+      "metrics",
+      "price_ledger_interval_change_differences"
+    ],
+    "polar.obs158-evaluation/1": [
+      "schema",
+      "metric_order",
+      "strategies",
+      "paired",
+      "financial_status",
+      "evidence_scope",
+      "financial_reasons"
+    ],
+    "polar.obs158-runner-preflight/1": [
+      "schema",
+      "data_checks",
+      "engineering_evidence_identity_bound",
+      "runtime_source_identity_matched",
+      "runner_execution_allowed",
+      "source_class",
+      "financial_status",
+      "financial_scope"
+    ],
+    "polar.obs158-semantic-bindings/1": [
+      "schema",
+      "protocol",
+      "public_sha256",
+      "metric_sha256",
+      "dataset_revision",
+      "source_qualification_sha256",
+      "source_class",
+      "source_code",
+      "input_inventory",
+      "engine",
+      "composition_sha256",
+      "numeric_policy",
+      "output_contract_sha256"
+    ],
+    "polar.obs158-semantic-manifest/1": [
+      "schema",
+      "bindings",
+      "files"
+    ],
+    "polar.obs158-simulation/1": [
+      "schema",
+      "engine",
+      "strategies",
+      "native_bar_round_trips",
+      "matching_full_bars",
+      "engine_runs",
+      "scope"
+    ],
+    "polar.obs158-source-context/1": [
+      "schema",
+      "source_class",
+      "coverage",
+      "excluded_sources",
+      "zero_volume_flags",
+      "producer_zero_volume_flags",
+      "pointer_scope",
+      "financial_status",
+      "limits"
+    ],
+    "position_ledger": [
+      "alias",
+      "physical_quantity",
+      "exact_mark_USD",
+      "position_cents",
+      "mark_rounding_USD"
+    ],
+    "sample": [
+      "date",
+      "nominal_ns",
+      "sample_ns",
+      "cash_only",
+      "report_known_by_ns",
+      "cash_cents",
+      "positions",
+      "marks",
+      "price_ledger_value_cents",
+      "position_ledger",
+      "native_unit_bridges"
+    ],
+    "source_code_member": [
+      "bytes",
+      "sha256"
+    ],
+    "strategy_tape": [
+      "strategy_id",
+      "samples",
+      "observations",
+      "decisions",
+      "outside_instructions",
+      "intents",
+      "orders",
+      "fills",
+      "expiries",
+      "unit_events",
+      "barriers"
+    ],
+    "unit_action": [
+      "alias",
+      "date",
+      "ts_init",
+      "new_per_old",
+      "source_id",
+      "source_line_sha256",
+      "application",
+      "applied_ns",
+      "native_quantity",
+      "physical_before",
+      "physical_after",
+      "cash_delta_cents"
+    ],
+    "zero_volume_flag": [
+      "alias",
+      "date",
+      "source_row_sha256"
+    ]
+  },
+  "converted_contract": "obs158_schema.json remains unchanged; PartA source checker always returns runner_execution_allowed=false.",
+  "converted_decision_extra_fields": [
+    "known_by_ns",
+    "decision_ns",
+    "open_ns",
+    "disposition"
+  ],
+  "engineering_check_identities": [
+    "NATIVE_CENT_UNIT_EQUIVALENCE",
+    "INDEPENDENT_CONTROLS",
+    "RUNNER_OUTPUT_SCHEMA",
+    "ACTUAL_RUNTIME_BINDING"
+  ],
+  "financial_scope": "PRICE_ONLY_PARTIAL_ACTION_EXECUTION_MODEL; financial_status INSUFFICIENT_EVIDENCE, no total return/investor NAV/alpha/original HYP acceptance",
+  "fixed_decision_input_fields": [
+    "decision_model",
+    "known_by_model",
+    "open_model",
+    "order_date",
+    "role",
+    "snapshot_date",
+    "within_funded_window"
+  ],
+  "identity": {
+    "experiment_id": "obs158- + SHA256(canonical manifest bytes)",
+    "files": "SHA256 and byte length of every complete canonical semantic file",
+    "manifest": "canonical object schema,semantic bindings,complete file hash map; no own ID/hash field",
+    "order_id": "strategy_id/order_date/side/zero-padded 3digit lexical-alias ordinal",
+    "replay": "new engines/process/models; all five files and full semantic manifest must match byte-for-byte; no post-mismatch exclusions"
+  },
+  "job_budget": {
+    "authorization": "explicit external scoped record bound to code/profile/image/config/root, per-job finite times; author implementation grants zero runs",
+    "namespace": "RETAINED separate from INVENTED; old Gym family untouched",
+    "no_reset": "no refund, auto retry, third packet, alternate artifact root or acceptance inferred from a caller receipt",
+    "packet": "two fresh strategy engines, not two financial candidates",
+    "retained_family": "fixed protocol key across code/build/auth changes",
+    "starts": "at most2 full packet starts including failures; durable debit before data loading/native work; second retained start only exact replay of first successful packet"
+  },
+  "metric_order": [
+    "initial_price_ledger_value_USD",
+    "final_price_ledger_value_USD",
+    "price_ledger_change_fraction",
+    "price_ledger_cagr_act365_25",
+    "price_ledger_sharpe_model_f0_252",
+    "price_ledger_annualized_volatility_252",
+    "price_ledger_maximum_drawdown",
+    "price_ledger_ES95",
+    "maximum_close_balance_sheet_name_weight",
+    "maximum_close_exact_mark_exposure_over_rounded_value",
+    "gross_exact_executed_notional_USD",
+    "gross_exact_turnover_over_initial",
+    "gross_settled_executed_notional_USD",
+    "gross_settled_turnover_over_initial",
+    "model_fees_USD",
+    "signed_settlement_rounding_cash_adjustment_USD"
+  ],
+  "metric_sha256": "5ec3128a0142032cd012e1d894bfe35c5f7f573d338332235858675dde9ccec1",
+  "metric_statuses": [
+    "OK",
+    "INSUFFICIENT_EVIDENCE",
+    "INVALID",
+    "NOT_RUN",
+    "NOT_APPLICABLE"
+  ],
+  "numeric_projection": {
+    "json": "ASCII escaped JSON, sorted keys, separators comma/colon, one final LF, no NaN/Infinity/binaryfloat",
+    "metric_projection": "exact rational before Decimal50/HALF_EVEN; defined vol0 OK, Sharpe null ZERO_EXCESS_VARIANCE; metric-specific dependency statuses",
+    "price_quantity_money": "raw tokens unchanged; integer microprice/integer physical quantity/cents represented as strings in accounting, Fraction numerator/denominator reduced strings",
+    "scalar_deltas": "subtract each emitted monthly and BH Decimal50 scalar under Decimal50 context; daily paired changes use exact fractions before projection",
+    "timestamps_counters": "integer model ns/counters; wall measurements never in semantic files"
+  },
+  "paired_order": "OBS158_EW_MONTHLY_V1_MINUS_OBS158_EW_BH_V1",
+  "physical_exclusions": [
+    "attempt UUID and receipt path",
+    "actual process/container/image/Git commit/tree IDs",
+    "authorization/evidence paths and receipt timestamps",
+    "PID, actual wall/CPU clocks and output directories",
+    "random native issuer UUIDs and internal native order/account/position/event IDs"
+  ],
+  "physical_schemas": {
+    "limits": [
+      "total_wall_seconds",
+      "native_wall_seconds",
+      "cleanup_reserve_seconds"
+    ],
+    "polar.obs158-attempt-finish/1.FAILED": [
+      "schema",
+      "status",
+      "code",
+      "finished_ns",
+      "wall_seconds",
+      "native_output_directory",
+      "financial_status"
+    ],
+    "polar.obs158-attempt-finish/1.SUCCESS": [
+      "schema",
+      "status",
+      "experiment_id",
+      "replay_of",
+      "finished_ns",
+      "wall_seconds",
+      "full_packet_starts",
+      "engine_runs",
+      "financial_status"
+    ],
+    "polar.obs158-attempt-start/1": [
+      "schema",
+      "attempt_id",
+      "namespace",
+      "family",
+      "ordinal",
+      "bindings",
+      "replay_of",
+      "started_ns",
+      "status"
+    ],
+    "polar.obs158-controls-binding/1": [
+      "schema",
+      "public_sha256",
+      "metric_sha256",
+      "source_code_sha256",
+      "output_contract_sha256",
+      "composition_sha256",
+      "checks"
+    ],
+    "polar.obs158-execution-authorization/1": [
+      "schema",
+      "bindings_sha256",
+      "artifact_root",
+      "operations",
+      "purpose",
+      "family",
+      "max_full_packet_starts",
+      "limits"
+    ],
+    "polar.obs158-execution-bindings/1": [
+      "schema",
+      "protocol",
+      "source_class",
+      "public_sha256",
+      "metric_sha256",
+      "source_code",
+      "candidate",
+      "image_id",
+      "composition_sha256",
+      "input_config_sha256",
+      "controls_sha256",
+      "artifact_root",
+      "storage_bytes"
+    ],
+    "polar.obs158-invented-input-config/1": [
+      "schema",
+      "public_ref",
+      "metric_ref",
+      "fixture_ref",
+      "calendar_ref",
+      "timezone_ref"
+    ],
+    "polar.obs158-invented-input/1": [
+      "schema",
+      "rows",
+      "context"
+    ],
+    "polar.obs158-run-config/1": [
+      "schema",
+      "source_class",
+      "input_config",
+      "source_code",
+      "candidate",
+      "image_id",
+      "composition_ref",
+      "controls_ref",
+      "authorization_ref",
+      "preparation_path"
+    ]
+  },
+  "physical_schemas_note": "Controls contain exact source/code/schema/runtime identity and per-check bounded reference bytes; structural matching is not independent-review reexecution or financial admission. OpenRig owns actual review/admission and finite operation assignment. Existing PartA fixed config unchanged.",
+  "preflight_meaning": "Data checks and selected engineering-evidence identity/runtime-source checks; evidence identities do not re-run independent review or confer financialPASS. Retained calls need a separately assigned source-operation scope.",
+  "protocol": "OBS158_PRICE_LEDGER_20190830_20200831_V1",
+  "public_sha256": "716fd2791a415d096ef98d1839baa5d7cde0260a6ab8ca5569d7a5981901c5a0",
+  "runtime_packaging": {
+    "composition_metadata_path": "/app/runtime/obs158-composition-proof.json",
+    "composition_metadata_sha256": "5d7f0be23af9b5c179645cddb9270cd4e16617d730a1a32a455d659d854c0bd6",
+    "recipe": "Dockerfile.obs158",
+    "retained_mounts": "separate assigned/reviewed operational binding required; qualified config2 alone cannot mount archive/stable artifacts"
+  },
+  "schema": "polar.obs158-output-contract/1",
+  "semantic_files": [
+    "converted.json",
+    "preflight.json",
+    "source-context.json",
+    "simulation.json",
+    "evaluation.json"
+  ],
+  "semantic_inclusions": [
+    "all modeled K/D/Q/close/barrier/ack/sample timestamps",
+    "complete canonical imported row provenance hashes and fixed source content inventory",
+    "all zero-volume flags/excluded42 coverage, partial-source/action/currency/clock limits",
+    "all emitted costs/settlement/position residuals, orders including unrouted/zero orders, both strategies, concentration diagnostics and paired outputs",
+    "complete source code map plus fixed composition/schema/protocol hashes"
+  ],
+  "standalone_cli": {
+    "artifact_root": "required existing private root; standalone commands do not read DBcredentials",
+    "code": "metadata-only source map; no dataset/native import",
+    "storage_bytes": "explicit 1..64GiB allocation, not global cross-root accounting"
+  }
+}
