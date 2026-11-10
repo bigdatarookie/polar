@@ -29,11 +29,60 @@ export function sourceDiagnosticBytes(document){
   return canonical({status:'OVERFLOW',bytes:raw.length,expected_count:Object.keys(document.expected).length,observed_count:Object.keys(document.observed).length,diff_counts:{missing:document.diff.missing.length,extra:document.diff.extra.length,changed:document.diff.changed.length}});
 }
 export function inventory(root){const out={};function walk(dir,rel=''){for(const n of fs.readdirSync(dir).sort()){const p=path.join(dir,n),r=rel?rel+'/'+n:n,st=fs.lstatSync(p);check(!st.isSymbolicLink(),'PACKAGE_SOURCE_SYMLINK');if(st.isDirectory())walk(p,r);else{check(st.isFile(),'PACKAGE_SOURCE_SPECIAL_FILE');const b=read(p);out[PREFIX+r]={bytes:b.length,sha256:sha(b)};}}}walk(root);return validateMap(out);}
-function seal(dir){for(const n of fs.readdirSync(dir)){const p=path.join(dir,n);if(fs.lstatSync(p).isDirectory())seal(p);else fs.chmodSync(p,0o444);}fs.chmodSync(dir,0o555);}
+function seal(dir){for(const n of fs.readdirSync(dir)){const p=path.join(dir,n);if(fs.lstatSync(p).isDirectory())seal(p);else fs.chmodSync(p,(fs.lstatSync(p).mode&0o111)?0o555:0o444);}fs.chmodSync(dir,0o555);}
 function publishDirectory(stage,target){seal(stage);fs.chmodSync(stage,0o700);fs.renameSync(stage,target);fs.chmodSync(target,0o555);}
 function ownedParent(out){safe(out);check(!fs.existsSync(out)&&fs.realpathSync(path.dirname(out))===path.dirname(out),'PACKAGE_OUTPUT_CONFLICT');const p=fs.statSync(path.dirname(out));check(p.isDirectory(),'PACKAGE_PARENT');}
 // Read exact immutable Git objects, never the mutable checkout or a dirty old export.
-function exportMapped(repo,candidate,full,dest){const git=(args,max=64*1024**2)=>cp.execFileSync('git',['-C',repo,...args],{timeout:15000,maxBuffer:max});check(git(['rev-parse',candidate.commit+'^{tree}']).toString().trim()===candidate.tree,'PACKAGE_GIT_TREE');const entries=git(['ls-tree','-rz',candidate.commit]).toString().split('\0').filter(Boolean);const packageFiles={};for(const e of entries){const [meta,name]=e.split('\t');if(!name.startsWith('src/polar/'))continue;const [mode,kind,blob]=meta.split(' ');check(kind==='blob'&&['100644','100755'].includes(mode),'PACKAGE_GIT_MODE');const raw=git(['cat-file','blob',blob]);packageFiles['/app/'+name]={bytes:raw.length,sha256:sha(raw)};const p=path.join(dest,name);fs.mkdirSync(path.dirname(p),{recursive:true,mode:0o700});fs.writeFileSync(p,raw,{flag:'wx',mode:0o444});}const diff=mapDiff(full,packageFiles);if(!equal(full,packageFiles))throw Object.assign(new Error('PACKAGE_GIT_MAP_MISMATCH'),{sourceDiagnostic:{expected:full,observed:packageFiles,diff}});return diff;}
+function repositoryPath(p){
+  check(typeof p==='string'&&p.length>0&&p.length<=4096&&!path.posix.isAbsolute(p)
+    &&path.posix.normalize(p)===p&&!p.split('/').some(n=>n==='.'||n==='..'||n==='')
+    &&!/[\\\x00-\x1f]/.test(p),'PACKAGE_REPOSITORY_PATH');return p;
+}
+function repositoryCode(code){
+  check(code&&typeof code==='object'&&!Array.isArray(code)&&Object.keys(code).length>0
+    &&Object.keys(code).length<=512,'PACKAGE_REPOSITORY_PROJECTION');
+  for(const [name,digest] of Object.entries(code)){
+    repositoryPath(name);check(/^[a-f0-9]{64}$/.test(digest),'PACKAGE_REPOSITORY_HASH');
+  }return code;
+}
+function exportMapped(repo,candidate,full,dest,code=null){
+  const git=(args,max=64*1024**2)=>cp.execFileSync('git',['-C',repo,...args],{timeout:15000,maxBuffer:max});
+  check(git(['rev-parse',candidate.commit+'^{tree}']).toString().trim()===candidate.tree,'PACKAGE_GIT_TREE');
+  if(code)repositoryCode(code);
+  const entries=git(['ls-tree','-rz',candidate.commit]).toString().split('\0').filter(Boolean);
+  const packageFiles={},repositoryProjection={};
+  for(const e of entries){
+    const [meta,name]=e.split('\t'),app=name.startsWith('src/polar/'),projected=code&&Object.hasOwn(code,name);
+    if(!app&&!projected)continue;
+    repositoryPath(name);const [mode,kind,blob]=meta.split(' ');
+    check(kind==='blob'&&['100644','100755'].includes(mode),'PACKAGE_GIT_MODE');
+    const raw=git(['cat-file','blob',blob]),value={bytes:raw.length,sha256:sha(raw)};
+    if(app)packageFiles['/app/'+name]=value;
+    if(projected){check(value.sha256===code[name],'PACKAGE_REPOSITORY_GIT_HASH');repositoryProjection[name]={...value,git_mode:mode};}
+    const p=path.join(dest,name);fs.mkdirSync(path.dirname(p),{recursive:true,mode:0o700});
+    fs.writeFileSync(p,raw,{flag:'wx',mode:mode==='100755'?0o555:0o444});
+  }
+  const diff=mapDiff(full,packageFiles);
+  if(!equal(full,packageFiles))throw Object.assign(new Error('PACKAGE_GIT_MAP_MISMATCH'),{sourceDiagnostic:{expected:full,observed:packageFiles,diff}});
+  if(code)check(equal(Object.keys(repositoryProjection).sort(),Object.keys(code).sort()),'PACKAGE_REPOSITORY_GIT_MISSING');
+  return repositoryProjection;
+}
+function checkRepositoryProjection(p,root){
+  const build=parsed(p.build_ref),code=repositoryCode(build.code_projection),projection=p.repository_projection;
+  check(projection&&equal(Object.keys(projection).sort(),Object.keys(code).sort()),'PACKAGE_REPOSITORY_PROJECTION');
+  check(p.repository_root===path.join(root,'source-export'),'PACKAGE_REPOSITORY_ROOT');
+  safe(p.repository_root);check(fs.realpathSync(p.repository_root)===p.repository_root,'PACKAGE_REPOSITORY_ROOT');
+  check(p.source_root===path.join(p.repository_root,'src/polar'),'PACKAGE_REPOSITORY_ROOT');
+  for(const [name,digest] of Object.entries(code)){
+    const expected=projection[name];check(expected&&expected.sha256===digest
+      &&Number.isSafeInteger(expected.bytes)&&expected.bytes>=0&&['100644','100755'].includes(expected.git_mode),'PACKAGE_REPOSITORY_BINDING');
+    const file=path.join(p.repository_root,name);check(fs.existsSync(file),'PACKAGE_REPOSITORY_MISSING');
+    const raw=read(file),st=fs.lstatSync(file);
+    check(raw.length===expected.bytes&&sha(raw)===digest,'PACKAGE_REPOSITORY_HASH');
+    check((st.mode&0o777)===(expected.git_mode==='100755'?0o555:0o444),'PACKAGE_REPOSITORY_MODE');
+  }
+}
+
 export function preparePackage(specFile,out){
   const specRaw=read(specFile),s=JSON.parse(specRaw);check(s.schema==='polar.review-package-spec/1'&&['pr32','pr37'].includes(s.protocol),'PACKAGE_SPEC_SCHEMA');check(typeof s.task==='string'&&s.task.length>0&&typeof s.owner==='string'&&s.owner.length>0,'PACKAGE_OWNER');check(s.input_classification==='INVENTED','PACKAGE_INVENTED_ONLY');ownedParent(out);
   const capture=s.diagnostics_capture||{mode:'COUNTS_ONLY'};check(capture.mode==='COUNTS_ONLY'||(capture.mode==='INVENTED_PRIVATE'&&Number.isSafeInteger(capture.max_bytes)&&capture.max_bytes>=1&&capture.max_bytes<=1024*1024),'PACKAGE_DIAGNOSTIC_POLICY');
@@ -49,7 +98,7 @@ export function preparePackage(specFile,out){
       if(!equal(full,build.source_files))throw Object.assign(new Error('PACKAGE_PR32_BUILD_FULL_MAP_MISMATCH'),{sourceDiagnostic:{comparison:'declared_full_package_vs_build_source_files',expected:full,observed:build.source_files,diff:mapDiff(full,build.source_files)}});
       check(code&&equal(code,build.code_projection)&&build.code_projection_count===Object.keys(code).length&&build.source_projection_count===Object.keys(full).length,'PACKAGE_CODE_PROJECTION');
     }
-    const exportRoot=path.join(stage,'source-export');fs.mkdirSync(exportRoot,{mode:0o700});exportMapped(s.repo,candidate,full,exportRoot);const actual=inventory(path.join(exportRoot,'src/polar'));write('SOURCE-NAMESPACES.json',{schema:'polar.source-namespaces/1',full_package:full,eligible_code:eligible,code_projection:code,full_count:Object.keys(full).length,eligible_count:Object.keys(eligible).length,projection_count:code?Object.keys(code).length:null,rule:'Full package integrity and executable projection are distinct; no extra-file exclusions',origin:'Exact Git objects + pinned build map, not prior writable export'});check(equal(actual,full),'PACKAGE_SOURCE_MISMATCH');
+    const exportRoot=path.join(stage,'source-export');fs.mkdirSync(exportRoot,{mode:0o700});const repositoryProjection=exportMapped(s.repo,candidate,full,exportRoot,s.protocol==='pr32'?code:null);const actual=inventory(path.join(exportRoot,'src/polar'));write('SOURCE-NAMESPACES.json',{schema:'polar.source-namespaces/1',full_package:full,eligible_code:eligible,code_projection:code,repository_projection:s.protocol==='pr32'?repositoryProjection:null,full_count:Object.keys(full).length,eligible_count:Object.keys(eligible).length,projection_count:code?Object.keys(code).length:null,rule:'Full package integrity and executable projection are distinct; no extra-file exclusions',origin:'Exact Git objects + pinned build map, not prior writable export'});check(equal(actual,full),'PACKAGE_SOURCE_MISMATCH');
     phase='CONFIG';let config=parsed(s.config_template),assignment=null;
     let configRef,assignmentRef;
     if(s.protocol==='pr32'){
@@ -66,11 +115,11 @@ export function preparePackage(specFile,out){
       const rb=parsed(s.runner_binding_template);Object.assign(rb,{candidate,image_id:build.image_id,technical_case:config.technical_case,preparation_binding:bindingRef,candidate_config:configRef.path,candidate_config_sha256:configRef.sha256,assignment:assignmentRef.path,assignment_sha256:assignmentRef.sha256,build_ref:launchRef(s.build_ref),source_projection:launchRef(s.code_projection_ref),candidate_source_export:path.join(out,'source-export/src'),output_root:output,anchor,recovery_binding:recoveryRef.path,recovery_binding_sha256:recoveryRef.sha256,execution:'Caller native authority only; generator assigns no PASS/grant',failed_prior_family:s.previous_failure||rb.failed_prior_family});write('RUNNER-BINDING.json',rb);
     }
     write('SPEC.json',s);const external=[pin(fileURLToPath(import.meta.url)),...refs(config),...refs(assignment),s.build_ref,...Object.values(s.refs),...(s.code_projection_ref?[s.code_projection_ref]:[]),...(s.full_package_map_ref?[s.full_package_map_ref]:[])].filter(r=>r&&!r.path.startsWith(out+'/'));for(const r of external)verified(r);
-    const packageBody={diagnostics_capture:capture,generator_ref:pin(fileURLToPath(import.meta.url)),schema:'polar.review-package/1',version:VERSION,protocol:s.protocol,task:s.task,owner:s.owner,invocation_id:id,candidate,image_id:build.image_id,build_ref:launchRef(s.build_ref),config:configRef,assignment:assignmentRef,binding:bindingRef,runner:s.refs.runner||null,adapter:s.refs.observer,tool:s.refs.tool,output_root:output,anchor:s.protocol==='pr32'?anchor:null,source_root:path.join(out,'source-export/src/polar'),source_map:full,external_refs:external,review_assessment:'NOT_ASSESSED_BY_GENERATOR',authority:'Existing caller task only; no new review/scientific grant',generation:{spec_sha256:sha(specRaw),candidate_calls:0,docker_calls:0}};write('PACKAGE.json',packageBody);
+    const packageBody={diagnostics_capture:capture,generator_ref:pin(fileURLToPath(import.meta.url)),schema:'polar.review-package/1',version:VERSION,protocol:s.protocol,task:s.task,owner:s.owner,invocation_id:id,candidate,image_id:build.image_id,build_ref:launchRef(s.build_ref),config:configRef,assignment:assignmentRef,binding:bindingRef,runner:s.refs.runner||null,adapter:s.refs.observer,tool:s.refs.tool,output_root:output,anchor:s.protocol==='pr32'?anchor:null,source_root:path.join(out,'source-export/src/polar'),source_map:full,...(s.protocol==='pr32'?{repository_root:path.join(out,'source-export'),repository_projection:repositoryProjection}:{}),external_refs:external,review_assessment:'NOT_ASSESSED_BY_GENERATOR',authority:'Existing caller task only; no new review/scientific grant',generation:{spec_sha256:sha(specRaw),candidate_calls:0,docker_calls:0}};write('PACKAGE.json',packageBody);
     const all={};function manifestWalk(dir,rel=''){for(const name of fs.readdirSync(dir).sort()){const p=path.join(dir,name),r=rel?rel+'/'+name:name;if(fs.lstatSync(p).isDirectory())manifestWalk(p,r);else{const raw=read(p);all[r]={sha256:sha(raw),bytes:raw.length};}}}manifestWalk(stage);fs.writeFileSync(path.join(stage,'MANIFEST.json'),canonical({schema:'polar.package-manifest/1',files:all}),{flag:'wx',mode:0o600});publishDirectory(stage,out);return {status:'PREPARED_METADATA',package_root:out,manifest:pin(path.join(out,'MANIFEST.json')),package:pin(path.join(out,'PACKAGE.json')),review:'NOT_ASSESSED',candidate_calls:0};
   }catch(e){if(!fs.existsSync(stage))throw Object.assign(new Error('PACKAGE_PUBLICATION_INCOMPLETE'),{evidence:out});fs.chmodSync(stage,0o700);const failed=out+'.failed-'+id;if(e.sourceDiagnostic){fs.writeFileSync(path.join(stage,'SOURCE-MAP-DIAGNOSTIC.json'),sourceDiagnosticBytes(e.sourceDiagnostic),{flag:'wx',mode:0o600});}fs.writeFileSync(path.join(stage,'PREPARATION-FAILURE.json'),canonical({status:'FAILED_METADATA',phase,code:/^[A-Z][A-Z0-9_]*$/.test(e.message)?e.message:'PACKAGE_IO_OR_PARSE',candidate_calls:0,task:s.task}),{flag:'wx',mode:0o600});publishDirectory(stage,failed);throw Object.assign(new Error('PACKAGE_PREPARATION_FAILED'),{evidence:failed});}
 }
-export function checkPackage(root){safe(root);check(fs.realpathSync(root)===root,'PACKAGE_SYMLINK');const m=JSON.parse(read(path.join(root,'MANIFEST.json')));check(m.schema==='polar.package-manifest/1','PACKAGE_MANIFEST');const seen=[];function walk(d,r=''){for(const n of fs.readdirSync(d)){const p=path.join(d,n),k=r?r+'/'+n:n,st=fs.lstatSync(p);check(!st.isSymbolicLink(),'PACKAGE_SYMLINK');if(st.isDirectory())walk(p,k);else if(k!=='MANIFEST.json'){check(st.isFile()&&m.files[k],'PACKAGE_EXTRA_FILE');const b=read(p);check(m.files[k].bytes===b.length&&m.files[k].sha256===sha(b),'PACKAGE_MEMBER_HASH');seen.push(k);}}}walk(root);check(seen.length===Object.keys(m.files).length,'PACKAGE_MISSING_FILE');const p=JSON.parse(read(path.join(root,'PACKAGE.json')));check(p.schema==='polar.review-package/1','PACKAGE_SCHEMA');for(const r of p.external_refs)verified(r);check(equal(inventory(p.source_root),p.source_map),'PACKAGE_SOURCE_MISMATCH');return {status:'REFERENCES_MATCH',package_root:root,manifest:pin(path.join(root,'MANIFEST.json')),review:'NOT_ASSESSED',package:p};}
+export function checkPackage(root){safe(root);check(fs.realpathSync(root)===root,'PACKAGE_SYMLINK');const m=JSON.parse(read(path.join(root,'MANIFEST.json')));check(m.schema==='polar.package-manifest/1','PACKAGE_MANIFEST');const seen=[];function walk(d,r=''){for(const n of fs.readdirSync(d)){const p=path.join(d,n),k=r?r+'/'+n:n,st=fs.lstatSync(p);check(!st.isSymbolicLink(),'PACKAGE_SYMLINK');if(st.isDirectory())walk(p,k);else if(k!=='MANIFEST.json'){check(st.isFile()&&m.files[k],'PACKAGE_EXTRA_FILE');const b=read(p);check(m.files[k].bytes===b.length&&m.files[k].sha256===sha(b),'PACKAGE_MEMBER_HASH');seen.push(k);}}}walk(root);check(seen.length===Object.keys(m.files).length,'PACKAGE_MISSING_FILE');const p=JSON.parse(read(path.join(root,'PACKAGE.json')));check(p.schema==='polar.review-package/1','PACKAGE_SCHEMA');check(p.source_root===path.join(root,'source-export/src/polar'),'PACKAGE_SOURCE_ROOT');if(p.protocol==='pr32')checkRepositoryProjection(p,root);for(const r of p.external_refs)verified(r);check(equal(inventory(p.source_root),p.source_map),'PACKAGE_SOURCE_MISMATCH');return {status:'REFERENCES_MATCH',package_root:root,manifest:pin(path.join(root,'MANIFEST.json')),review:'NOT_ASSESSED',package:p};}
 export function packageAdapter(root,{cleanup=false}={}){
   // Cleanup must remain possible when candidate sources or input references changed.
   // Bind only the original package/config/adapter; the adapter verifies full IDs/labels.

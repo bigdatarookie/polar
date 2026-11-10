@@ -10,10 +10,12 @@ const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 function fixture(t,protocol='pr37'){
  const root=fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()),'polar-package-test-'));t.after(()=>{function open(p){for(const n of fs.readdirSync(p)){const f=path.join(p,n);if(fs.lstatSync(f).isDirectory()){fs.chmodSync(f,0o700);open(f);}}}open(root);fs.rmSync(root,{recursive:true,force:true});});
  const repo=path.join(root,'repo');fs.mkdirSync(repo);fs.mkdirSync(path.join(repo,'src/polar'),{recursive:true});fs.writeFileSync(path.join(repo,'src/polar/main.py'),'# synthetic only\n');fs.writeFileSync(path.join(repo,'src/polar/app.js'),'// synthetic asset\n');
+ if(protocol==='pr32'){fs.mkdirSync(path.join(repo,'scripts'));fs.writeFileSync(path.join(repo,'scripts/polar_capability_worker.py'),'# inert repository worker\n');fs.chmodSync(path.join(repo,'scripts/polar_capability_worker.py'),0o755);}
  const git=(...a)=>cp.execFileSync('git',['-C',repo,...a],{encoding:'utf8'}).trim();git('init','-q');git('add','.');git('-c','user.name=Fixture','-c','user.email=fixture@localhost','commit','-qm','fixture');const candidate={commit:git('rev-parse','HEAD'),tree:git('rev-parse','HEAD^{tree}')},image='sha256:'+'1'.repeat(64);
  function file(n,o){const p=path.join(root,n);fs.writeFileSync(p,typeof o==='string'?o:JSON.stringify(o));return pin(p);}
  const full={};for(const n of ['main.py','app.js']){const b=fs.readFileSync(path.join(repo,'src/polar',n));full['/app/src/polar/'+n]={bytes:b.length,sha256:sha(b)};}const code={'src/polar/main.py':full['/app/src/polar/main.py'].sha256};
- const build=file('build.json',{...candidate,image_id:image,source_files:protocol==='pr32'?full:{'/app/src/polar/main.py':full['/app/src/polar/main.py']},code_projection:code,code_projection_count:1,source_projection_count:2});const fullRef=file('full.json',full),projection=file('projection.json',{files:code});
+ if(protocol==='pr32')code['scripts/polar_capability_worker.py']=sha(fs.readFileSync(path.join(repo,'scripts/polar_capability_worker.py')));
+ const build=file('build.json',{...candidate,image_id:image,source_files:protocol==='pr32'?full:{'/app/src/polar/main.py':full['/app/src/polar/main.py']},code_projection:code,code_projection_count:Object.keys(code).length,source_projection_count:2});const fullRef=file('full.json',full),projection=file('projection.json',{files:code});
  const refs={harness:file('harness.py','# inert\n'),tool:file('tool.mjs','// inert\n'),observer:file('actual-v11-adapter.mjs','export function observedLaunch(){return {selected:"v11"}};\n'),review:file('review.md','Review NOT ASSESSED; no PASS claim\n'),input:file('input.json',{synthetic:true}),expectations:file('expectations.json',{marker:'NONE'})};
  const candidateConfig=file('candidate.json',{candidate,image_id:image});let template;
  if(protocol==='pr37')template=file('template.json',{schema:'polar.observed-launch-config/1',refs:{config:candidateConfig},candidate,image_id:image,runtime_image_id:image});
@@ -42,4 +44,49 @@ for(const declaredCount of [1,2])test(`PR32 rejects build subset of full map in 
 
 test('overflow source diff retains bounded counts without repeating oversized path arrays',()=>{
  const expected={},observed={};for(let i=0;i<300;i++)expected['/app/src/polar/'+String(i)+'x'.repeat(1024)+'.py']={bytes:1,sha256:'a'.repeat(64)};observed['/app/src/polar/only.py']={bytes:1,sha256:'b'.repeat(64)};const raw=sourceDiagnosticBytes({expected,observed,diff:mapDiff(expected,observed)}),summary=JSON.parse(raw);assert(raw.length<=256*1024);assert.equal(summary.status,'OVERFLOW');assert.equal(summary.diff_counts.missing,300);assert.equal(summary.diff_counts.extra,1);assert(!Object.hasOwn(summary,'diff'));
+});
+
+// The real PR32 defect was a repository worker outside src/polar; no Python import/run is needed.
+test('PR32 exports the immutable repository worker without mixing full and code namespaces',t=>{
+ const f=fixture(t,'pr32');fs.writeFileSync(path.join(f.repo,'scripts/polar_capability_worker.py'),'# dirty checkout must not be exported\n');
+ preparePackage(f.specFile,f.out);const p=checkPackage(f.out).package,worker=path.join(p.repository_root,'scripts/polar_capability_worker.py');
+ assert.equal(fs.readFileSync(worker,'utf8'),'# inert repository worker\n');assert.equal(fs.statSync(worker).mode&0o777,0o555);
+ assert.equal(p.repository_projection['scripts/polar_capability_worker.py'].sha256,sha(fs.readFileSync(worker)));
+ assert.deepEqual(Object.keys(p.source_map).sort(),Object.keys(f.full).sort());
+ const n=JSON.parse(fs.readFileSync(path.join(f.out,'SOURCE-NAMESPACES.json')));assert.equal(n.full_count,2);assert.equal(n.eligible_count,1);assert.equal(n.projection_count,2);
+ assert(!fs.existsSync(p.output_root));assert(!fs.existsSync(p.anchor));
+});
+for(const problem of ['missing','changed','unsafe'])test(`PR32 repository projection ${problem} fails before config or invocation`,t=>{
+ const f=fixture(t,'pr32'),b=JSON.parse(fs.readFileSync(f.spec.build_ref.path));
+ if(problem==='missing')b.code_projection['scripts/missing_worker.py']='a'.repeat(64);
+ if(problem==='changed')b.code_projection['scripts/polar_capability_worker.py']='b'.repeat(64);
+ if(problem==='unsafe')b.code_projection['../outside.py']='c'.repeat(64);
+ b.code_projection_count=Object.keys(b.code_projection).length;f.spec.build_ref=f.file('projection-build.json',b);f.spec.code_projection_ref=f.file('projection-new.json',{files:b.code_projection});fs.writeFileSync(f.specFile,JSON.stringify(f.spec));
+ let error;try{preparePackage(f.specFile,f.out);}catch(e){error=e;}
+ assert.equal(error?.message,'PACKAGE_PREPARATION_FAILED');const failure=JSON.parse(fs.readFileSync(path.join(error.evidence,'PREPARATION-FAILURE.json')));
+ assert.equal(failure.phase,'SOURCE');assert.equal(failure.candidate_calls,0);assert.equal(failure.code,{missing:'PACKAGE_REPOSITORY_GIT_MISSING',changed:'PACKAGE_REPOSITORY_GIT_HASH',unsafe:'PACKAGE_REPOSITORY_PATH'}[problem]);assert(!fs.existsSync(f.out));assert(!fs.existsSync(path.join(error.evidence,'candidate-config.json')));
+});
+test('PR32 checks repository worker against build even if a changed member manifest is recomputed',t=>{
+ const f=fixture(t,'pr32');preparePackage(f.specFile,f.out);const worker=path.join(f.out,'source-export/scripts/polar_capability_worker.py');fs.chmodSync(worker,0o755);fs.writeFileSync(worker,'# changed after publication\n');fs.chmodSync(worker,0o555);
+ const manifest=path.join(f.out,'MANIFEST.json'),m=JSON.parse(fs.readFileSync(manifest)),raw=fs.readFileSync(worker);m.files['source-export/scripts/polar_capability_worker.py']={bytes:raw.length,sha256:sha(raw)};fs.chmodSync(manifest,0o644);fs.writeFileSync(manifest,JSON.stringify(m));
+ assert.throws(()=>checkPackage(f.out),/PACKAGE_REPOSITORY_HASH/);
+});
+
+for(const protocol of ['pr32','pr37'])test(`${protocol} rejects relocated source export even after the member manifest is recomputed`,t=>{
+ const f=fixture(t,protocol);preparePackage(f.specFile,f.out);
+ const packageFile=path.join(f.out,'PACKAGE.json'),p=JSON.parse(fs.readFileSync(packageFile));
+ const outside=path.join(f.root,'outside-export');fs.chmodSync(f.out,0o700);fs.chmodSync(path.join(f.out,'source-export'),0o700);fs.renameSync(path.join(f.out,'source-export'),outside);
+ p.source_root=path.join(outside,'src/polar');if(protocol==='pr32')p.repository_root=outside;
+ fs.chmodSync(packageFile,0o644);fs.writeFileSync(packageFile,JSON.stringify(p));
+ const files={};function walk(dir,rel=''){for(const name of fs.readdirSync(dir)){const file=path.join(dir,name),key=rel?rel+'/'+name:name;if(fs.statSync(file).isDirectory())walk(file,key);else if(key!=='MANIFEST.json'){const raw=fs.readFileSync(file);files[key]={bytes:raw.length,sha256:sha(raw)};}}}walk(f.out);
+ const manifest=path.join(f.out,'MANIFEST.json');fs.chmodSync(manifest,0o644);fs.writeFileSync(manifest,JSON.stringify({schema:'polar.package-manifest/1',files}));
+ assert.throws(()=>checkPackage(f.out),/PACKAGE_SOURCE_ROOT/);
+ assert(!fs.existsSync(p.output_root));if(p.anchor)assert(!fs.existsSync(p.anchor));
+});
+test('PR32 rejects an external repository root while its source root remains in-package',t=>{
+ const f=fixture(t,'pr32');preparePackage(f.specFile,f.out);
+ const packageFile=path.join(f.out,'PACKAGE.json'),p=JSON.parse(fs.readFileSync(packageFile));
+ p.repository_root=f.repo;fs.chmodSync(packageFile,0o644);fs.writeFileSync(packageFile,JSON.stringify(p));
+ const manifest=path.join(f.out,'MANIFEST.json'),m=JSON.parse(fs.readFileSync(manifest)),raw=fs.readFileSync(packageFile);m.files['PACKAGE.json']={bytes:raw.length,sha256:sha(raw)};fs.chmodSync(manifest,0o644);fs.writeFileSync(manifest,JSON.stringify(m));
+ assert.throws(()=>checkPackage(f.out),/PACKAGE_REPOSITORY_ROOT/);assert(!fs.existsSync(p.output_root));assert(!fs.existsSync(p.anchor));
 });
