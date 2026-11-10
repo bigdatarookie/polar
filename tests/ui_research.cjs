@@ -66,3 +66,34 @@ test('focused table keys reveal hidden columns with bounded, reversible navigati
  assert.equal(researchTableScrollTarget(0,0,'ArrowRight',900),0);
  assert.equal(researchTableScrollTarget(0,max,'Tab',366),null);
 });
+
+test('main strategy discovery obtains one coherent real-detail page and no economic computation',async()=>{
+ const a=fixture(),b=fixture('b'),urls=[];const catalog={...a.catalog,items:[a.item,b.item],total:2};
+ const client=createResearchClient(async url=>{urls.push(url);return {ok:true,json:async()=>url.includes('?')?catalog:url.endsWith(a.item.result_id)?a.detail:b.detail};});
+ const page=await client.load(0,null,{includeDetails:true});
+ assert.equal(page.details.length,2);assert.equal(page.details[1].result_id,b.item.result_id);assert.equal(urls.length,3);
+ assert.deepEqual(page.details[0].record.metrics,a.detail.record.metrics);
+ assert(urls.every(url=>url.startsWith('/v1/research/results')));
+});
+
+test('same ticker does not attribute synthetic or differently bound portfolios to raw history',()=>{
+ const {researchHistoryCompatibility}=require('../src/polar/web/research.js');const f=fixture();
+ f.detail.record.bindings={data_revision:'private-research-input',data_sha256:'a'.repeat(64)};
+ f.detail.record.basis={wealth_basis:'SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT',cost_basis:'NET',currency:'USD'};
+ const context={revision:{dataset_revision:'raw-history-revision',manifest_sha256:'b'.repeat(64),basis:{ohlc_basis:'VENDOR_RAW_UNADJUSTED'}},instrument:{instrument_id:'hist-id',source_symbol:'invented',currency:'USD'},visibleDates:['2023-01-01','2026-01-01']};
+ const info=researchHistoryCompatibility(f.detail,context);
+ assert.equal(info.status,'NOT_ATTRIBUTED_TO_HISTORY');assert.match(info.reasons.join(' '),/Different data binding/);
+ assert.match(info.reasons.join(' '),/Synthetic vendor-adjusted/);assert.match(info.reasons.join(' '),/Matching a ticker alone is insufficient/);
+ assert.deepEqual(info.period,['2024-01-02','2024-01-04']);
+});
+
+test('explicit exact data and instrument relation can attribute history while NAV stays separate',()=>{
+ const {researchHistoryCompatibility}=require('../src/polar/web/research.js');const f=fixture();
+ f.detail.record.bindings={data_revision:'history-revision',data_sha256:hash};
+ f.detail.record.basis={wealth_basis:'PRICE_ONLY',cost_basis:'NET',currency:'USD'};
+ f.detail.record.provenance=[{role:'history_instrument',id:'hist-id',sha256:hash}];
+ const context={revision:{dataset_revision:'history-revision',manifest_sha256:hash,basis:{ohlc_basis:'VENDOR_RAW_UNADJUSTED'}},instrument:{instrument_id:'hist-id',source_symbol:'invented',currency:'USD'}};
+ const info=researchHistoryCompatibility(f.detail,context);assert.equal(info.status,'ATTRIBUTED_REVISION_SEPARATE_NAV');assert.match(info.label,/NAV remains separate/);
+ f.detail.record.series[0].ledger[0].positions.extra=0;
+ assert.equal(researchHistoryCompatibility(f.detail,context).status,'NOT_ATTRIBUTED_TO_HISTORY');
+});

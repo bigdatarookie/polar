@@ -38,7 +38,7 @@ function createResearchWorkspace({root,historyWorkspace,fetcher,theme=()=> 'auto
   const inspector=el('div',undefined,'research-inspector');inspector.append(pointLabel,pointInput,pointSummary,pointDetails);
   const content=el('section',undefined,'research-content');content.id='research-content';content.setAttribute('aria-label','Result metrics, costs, limitations and provenance');
   plot.append(legend,canvas,chartNote,inspector);main.append(intro,plot,content);root.append(aside,main);
-  function open(show){active=show;root.hidden=!show;historyWorkspace.hidden=show;priceButton.setAttribute('aria-pressed',String(!show));savedButton.setAttribute('aria-pressed',String(show));onToggle(show);if(show){if(!committed&&!loading)load(0);else{render();requestAnimationFrame(renderChart);}}else{client.cancel();loading=false;}}
+  function open(show,selection=null,offset=0){active=show;root.hidden=!show;historyWorkspace.hidden=show;priceButton.setAttribute('aria-pressed',String(!show));savedButton.setAttribute('aria-pressed',String(show));onToggle(show);if(show){if(selection)load(offset,selection);else if(!committed&&!loading)load(0);else{render();requestAnimationFrame(renderChart);}}else{client.cancel();loading=false;}}
   function renderPending(){
     const target=committed?.catalog.items.find(i=>i.result_id===request.selection)?.question.label;
     const label=loading?'Updating '+(target||'saved research')+(committed?' · current result retained.':'. Waiting for a complete result.'):error?'Update failed · '+error+(committed?'. Last coherent result retained.':'. No result available.'):committed?.detail?'Research ready':committed?'No saved research results.':'Open saved research to load persisted results.';
@@ -135,7 +135,7 @@ function createResearchWorkspace({root,historyWorkspace,fetcher,theme=()=> 'auto
   }
   const observer=new ResizeObserver(()=>{cancelAnimationFrame(renderFrame);renderFrame=requestAnimationFrame(renderChart);});observer.observe(root);
   const themeObserver=new MutationObserver(()=>{if(active)render();});themeObserver.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
-  open(false);return {navigation:nav,open,refresh:()=>load(request.offset,request.selection),isActive:()=>active,reset(){client.cancel();committed=null;loading=false;error=null;request={offset:0,selection:null};inspect=0;chartResult=null;chart?.clear();open(false);}};
+  open(false);return {navigation:nav,open,openResult:(id,offset=0)=>open(true,id,offset),refresh:()=>load(request.offset,request.selection),isActive:()=>active,reset(){client.cancel();committed=null;loading=false;error=null;request={offset:0,selection:null};inspect=0;chartResult=null;chart?.clear();open(false);}};
 }
 
 if(typeof module!=='undefined')module.exports={researchTableScrollTarget};

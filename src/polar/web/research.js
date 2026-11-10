@@ -36,7 +36,7 @@ function validateResearchCatalog(body,offset){
 }
 function createResearchClient(fetcher){
   let serial=0,controller;
-  return {cancel(){serial++;controller?.abort();},async load(offset=0,selection=null){
+  return {cancel(){serial++;controller?.abort();},async load(offset=0,selection=null,{includeDetails=false}={}){
     researchRequire(Number.isInteger(offset)&&offset>=0&&offset<=4096,'RESEARCH_PAGE_INVALID');
     const ticket=++serial;controller?.abort();const own=new AbortController();controller=own;
     async function read(url){
@@ -49,10 +49,37 @@ function createResearchClient(fetcher){
       const catalog=validateResearchCatalog(await read('/v1/research/results?limit=10&offset='+offset),offset);if(ticket!==serial)return null;
       const selected=selection?catalog.items.find(i=>i.result_id===selection):catalog.items[0];
       researchRequire(!selection||selected,'RESEARCH_SELECTION_NOT_ON_PAGE');
-      const detail=selected?validateResearchDetail(await read('/v1/research/results/'+encodeURIComponent(selected.result_id)),selected):null;
-      if(ticket!==serial)return null;return {catalog,detail};
+      const details=includeDetails?await Promise.all(catalog.items.map(async item=>validateResearchDetail(await read('/v1/research/results/'+encodeURIComponent(item.result_id)),item))):null;
+      const detail=selected?(details?details.find(d=>d.result_id===selected.result_id):validateResearchDetail(await read('/v1/research/results/'+encodeURIComponent(selected.result_id)),selected)):null;
+      if(ticket!==serial)return null;return {catalog,detail,...(includeDetails?{details}:{} )};
     }catch(error){if(ticket!==serial)return null;throw error;}
   }};
+}
+function researchHistoryCompatibility(detail,context){
+  const r=detail.record,revision=context?.revision,instrument=context?.instrument;
+  const symbols=[...new Set(r.series.flatMap(s=>s.ledger.flatMap(p=>Object.keys(p.positions))))].sort();
+  const period=[r.grid[0].slice(0,10),r.grid.at(-1).slice(0,10)],reasons=[];let attributed=false;
+  if(!revision||!instrument)reasons.push('No committed history/instrument is selected; this saved result remains available.');
+  else{
+    if(r.bindings.data_revision!==revision.dataset_revision||r.bindings.data_sha256!==revision.manifest_sha256)
+      reasons.push('Different data binding: result '+r.bindings.data_revision+'; history '+revision.dataset_revision+'.');
+    if(r.basis.wealth_basis==='SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT')
+      reasons.push('Synthetic vendor-adjusted reference-unit portfolio NAV is not '+revision.basis.ohlc_basis+' single-instrument OHLC.');
+    else reasons.push('Portfolio NAV after '+r.basis.cost_basis+' costs is a wealth series, not an OHLC candle series.');
+    if(symbols.length!==1)reasons.push('Portfolio has '+symbols.length+' recorded position symbols: '+symbols.join(', ')+'. Selected history is '+(instrument.source_symbol||instrument.display_symbol||instrument.instrument_id)+'.');
+    else if(symbols[0] !== (instrument.source_symbol||instrument.display_symbol))reasons.push('Recorded position symbol '+symbols[0]+' differs from selected source alias '+(instrument.source_symbol||instrument.display_symbol||instrument.instrument_id)+'. No ticker transformation or economic equivalence is inferred.');
+    if(r.basis.currency!==instrument.currency)reasons.push('Currency differs: saved '+r.basis.currency+'; history '+(instrument.currency||'not supplied')+'.');
+    const sourceBound=r.provenance.some(p=>p.role==='history_instrument'&&p.id===instrument.instrument_id&&p.sha256===revision.manifest_sha256);
+    attributed=sourceBound&&r.bindings.data_revision===revision.dataset_revision&&r.bindings.data_sha256===revision.manifest_sha256&&
+      symbols.length===1&&symbols[0]===(instrument.source_symbol||instrument.display_symbol)&&r.basis.wealth_basis==='PRICE_ONLY'&&
+      r.basis.currency===instrument.currency&&revision.basis.ohlc_basis==='VENDOR_RAW_UNADJUSTED';
+    if(!sourceBound)reasons.push('No content-bound instrument source relation attributes this result to the selected history. Matching a ticker alone is insufficient.');
+    const bars=context?.visibleDates||[];
+    if(bars.length&&(bars[0]<period[0]||bars.at(-1)>period[1]))reasons.push('Selected history period '+bars[0]+' to '+bars.at(-1)+' extends beyond saved result '+period.join(' to ')+'.');
+  }
+  return {symbols,period,reasons,status:attributed?'ATTRIBUTED_REVISION_SEPARATE_NAV':'NOT_ATTRIBUTED_TO_HISTORY',
+    label:attributed?'Bound history revision · portfolio NAV remains separate':
+      'Not attributed to '+(instrument?.source_symbol||instrument?.display_symbol||'selected')+' history · saved portfolio available'};
 }
 function researchPlotValue(point){if(point.status!=='OK')return null;const n=Number(point.value);return Number.isFinite(n)&&(n!==0||!/[1-9]/.test(point.value))?n:null;}
 function researchDecimalDisplay(value,places=2){
@@ -63,4 +90,4 @@ function researchDecimalDisplay(value,places=2){
   const tail=fraction.slice(places);if(tail[0]>'5'||tail[0]==='5'&&(/[1-9]/.test(tail.slice(1))||scaled%2n===1n))scaled++;
   const digits=scaled.toString().padStart(places+1,'0');return (negative&&scaled!==0n?'−':'')+digits.slice(0,-places)+'.'+digits.slice(-places);
 }
-if(typeof module!=='undefined')module.exports={createResearchClient,validateResearchDetail,validateResearchCatalog,researchValue,researchPlotValue,researchDecimalDisplay};
+if(typeof module!=='undefined')module.exports={createResearchClient,validateResearchDetail,validateResearchCatalog,researchValue,researchPlotValue,researchDecimalDisplay,researchHistoryCompatibility};
