@@ -1,4 +1,4 @@
-version: "0.33"
+version: "0.34"
 name: polar-rig
 culture_file: CULTURE.md
 permission_policy: builtin:yolo
