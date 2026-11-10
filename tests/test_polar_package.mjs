@@ -71,3 +71,22 @@ test('PR32 checks repository worker against build even if a changed member manif
  const manifest=path.join(f.out,'MANIFEST.json'),m=JSON.parse(fs.readFileSync(manifest)),raw=fs.readFileSync(worker);m.files['source-export/scripts/polar_capability_worker.py']={bytes:raw.length,sha256:sha(raw)};fs.chmodSync(manifest,0o644);fs.writeFileSync(manifest,JSON.stringify(m));
  assert.throws(()=>checkPackage(f.out),/PACKAGE_REPOSITORY_HASH/);
 });
+
+for(const protocol of ['pr32','pr37'])test(`${protocol} rejects relocated source export even after the member manifest is recomputed`,t=>{
+ const f=fixture(t,protocol);preparePackage(f.specFile,f.out);
+ const packageFile=path.join(f.out,'PACKAGE.json'),p=JSON.parse(fs.readFileSync(packageFile));
+ const outside=path.join(f.root,'outside-export');fs.chmodSync(f.out,0o700);fs.chmodSync(path.join(f.out,'source-export'),0o700);fs.renameSync(path.join(f.out,'source-export'),outside);
+ p.source_root=path.join(outside,'src/polar');if(protocol==='pr32')p.repository_root=outside;
+ fs.chmodSync(packageFile,0o644);fs.writeFileSync(packageFile,JSON.stringify(p));
+ const files={};function walk(dir,rel=''){for(const name of fs.readdirSync(dir)){const file=path.join(dir,name),key=rel?rel+'/'+name:name;if(fs.statSync(file).isDirectory())walk(file,key);else if(key!=='MANIFEST.json'){const raw=fs.readFileSync(file);files[key]={bytes:raw.length,sha256:sha(raw)};}}}walk(f.out);
+ const manifest=path.join(f.out,'MANIFEST.json');fs.chmodSync(manifest,0o644);fs.writeFileSync(manifest,JSON.stringify({schema:'polar.package-manifest/1',files}));
+ assert.throws(()=>checkPackage(f.out),/PACKAGE_SOURCE_ROOT/);
+ assert(!fs.existsSync(p.output_root));if(p.anchor)assert(!fs.existsSync(p.anchor));
+});
+test('PR32 rejects an external repository root while its source root remains in-package',t=>{
+ const f=fixture(t,'pr32');preparePackage(f.specFile,f.out);
+ const packageFile=path.join(f.out,'PACKAGE.json'),p=JSON.parse(fs.readFileSync(packageFile));
+ p.repository_root=f.repo;fs.chmodSync(packageFile,0o644);fs.writeFileSync(packageFile,JSON.stringify(p));
+ const manifest=path.join(f.out,'MANIFEST.json'),m=JSON.parse(fs.readFileSync(manifest)),raw=fs.readFileSync(packageFile);m.files['PACKAGE.json']={bytes:raw.length,sha256:sha(raw)};fs.chmodSync(manifest,0o644);fs.writeFileSync(manifest,JSON.stringify(m));
+ assert.throws(()=>checkPackage(f.out),/PACKAGE_REPOSITORY_ROOT/);assert(!fs.existsSync(p.output_root));assert(!fs.existsSync(p.anchor));
+});
