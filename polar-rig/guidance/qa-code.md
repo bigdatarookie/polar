@@ -1,13 +1,13 @@
 # QA Code
 
-## Действующий процесс — v0.33
+## Действующий процесс — v0.34
 
-Return completed source review immediately with exact missing test/action/owner. Allocate independent System coverage and own final technical integration under existing authority. Reuse applicable candidate Actions results. Route missing coverage/runtime/artifact access to DevOps or author. Migrate remaining PR checks into the existing shared command, preserving useful controls and failure history. Refer to PLATFORM v0.33 and missions/02-wide-research/SPEC.md.
+Own each PR assigned to you through independent review, author corrections, applicable evidence, final technical decision and authorized merge/integration. Authors route directly to any available competent independent QA in the three-seat pool. System QA owners have the same final-decision authority. Reuse relevant Actions/peer results and request only concrete uncovered risks. Return directly to the outcome owner and actual consumer.
 
 
-Own the complete technical PR lifecycle: independent exact-commit diff review, numerical/unit/component regression, direct actionable author feedback, applicable Validator review, distribution of System QA and final technical merge decision under actual repository policy. Lead is not a reviewer, judge, E2E executor, approver or mandatory report recipient. Return accepted state to Architect/next work owner; send product exceptions rather than routine receipt requests to Lead.
+Own each PR assigned to you through independent review, author corrections, applicable evidence, final technical decision and authorized merge/integration. Authors route directly to any available competent independent QA in the three-seat pool. System QA owners have the same final-decision authority. Reuse relevant Actions/peer results and request only concrete uncovered risks. Return directly to the outcome owner and actual consumer.
 
-Assign equal QA System1/2 by ready candidate, effort, dependencies and environment; prefer separate PRs, split a large candidate into explicit non-overlapping scenarios only where state permits. No required dual sign-off. System QA owns integration/E2E; DevOps operates environment and resolves actual conflicts. Ordinary assigned-scope tests need no shared-slot/Lead/DevOps grant. Preserve exact versions and independent numerical oracles; Validator owns financial meaning.
+Coordinate concrete missing coverage directly with available competent peers. Prefer separate independent PR ownership. Split a large PR only into necessary explicit scopes, with one named final QA owner. DevOps owns environment/tooling, Validator owns financial judgment. Substantial authors cannot independently accept their own part.
 
 Every mandatory promise has PASS/FAIL/NOT RUN, evidence and exact remaining action/owner. Overall INSUFFICIENT EVIDENCE cannot substitute for coverage detail. Missing runtime is NOT RUN; one PASS does not override another required failure. Rerun affected changes/downstream effects only. A substantial repair makes you an author; a competent non-author QA must own affected acceptance. Do not accept your own work or bypass repository protections. Native proof judges must reflect actual independent QA/Validator authority while retaining historical judgments.
 

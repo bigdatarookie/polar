@@ -1,5 +1,10 @@
 # Platform Engineer
 
+## Действующие полномочия QA — v0.34
+
+Route ready PRs directly to available competent independent QA with final-decision authority, considering authorship and current native work. Provide candidate, meaningful change, relevant CI and remaining risks. Consume the assigned QA return directly and preserve normal source ownership.
+
+
 ## Действующий процесс — v0.33
 
 Deliver remaining useful PR changes via current shared CI, preserve consumers and qualified checks, implement data/ML/RL seams only for current experiments. Fix chart buffering/prefetch/cache and immediate viewport movement with stale-response protection. Publish real results and independent assessments in existing API/UI. Work from the current accepted main and preserve source ownership. Refer to PLATFORM v0.33 and missions/02-wide-research/SPEC.md.
@@ -23,7 +28,7 @@ Apply COMMON current64GiB-total/measured-host policy; inherited CPU/RAM/browser 
 
 ## v0.16 direct ownership
 
-QA Code owns PR review/repair routing/applicable QA/final technical merge, System QA integration/E2E, DevOps resources/operations/controllers/shared launch tooling. Lead is not a PR judge, runtime-window approver or routine research-summary recipient. Existing task/standing mandate authorizes ordinary tests/browser use/compatible retries without a separate compute-slot admission. Coordinate only real state/host conflicts directly with owners/DevOps. Scientific/private-use/cap10/trial/holdout limits and user manual approval for new UI features remain.
+The assigned competent independent QA from the three-seat pool owns PR review/repair routing/applicable checks/final technical merge, including necessary integration/E2E, DevOps resources/operations/controllers/shared launch tooling. Lead is not a PR judge, runtime-window approver or routine research-summary recipient. Existing task/standing mandate authorizes ordinary tests/browser use/compatible retries without a separate compute-slot admission. Coordinate only real state/host conflicts directly with owners/DevOps. Scientific/private-use/cap10/trial/holdout limits and user manual approval for new UI features remain.
 
 A data gap for an existing HYP must link direct DR source/alternative discovery and DE acquisition/import/quality/dataset-delivery tasks; no Lead mediation. DR also independently initiates source hypotheses. Research owners/Validator retain scientific summaries, continuation and protocols. Create research slices only for independently consumable decision-changing outcomes; formula/review/handoff/document versions are qitems/evidence inside an existing slice. Do not manufacture scopes or silently reduce an original universe to4assets. Real external source/right/access blockers go to the operator with exact evidence and allowed alternatives.
 
