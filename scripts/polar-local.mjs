@@ -9,7 +9,7 @@ import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
 
-export const VERSION='polar-local/1.3.0';
+export const VERSION='polar-local/1.4.3';
 const PW=process.env.POLAR_PLAYWRIGHT_MODULE||'/Users/garry/.npm/_npx/31e32ef8478fbf80/node_modules/playwright/index.js';
 const CHROME=process.env.POLAR_BROWSER_EXECUTABLE||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
@@ -157,10 +157,22 @@ export async function withPage(out,url,actions,{actionTimeoutMs=120000}={}) {
 export async function smoke(out,url){return withPage(out,url);}
 async function main(){
   const [mode,...args]=process.argv.slice(2);
+  if(mode==='package'||mode==='package-check'){
+    const {preparePackage,checkPackage}=await import('./polar-package.mjs');
+    const result=mode==='package'?preparePackage(path.resolve(args[0]),path.resolve(args[1])):checkPackage(path.resolve(args[0]));
+    if(result.package&&mode==='package-check')delete result.package;
+    console.log(JSON.stringify(result));return;
+  }
   if(mode==='docker'||mode==='docker-cleanup'){
-    const {observedLaunch,observedCleanup}=await import('./polar-docker.mjs');
-    const result=(mode==='docker'?observedLaunch:observedCleanup)(path.resolve(args[0]),path.resolve(args[1]));
-    console.log(JSON.stringify(result));if(mode==='docker'&&(result.preparation_status!=='PREPARED'||result.scenario!=='PASS'))process.exitCode=1;
+    let packageRoot=null,adapter='./polar-docker.mjs',config=path.resolve(args[0]),output=args[1]&&path.resolve(args[1]);
+    if(args[0]==='--package'){
+      const {packageAdapter}=await import('./polar-package.mjs');
+      packageRoot=path.resolve(args[1]);const bound=packageAdapter(packageRoot,{cleanup:mode==='docker-cleanup'});adapter=pathToFileURL(bound.path).href;config=bound.config;output=bound.output;
+    }
+    const {observedLaunch,observedCleanup}=await import(adapter);
+    const execute=()=>(mode==='docker'?observedLaunch:observedCleanup)(config,output);
+    const result=packageRoot&&mode==='docker'?(await import('./polar-package.mjs')).runWithPackageDiagnostics(packageRoot,execute):execute();
+    console.log(JSON.stringify(result));if(mode==='docker'&&(result.preparation_status!=='PREPARED'||result.scenario!=='PASS'||result.private_diagnostics?.status==='PUBLICATION_FAILED'||!['REMOVED','ALREADY_ABSENT','NO_RESOURCES'].includes(result.cleanup?.status)))process.exitCode=1;
     if(mode==='docker-cleanup'&&!['REMOVED','ALREADY_ABSENT','NO_RESOURCES'].includes(result.cleanup?.status))process.exitCode=1;
   }
   else if(mode==='doctor')console.log(JSON.stringify(await doctor(args)));
@@ -173,4 +185,4 @@ async function main(){
   else if(mode==='timestamps')console.log(JSON.stringify(timestampCases()));
   else throw Error('Usage: polar-local.mjs docker CONFIG NEW_PRIVATE_DIR | docker-cleanup CONFIG PRIVATE_DIR | doctor [owned-container...] | smoke NEW_PRIVATE_DIR [localURL] | journey NEW_PRIVATE_DIR localURL ACTIONS_MODULE | export REPO COMMIT TREE NEW_DIR | timestamps');
 }
-if(process.argv[1]&&pathToFileURL(path.resolve(process.argv[1])).href===import.meta.url)main().catch(e=>{console.error(JSON.stringify({status:'FAIL',errorType:e.name,code:e.message}));process.exitCode=1;});
+if(process.argv[1]&&pathToFileURL(path.resolve(process.argv[1])).href===import.meta.url)main().catch(e=>{console.error(JSON.stringify({status:'FAIL',errorType:e.name,code:e.message,evidence:e.evidence||null}));process.exitCode=1;});

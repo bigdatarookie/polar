@@ -74,3 +74,20 @@
 
 /* QA narrow retained statuses: preserve two readable vocabularies and full detail. */
 @media(max-width:700px){.table-head,.strategy-row{grid-template-columns:74px minmax(0,1.5fr) .9fr .8fr 25px}.row-state,.row-state small{white-space:nowrap;overflow-wrap:normal;overflow:hidden;text-overflow:ellipsis;max-width:100%}}
+
+/* Compact exact-data access and shared, code-defined line samples. */
+.data-diagnostics{flex:none;border-top:1px solid var(--rule);font-size:11px;min-width:0}
+.data-diagnostics>summary{padding:7px 18px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#diagnostic-summary{font-size:10px;color:var(--muted);margin-left:12px}
+.data-diagnostics .raw-readout{border-top:1px solid var(--rule);max-height:110px}
+.diagnostic-disclosure{margin:8px 0;font-size:11px}.diagnostic-disclosure summary{cursor:pointer;color:var(--muted)}
+.diagnostic-disclosure .panel-note{margin:8px 0;font-size:11px}
+.overlay-samples{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 7px;font-size:10px;color:var(--muted)}
+.overlay-sample{display:inline-flex;align-items:center;gap:5px}.overlay-sample i{display:inline-block;width:32px;flex:none}
+#volume-toggle{font-size:11px;padding:3px 8px;min-height:26px}#volume-toggle[aria-pressed="true"]{color:var(--action);border-color:var(--action)}
+@media(max-width:700px){.data-diagnostics>summary{padding:7px 12px}#diagnostic-summary{display:block;margin:3px 0 0;font-size:9px;overflow:hidden;text-overflow:ellipsis}.data-diagnostics .raw-readout{max-height:110px}}
+
+.volume-title[hidden],.rsi-title[hidden]{display:none}
+@media(max-width:700px){.chart-card>.chart-stage{order:2}.chart-card>.data-diagnostics{order:1}}
+
+.series-state{position:absolute;top:2px;right:18px;max-width:80%;font-size:10px;line-height:1.4;color:var(--muted);background:var(--surface);padding:2px 5px;border:1px solid var(--rule);z-index:7;pointer-events:none}.series-state[hidden]{display:none}

@@ -46,7 +46,7 @@ test('SMA display requires20 actual gap-free closes and no fabricated volume/ben
 });
 test('restored controls reject obsolete/untrusted fields and invalid bounds',()=>{
   const c=restoredControls({granularity:'1m',theme:'bad',mode:'Trade',benchmark:true,lo:-1,hi:900,cursorSource:'fake'},3);
-  assert.equal(c.granularity,'1D');assert.equal(c.theme,'auto');assert.equal(c.mode,'Orders');assert.equal(c.lo,0);assert.equal(c.hi,2);assert.equal(c.benchmark,undefined);
+  assert.equal(c.granularity,'1D');assert.equal(c.theme,'auto');assert.equal(c.mode,'Orders');assert.equal(c.lo,0);assert.equal(c.hi,2);assert.equal(c.benchmark,true);
   const valid=restoredControls({granularity:'1W',lo:1,hi:2,theme:'dark'},3);assert.equal(valid.granularity,'1W');assert.equal(valid.lo,1);assert.equal(valid.hi,2);
 });
 test('late success/error ignored even if fetch implementation ignores abort',async()=>{
@@ -58,7 +58,7 @@ test('late success/error ignored even if fetch implementation ignores abort',asy
   const offline=createLatestLoader(async()=>{throw new Error('private host/password');});await assert.rejects(offline.load('/'),/^Error: API_UNAVAILABLE$/);
 });
 class Node {
-  constructor(tag='div'){this.tag=tag;this.children=[];this.style={setProperty(){}};this.dataset={};this.hidden=true;this.offsetWidth=230;this.offsetHeight=140;this.clientWidth=700;this.clientHeight=500;this._text='';}
+  constructor(tag='div'){this.tag=tag;this.classList={toggle(){},add(){},remove(){}};this.children=[];this.style={setProperty(){}};this.dataset={};this.hidden=true;this.offsetWidth=230;this.offsetHeight=140;this.clientWidth=700;this.clientHeight=500;this._text='';}
   set textContent(value){this._text=String(value);this.children=[];}get textContent(){return this._text+this.children.map(x=>x.textContent||'').join('');}
   set innerHTML(value){throw new Error('Untrusted HTML insertion: '+value);}
   append(...children){this.children.push(...children);}replaceChildren(...children){this._text='';this.children=[...children];}
@@ -72,25 +72,26 @@ function appContext(fetcher) {
     sessionStorage:{getItem:k=>stored.get(k)||null,setItem:(k,v)=>stored.set(k,v)},localStorage:{getItem:()=>null},
     document:{querySelector:node,getElementById:id=>node('#'+id),querySelectorAll:()=>[],createElement:tag=>new Node(tag)},
     matchMedia:()=>({matches:false}),innerWidth:800,innerHeight:900,scrollX:0,scrollY:0,cancelAnimationFrame(){},requestAnimationFrame(){},
-    getComputedStyle:()=>({getPropertyValue:()=> '#7132c4'}),window:{scrollTo(){}},setTimeout});
-  for(const file of ['data.js','interaction.js','app.js'])vm.runInContext(fs.readFileSync(path.join(web,file),'utf8'),context,{filename:file});
-  context.renderAll=()=>{};context.renderChart=()=>{};return {context,node,stored,location,history};
+    getComputedStyle:()=>({getPropertyValue:()=> '#7132c4'}),window:{scrollTo(){}},setTimeout,clearTimeout});
+  for(const file of ['data.js','chart-ui.js','interaction.js','history.js','app.js'])vm.runInContext(fs.readFileSync(path.join(web,file),'utf8'),context,{filename:file});
+  vm.runInContext("state.dataMode='retained-test'",context);
+  context.renderAll=()=>{};context.renderChart=()=>{};context.syncToolbar=()=>{};return {context,node,stored,location,history};
 }
 function projection(d,id='run-1'){return {dataset:d,run:{id,dataset_id:d.dataset_id,strategy_version:'cash-flat-v1',state:'completed',created_at:'2024-01-01T00:00:00Z'},report:report(),report_availability:'AVAILABLE'};}
-test('actual app selection flow clears offline data and navigates explicit retained IDs',async()=>{
+test('actual app selection flow retains coherent offline data and navigates explicit retained IDs',async()=>{
   const d=data(),view=projection(d);const calls=[];
   const env=appContext(async url=>{calls.push(url);return {ok:true,json:async()=>url.startsWith('/v1/ui/runs/')?view:url.includes('/runs?')?{items:[{run:view.run}],offset:0}:{items:[d],offset:0}};});
   await env.context.loadSelection(null,null);assert.equal(vm.runInContext('detail.run.id',env.context),'run-1');
-  assert.equal(env.location.search,'?dataset=ds-actual&run=run-1');assert(env.node('#asset-search').value.includes(d.name));
+  assert.equal(env.location.search,'?mode=retained-test&dataset=ds-actual&run=run-1');assert(env.node('#asset-search').value.includes(d.name));
   const frames=[];env.context.renderAll=()=>frames.push(vm.runInContext('({dataset,detail,loading})',env.context));
   env.context.fetch=async()=>{throw new Error('private DSN');};await env.context.loadSelection('ds-actual','run-1',{catalogPage:0});
-  assert.equal(frames[0].dataset,null);assert.equal(frames[0].detail,null);
-  assert.equal(vm.runInContext('dataset',env.context),null);assert.equal(vm.runInContext('view.bars.length',env.context),0);assert.equal(vm.runInContext('catalog.length',env.context),0);assert.equal(vm.runInContext('loadError',env.context),'API_UNAVAILABLE');
+  assert.equal(frames.length,0); // Failure updates pending controls without rebuilding committed data.
+  assert.equal(vm.runInContext('dataset.dataset_id',env.context),'ds-actual');assert.equal(vm.runInContext('view.bars.length',env.context),3);assert.equal(vm.runInContext('catalog.length',env.context),1);assert.equal(vm.runInContext('loadError',env.context),'API_UNAVAILABLE');
   assert(calls.every(url=>url.startsWith('/v1/ui/')));
 });
 test('explicit URL dataset without run cannot inherit another saved run',()=>{
   const env=appContext(async()=>{throw Error('not called');});
-  env.location.href='http://component.invalid/ui/?dataset=new-dataset';
+  env.location.href='http://component.invalid/ui/?mode=retained-test&dataset=new-dataset';
   env.stored.set('polar-retained-workspace-v1',JSON.stringify({dataset_id:'old-dataset',run_id:'old-run',controls:{}}));
   env.context.initUI=()=>{};env.context.loadSelection=(...args)=>env.args=args;
   env.context.boot();assert.equal(env.args[0],'new-dataset');assert.equal(env.args[1],null);
