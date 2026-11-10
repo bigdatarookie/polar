@@ -34,7 +34,8 @@ def unit(value,fixture):
     require(scope.get('schema')=='polar.v033-broad-acquisition-scope/1'
       and scope.get('request_template')==TEMPLATE,'IMPORT_SCOPE_MISMATCH')
     aliases=scope.get('aliases');rows=scope.get('source_records')
-    require(type(aliases) is list and 0<len(aliases)<=100 and len(set(aliases))==len(aliases)
+    require(type(aliases) is list and 0<len(aliases)<=100
+      and all(type(a) is str for a in aliases) and len(set(aliases))==len(aliases)
       and (fixture or len(aliases)==100) and type(rows) is list and bool(rows),'IMPORT_SCOPE_MISMATCH')
     require(all(type(v) is dict and v.get('literal_symbol') in aliases
       and type(v.get('population_record_id')) is str for v in rows),'IMPORT_SCOPE_MISMATCH')

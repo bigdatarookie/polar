@@ -99,3 +99,25 @@ def test_count_bound_and_deadline_survive_resume(tmp_path):
     before=s.store.raw('budget.json');count=s.status(p)['scope_physical_gets'];run(s,p,[])
     assert s.store.raw('budget.json')==before and s.status(p)['scope_physical_gets']==count
     with pytest.raises(ImportError):setup(tmp_path/'oversized',101)
+
+
+def test_partitioning_and_service_cli_dispatch(tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    from polar.service import Service
+    monkeypatch.setitem(POLICY,'partition_bytes',4096)
+    s,p,cfg=setup(tmp_path,1)
+    # Exercise the same Service facade used by generic import CLI commands,
+    # without constructing a DB Registry or touching any owner configuration.
+    facade=Service.__new__(Service)
+    facade.artifacts=SimpleNamespace(root=s.store.root,limit=s.store.limit)
+    assert facade.import_plan(cfg)['plan_id']==p
+    many=body();many['bars']['INVENTED0']*=20
+    result=facade.import_execute(p,fixture={'schema':'polar.raw-sip-fixture/1',
+          'start_seconds':START,'responses':[{'body':many}]})
+    assert result['status']=='complete'
+    root,index=collection(s,result)
+    assert len(index['packets'])>1 and index['normalized_rows']==20
+    assert all(packet['bars']['bytes']<=4096 for packet in index['packets'])
+    assert facade.import_status(p)['scope_physical_gets']==1
+    jid=s.load(p)['jobs'][0]['job_id']
+    assert facade.import_result(p,jid)['state']['kind']=='ADJUSTED_COMPLETE'
