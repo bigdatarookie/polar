@@ -1,0 +1,833 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "polar.hyp008-s1-unit3-records/1",
+  "$comment": "Prospective interface contract, NOT implemented/qualified source. Exact hash/authority/state/canonical/file-ID/component validations in accompanying contract remain necessary; no new JSONSchema dependency required. Physical receipts separate.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/Config"
+    },
+    {
+      "$ref": "#/$defs/Prepare"
+    },
+    {
+      "$ref": "#/$defs/Registration"
+    },
+    {
+      "$ref": "#/$defs/StoreBinding"
+    },
+    {
+      "$ref": "#/$defs/Seal"
+    },
+    {
+      "$ref": "#/$defs/Authority"
+    },
+    {
+      "$ref": "#/$defs/Manifest"
+    },
+    {
+      "$ref": "#/$defs/Family"
+    },
+    {
+      "$ref": "#/$defs/NativeCallEvidence"
+    }
+  ],
+  "$defs": {
+    "Ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sha256",
+        "bytes"
+      ],
+      "properties": {
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "Grant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "family",
+        "tree",
+        "linear",
+        "historical_pass"
+      ],
+      "properties": {
+        "family": {
+          "const": 1
+        },
+        "tree": {
+          "const": 1
+        },
+        "linear": {
+          "const": 1
+        },
+        "historical_pass": {
+          "const": 1
+        }
+      }
+    },
+    "SourceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_class",
+        "dataset_revision",
+        "content_sha256",
+        "delivery_sha256",
+        "x_basis",
+        "x_version",
+        "x_units",
+        "b_basis",
+        "b_version",
+        "b_units",
+        "census_count"
+      ],
+      "properties": {
+        "source_class": {
+          "enum": [
+            "INVENTED",
+            "RETAINED"
+          ]
+        },
+        "dataset_revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "content_sha256": {
+          "type": "string",
+          "minLength": 1
+        },
+        "delivery_sha256": {
+          "type": "string",
+          "minLength": 1
+        },
+        "x_basis": {
+          "type": "string",
+          "minLength": 1
+        },
+        "x_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "x_units": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "b_basis": {
+          "type": "string",
+          "minLength": 1
+        },
+        "b_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "b_units": {
+          "type": "string",
+          "minLength": 1
+        },
+        "census_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        }
+      }
+    },
+    "Config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "candidate_id",
+        "variant_id",
+        "owner_pins",
+        "source_binding",
+        "inputs",
+        "defaults",
+        "source_projection",
+        "interpretation_refs"
+      ],
+      "properties": {
+        "schema": {
+          "const": "polar.hyp008-s1-config/1"
+        },
+        "candidate_id": {
+          "const": "HYP008"
+        },
+        "variant_id": {
+          "const": "HYP008_STANDARD_SOURCE_COHORT_FORECAST_S1"
+        },
+        "owner_pins": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [
+            {
+              "const": "d53346a65e26aaa910fd629c2bf9fe6093519f45ce4292df08bf2a613d46c997"
+            },
+            {
+              "const": "fcae770d1a42560b27f49956c954bd765d7d92fd8e68fa2c97236c7b9cc60e65"
+            },
+            {
+              "const": "52b42d943eb03273fa5469d6f60dc9f159ec9901c5f04f9f717b0dad2d216603"
+            }
+          ],
+          "items": false
+        },
+        "source_binding": {
+          "$ref": "#/$defs/SourceBinding"
+        },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "content_manifest",
+            "delivery_manifest",
+            "rows",
+            "references",
+            "descriptor"
+          ],
+          "properties": {
+            "content_manifest": {
+              "$ref": "#/$defs/Ref"
+            },
+            "delivery_manifest": {
+              "$ref": "#/$defs/Ref"
+            },
+            "rows": {
+              "$ref": "#/$defs/Ref"
+            },
+            "references": {
+              "$ref": "#/$defs/Ref"
+            },
+            "descriptor": {
+              "$ref": "#/$defs/Ref"
+            }
+          }
+        },
+        "defaults": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "package",
+            "tree",
+            "highs",
+            "build"
+          ],
+          "properties": {
+            "package": {
+              "$ref": "#/$defs/Ref"
+            },
+            "tree": {
+              "$ref": "#/$defs/Ref"
+            },
+            "highs": {
+              "$ref": "#/$defs/Ref"
+            },
+            "build": {
+              "$ref": "#/$defs/Ref"
+            }
+          }
+        },
+        "source_projection": {
+          "$ref": "#/$defs/Ref"
+        },
+        "interpretation_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    },
+    "Prepare": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "prepare_id",
+        "config_ref",
+        "source_graph_ref",
+        "masks_ref",
+        "readiness",
+        "reasons",
+        "lineage_status",
+        "numeric_work_performed"
+      ],
+      "properties": {
+        "schema": {
+          "const": "polar.hyp008-s1-prepare/1"
+        },
+        "prepare_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "config_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "source_graph_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "masks_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "readiness": {
+          "enum": [
+            "READY_FOR_SEAL",
+            "NO_ISSUE_COMPARISON",
+            "NOT_BOUND"
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "lineage_status": {
+          "const": "NOT_STARTED"
+        },
+        "numeric_work_performed": {
+          "const": false
+        }
+      }
+    },
+    "Registration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "candidate_id",
+        "variant_id",
+        "family_key",
+        "owner_pins",
+        "claim_scope",
+        "limits",
+        "lineage_refs"
+      ],
+      "properties": {
+        "schema": {
+          "const": "polar.hyp008-s1-registration/1"
+        },
+        "candidate_id": {
+          "const": "HYP008"
+        },
+        "variant_id": {
+          "const": "HYP008_STANDARD_SOURCE_COHORT_FORECAST_S1"
+        },
+        "family_key": {
+          "const": "HYP008_STANDARD_SOURCE_COHORT_FORECAST_S1"
+        },
+        "owner_pins": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [
+            {
+              "const": "d53346a65e26aaa910fd629c2bf9fe6093519f45ce4292df08bf2a613d46c997"
+            },
+            {
+              "const": "fcae770d1a42560b27f49956c954bd765d7d92fd8e68fa2c97236c7b9cc60e65"
+            },
+            {
+              "const": "52b42d943eb03273fa5469d6f60dc9f159ec9901c5f04f9f717b0dad2d216603"
+            }
+          ],
+          "items": false
+        },
+        "claim_scope": {
+          "const": "DESCRIPTIVE_DEVELOPMENT_SOURCE_COHORT"
+        },
+        "limits": {
+          "$ref": "#/$defs/Grant"
+        },
+        "lineage_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          }
+        }
+      }
+    },
+    "StoreBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "store_id",
+        "canonical_root",
+        "ledger_relative",
+        "namespace",
+        "mode"
+      ],
+      "properties": {
+        "schema": {
+          "const": "polar.hyp008-s1-store-binding/1"
+        },
+        "store_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "canonical_root": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "ledger_relative": {
+          "const": "s1-families/HYP008_STANDARD_SOURCE_COHORT_FORECAST_S1"
+        },
+        "namespace": {
+          "const": "S1"
+        },
+        "mode": {
+          "enum": [
+            "INVENTED",
+            "RETAINED"
+          ]
+        }
+      }
+    },
+    "Seal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "seal_id",
+        "prepared_ref",
+        "registration_ref",
+        "store_binding_ref",
+        "code_ref",
+        "build_ref",
+        "qa_ref",
+        "execution_assignment_ref",
+        "runtime_plan_ref"
+      ],
+      "properties": {
+        "schema": {
+          "const": "polar.hyp008-s1-seal/1"
+        },
+        "seal_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prepared_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "registration_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "store_binding_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "code_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "build_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "qa_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "execution_assignment_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "runtime_plan_ref": {
+          "$ref": "#/$defs/Ref"
+        }
+      }
+    },
+    "Authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "seal_id",
+        "registration_id",
+        "store_binding_id",
+        "family_key",
+        "execution_assignment_ref",
+        "grant"
+      ],
+      "properties": {
+        "schema": {
+          "const": "polar.hyp008-s1-authority/1"
+        },
+        "seal_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "registration_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "store_binding_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "family_key": {
+          "const": "HYP008_STANDARD_SOURCE_COHORT_FORECAST_S1"
+        },
+        "execution_assignment_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "grant": {
+          "$ref": "#/$defs/Grant"
+        }
+      }
+    },
+    "ManifestCore": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "files"
+      ],
+      "properties": {
+        "schema": {
+          "const": "polar.hyp008-s1-manifest/1"
+        },
+        "files": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "config.json",
+            "source.json",
+            "masks.json",
+            "family.json",
+            "limitations.json"
+          ],
+          "properties": {
+            "config.json": {
+              "$ref": "#/$defs/Ref"
+            },
+            "source.json": {
+              "$ref": "#/$defs/Ref"
+            },
+            "masks.json": {
+              "$ref": "#/$defs/Ref"
+            },
+            "transform.json": {
+              "$ref": "#/$defs/Ref"
+            },
+            "representations.json": {
+              "$ref": "#/$defs/Ref"
+            },
+            "tree.json": {
+              "$ref": "#/$defs/Ref"
+            },
+            "linear.json": {
+              "$ref": "#/$defs/Ref"
+            },
+            "history.json": {
+              "$ref": "#/$defs/Ref"
+            },
+            "forecasts.json": {
+              "$ref": "#/$defs/Ref"
+            },
+            "evaluation.json": {
+              "$ref": "#/$defs/Ref"
+            },
+            "family.json": {
+              "$ref": "#/$defs/Ref"
+            },
+            "limitations.json": {
+              "$ref": "#/$defs/Ref"
+            }
+          }
+        }
+      }
+    },
+    "Manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "files",
+        "experiment_id"
+      ],
+      "properties": {
+        "schema": {
+          "const": "polar.hyp008-s1-manifest/1"
+        },
+        "files": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "config.json",
+            "source.json",
+            "masks.json",
+            "family.json",
+            "limitations.json"
+          ],
+          "properties": {
+            "config.json": {
+              "$ref": "#/$defs/Ref"
+            },
+            "source.json": {
+              "$ref": "#/$defs/Ref"
+            },
+            "masks.json": {
+              "$ref": "#/$defs/Ref"
+            },
+            "transform.json": {
+              "$ref": "#/$defs/Ref"
+            },
+            "representations.json": {
+              "$ref": "#/$defs/Ref"
+            },
+            "tree.json": {
+              "$ref": "#/$defs/Ref"
+            },
+            "linear.json": {
+              "$ref": "#/$defs/Ref"
+            },
+            "history.json": {
+              "$ref": "#/$defs/Ref"
+            },
+            "forecasts.json": {
+              "$ref": "#/$defs/Ref"
+            },
+            "evaluation.json": {
+              "$ref": "#/$defs/Ref"
+            },
+            "family.json": {
+              "$ref": "#/$defs/Ref"
+            },
+            "limitations.json": {
+              "$ref": "#/$defs/Ref"
+            }
+          }
+        },
+        "experiment_id": {
+          "type": "string",
+          "pattern": "^s1-[a-f0-9]{64}$"
+        }
+      }
+    },
+    "Component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "reason",
+        "ref"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ref": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "Family": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "status",
+        "component_status",
+        "reason",
+        "stage",
+        "detail",
+        "stages",
+        "components",
+        "claim_scope"
+      ],
+      "properties": {
+        "schema": {
+          "const": "polar.hyp008-s1-family/1"
+        },
+        "status": {
+          "enum": [
+            "NOT_STARTED",
+            "COMPLETE",
+            "PLANNED_FAMILY_UNAVAILABLE"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stage": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stages": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "TREE",
+            "LINEAR",
+            "HISTORICAL_PASS"
+          ],
+          "properties": {
+            "TREE": {
+              "enum": [
+                "NOT_RUN",
+                "STARTED",
+                "SUCCESS",
+                "FAILED"
+              ]
+            },
+            "LINEAR": {
+              "enum": [
+                "NOT_RUN",
+                "STARTED",
+                "SUCCESS",
+                "FAILED"
+              ]
+            },
+            "HISTORICAL_PASS": {
+              "enum": [
+                "NOT_RUN",
+                "STARTED",
+                "SUCCESS",
+                "FAILED"
+              ]
+            }
+          }
+        },
+        "components": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "transform.json",
+            "representations.json",
+            "tree.json",
+            "linear.json",
+            "history.json",
+            "forecasts.json",
+            "evaluation.json"
+          ],
+          "properties": {
+            "transform.json": {
+              "$ref": "#/$defs/Component"
+            },
+            "representations.json": {
+              "$ref": "#/$defs/Component"
+            },
+            "tree.json": {
+              "$ref": "#/$defs/Component"
+            },
+            "linear.json": {
+              "$ref": "#/$defs/Component"
+            },
+            "history.json": {
+              "$ref": "#/$defs/Component"
+            },
+            "forecasts.json": {
+              "$ref": "#/$defs/Component"
+            },
+            "evaluation.json": {
+              "$ref": "#/$defs/Component"
+            }
+          }
+        },
+        "claim_scope": {
+          "const": "DESCRIPTIVE_DEVELOPMENT_SOURCE_COHORT"
+        },
+        "component_status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "NativeCallEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "stage",
+        "stage_intent_at",
+        "scientific_stage_attempt_charged",
+        "actual_native_call_state",
+        "evidence_ref",
+        "actual_time"
+      ],
+      "properties": {
+        "schema": {
+          "const": "polar.hyp008-s1-native-call-evidence/1"
+        },
+        "stage": {
+          "enum": [
+            "TREE",
+            "LINEAR",
+            "HISTORICAL_PASS"
+          ]
+        },
+        "stage_intent_at": {
+          "type": "string"
+        },
+        "scientific_stage_attempt_charged": {
+          "const": true
+        },
+        "actual_native_call_state": {
+          "enum": [
+            "NOT_REACHED",
+            "CALL_BOUNDARY_OBSERVED",
+            "COMPLETED",
+            "UNKNOWN"
+          ]
+        },
+        "evidence_ref": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "actual_time": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}
