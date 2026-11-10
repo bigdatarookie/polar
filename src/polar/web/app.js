@@ -10,6 +10,7 @@ const shortDate = t => fmtDate(t).slice(0, 11);
 const themeKey = 'polar-retained-theme-v1', sessionKey = 'polar-retained-workspace-v1';
 let state = {...restoredControls(null, 0), dataMode:'real',assetId:null, strategyId:null, cursor:0, inspect:0, measurement:null, infoId:null};
 let dataset = null, detail = null, view = emptyView(), catalog = [], runRows = [], datasetOffset = 0, runOffset = 0;
+let researchWorkspace=null;
 let chart, loading = false, loadError = null, flow = 0, assetQuery = '', assetOptionIndex = 0, rendering = false, restoreFrame = 0;
 let pendingSelection=null, failedSelection=null;
 let historyContext=null,historyCatalogCursor=null,pendingHistoryRequest=null,pendingPlotRange=null;
@@ -370,7 +371,7 @@ function chartLayout(){
     reference:historyDisplayed()&&!!historyContext?.series&&control.benchmark,volume:state.volume});
 }
 function renderChart() {
-  if(!chart)return;hideCandleBoundary();const c=palette(),bars=view.bars,narrow=innerWidth<701,layout=chartLayout(),control=displayedHistoryControls(),real=historyDisplayed();
+  if(!chart||$('#workspace').hidden)return;hideCandleBoundary();const c=palette(),bars=view.bars,narrow=innerWidth<701,layout=chartLayout(),control=displayedHistoryControls(),real=historyDisplayed();
   const available=anySource('assetClose')||anySource('strategyEquity'),message=$('#view-message');message.hidden=available;
   message.textContent=real?(loading?'Loading registered history…':loadError?'History unavailable · '+loadError:dataset?'No observed OHLCV in the selected window. No values were padded.':'No registered chart-ready stored history. No synthetic data was substituted.'):loading?'Loading retained records…':loadError?'Backend unavailable · '+loadError:!dataset?'No retained datasets':['NO_DATA','INVALID'].includes(detail?.report?.status)?'Retained report: '+detail.report.status+(detail.report.diagnostic?' · '+detail.report.diagnostic:''):detail&&!detail.report?'Report unavailable · '+detail.run.state:'No plottable observations; source values are unavailable.';
   const series=[{id:'asset',name:real?'Raw vendor OHLC':'Retained asset OHLC',type:'candlestick',data:bars.map(b=>['open','close','low','high'].map(k=>real?(b.price_status==='OBSERVED'?numberOrNull(b[k]):null):indexValue(b[k],view.baseClose))),itemStyle:{color:c.up,color0:c.down,borderColor:c.up,borderColor0:c.down},emphasis:{disabled:true},barMaxWidth:15,z:2}];
@@ -422,8 +423,8 @@ function initUI() {
   $('#tools-button').onclick=openTools;$('#close-tools').onclick=()=>{$('#rail-inner').classList.remove('mobile-open');$('#tools-button').focus({preventScroll:true});};
   $('#retry-selection').onclick=()=>{if(failedSelection){const f=failedSelection;f.history?loadHistorySelection(f.request):loadSelection(f.datasetId,f.runId,f.options)}};
   $('#open-test-mode').onclick=()=>setDataMode('retained-test');
-  $('#refresh').onclick=()=>state.dataMode==='real'?loadHistorySelection({datasetId:historyContext?.revision?.dataset_id,revision:historyContext?.revision?.dataset_revision,instrumentId:historyContext?.instrument?.instrument_id}):loadSelection(dataset?.dataset_id||urlSelection()[0],detail?.run.id||urlSelection()[1],{catalogPage:datasetOffset,runsPage:runOffset});
-  $('#reset').onclick=()=>{state={...restoredControls(null,0),dataMode:state.dataMode,assetId:null,strategyId:null,cursor:0,inspect:0,measurement:null,infoId:null};try{localStorage.removeItem(themeKey);sessionStorage.removeItem(sessionKey);}catch{}$('#rail-inner').classList.remove('mobile-open');state.dataMode==='real'?loadHistorySelection({}):loadSelection(null,null,{catalogPage:0});};
+  $('#refresh').onclick=()=>researchWorkspace?.isActive()?researchWorkspace.refresh():state.dataMode==='real'?loadHistorySelection({datasetId:historyContext?.revision?.dataset_id,revision:historyContext?.revision?.dataset_revision,instrumentId:historyContext?.instrument?.instrument_id}):loadSelection(dataset?.dataset_id||urlSelection()[0],detail?.run.id||urlSelection()[1],{catalogPage:datasetOffset,runsPage:runOffset});
+  $('#reset').onclick=()=>{researchWorkspace?.reset();state={...restoredControls(null,0),dataMode:state.dataMode,assetId:null,strategyId:null,cursor:0,inspect:0,measurement:null,infoId:null};try{localStorage.removeItem(themeKey);sessionStorage.removeItem(sessionKey);}catch{}$('#rail-inner').classList.remove('mobile-open');state.dataMode==='real'?loadHistorySelection({}):loadSelection(null,null,{catalogPage:0});};
   $('#datasets-prev').onclick=()=>loadSelection(null,null,{push:true,catalogPage:Math.max(0,datasetOffset-10)});$('#datasets-next').onclick=()=>loadSelection(null,null,{push:true,catalogPage:datasetOffset+10});
   $('#runs-prev').onclick=()=>loadSelection(dataset?.dataset_id,null,{push:true,runsPage:Math.max(0,runOffset-10)});$('#runs-next').onclick=()=>loadSelection(dataset?.dataset_id,null,{push:true,runsPage:runOffset+10});
   const input=$('#asset-search');input.onfocus=()=>{assetQuery='';assetOptionIndex=0;renderAssets();input.select();};input.oninput=()=>{assetQuery=input.value.toLowerCase();assetOptionIndex=0;renderAssets();};input.onkeydown=e=>{const list=filteredAssets();if(['ArrowDown','ArrowUp'].includes(e.key)){e.preventDefault();assetOptionIndex=Math.max(0,Math.min(list.length-1,assetOptionIndex+(e.key==='ArrowDown'?1:-1)));renderAssets();}else if(e.key==='Enter'&&!$('#asset-options').hidden&&list[assetOptionIndex]){e.preventDefault();selectAsset(list[assetOptionIndex].dataset_id);}else if(e.key==='Escape')closeAssets();};input.onblur=()=>setTimeout(closeAssets,100);
@@ -445,11 +446,20 @@ function initUI() {
   matchMedia('(prefers-color-scheme: light)').addEventListener('change',()=>{if(state.theme==='auto')renderAll();});
   document.fonts?.ready?.then(()=>{chart.resize();renderChart();drawMeasurement();});
 }
+function initResearchWorkspace(){
+  const root=element('main');root.id='research-workspace';$('#workspace').after(root);
+  const foot=element('span');foot.id='research-footer';$('footer').prepend(foot);
+  researchWorkspace=createResearchWorkspace({root,historyWorkspace:$('#workspace'),fetcher:fetch,
+    theme:()=>state.theme,setTheme,
+    onToggle:active=>{document.body.dataset.workspace=active?'research':'price';foot.hidden=!active;if(!active)requestAnimationFrame(()=>{chart.resize();renderChart();drawMeasurement();});},
+    onContext:text=>{foot.textContent=text;foot.title=text;}});
+  $('.topbar').insertBefore(researchWorkspace.navigation,$('.top-actions'));
+}
 function boot() {
   let restored=null;
   try {restored=JSON.parse(sessionStorage.getItem(sessionKey)||'null');Object.assign(state,restoredControls(restored?.controls,0));const theme=localStorage.getItem(themeKey);if(['auto','light','dark'].includes(theme))state.theme=theme;} catch {}
   state.dataMode=new URL(location.href).searchParams.get('mode')==='retained-test'?'retained-test':'real';
-  initUI();const initial=urlSelection(),explicitURL=initial.some(Boolean);
+  initUI();if(typeof createResearchWorkspace==='function')initResearchWorkspace();const initial=urlSelection(),explicitURL=initial.some(Boolean);
   if(state.dataMode==='retained-test')loadSelection(explicitURL?initial[0]:restored?.dataset_id,explicitURL?initial[1]:restored?.run_id,{restore:explicitURL?null:restored});else{const p=new URL(location.href).searchParams;if(p.get('run')){renderAll();tell('Retained run link preserved. Open explicit retained test mode to use its synthetic report.');}else loadHistorySelection({datasetId:p.get('dataset'),revision:p.get('revision'),instrumentId:p.get('instrument')});}
 }
 if(typeof module==='undefined')boot();
