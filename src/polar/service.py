@@ -27,11 +27,16 @@ class Service:
         from .research_results import ResearchResults
         return ResearchResults(self.artifacts.root, self.artifacts.limit)
 
-    def _research_engine(self):
+    def _research_engine(self, config=None, semantic_id=None):
+        if (isinstance(config,dict) and config.get('schema')=='polar.reference-research-config/1') or (semantic_id or '').startswith('reference-experiment-'):
+            from .reference_service import ReferenceResearchService
+            return ReferenceResearchService(self.artifacts.root,self.artifacts.limit)
         from .ci_research_service import ResearchService
         return ResearchService(self.artifacts.root, self.artifacts.limit)
 
     def research_preflight(self, config):
+        if config.get('schema')=='polar.reference-research-config/1':
+            return self._research_engine(config).preflight(config)
         from .ci_research_service import operation_binding
         from .gym_contract import canonical, sha
         plan, pins = self._research_engine().prepare(config)
@@ -41,14 +46,16 @@ class Service:
                 "operation_binding_sha256": sha(canonical(operation_binding(config, pins)))}
 
     def research_config(self, seed):
+        from .reference_service import PROFILES,config_from_seed as reference_config
+        if seed.get('profile_id') in PROFILES:return reference_config(seed)
         from .ci_research_service import config_from_seed
         return config_from_seed(seed)
 
     def research_run(self, config):
-        return self._research_engine().run(config)
+        return self._research_engine(config).run(config)
 
     def research_recompute(self, semantic_id):
-        return self._research_engine().recompute(semantic_id)
+        return self._research_engine(semantic_id=semantic_id).recompute(semantic_id)
 
     def research_publish(self, result):
         return self._research_call("publish", result)
