@@ -54,8 +54,8 @@ mapping unknowns, economic N50 NOT_ESTABLISHED, exposed A history and financial
 cohort sensitivity NOT_ASSESSED. No EODHD/four-survivor/EW4/raw-share/certified
 total-return or adoption claim is substituted.
 
-Use existing `reference-config`, `reference-preflight`, `reference-run` and
-`reference-recompute` CLI interfaces documented in reference-runner.md. Retained
+Use existing `research-config`, `research-preflight`, `research-run` and
+`research-recompute` CLI interfaces documented in reference-runner.md. Retained
 authority additionally binds the exact C method/candidate and exact candidate
 CI result selecting `tests/test_reference_c_service.py` or the full `tests`.
 An old A-only selector cannot qualify C. Runtime/source/root/attempt checks are
