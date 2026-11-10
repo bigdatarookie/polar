@@ -163,6 +163,76 @@ def test_changed_runtime_root_profile_cannot_reuse_old_seal_plan(tmp_path):
     assert not (copied.root/copied.family()).exists()
 
 
+def pre_admission_fixture(tmp_path):
+    """Invented record-shape control only; these are not independent verdicts."""
+    from polar.hyp008_s1_service import S1Service
+    s=store(tmp_path);value=seal(s,False)
+    candidate={'commit':'a'*40,'tree':'b'*40}
+    files={'/app/src/polar/invented.py':{'bytes':1,'sha256':'0'*64}}
+    code=s.object({'schema':'polar.hyp008-s1-code-projection/1','candidate':candidate,'files':files})
+    build=s.object({'commit':candidate['commit'],'tree':candidate['tree'],
+        'image_id':'sha256:'+'c'*64,'source_files':files})
+    proof=s.object({'scope':'INVENTED_RECORD_CONTRACT_FIXTURE_NOT_QA_EVIDENCE'})
+    qa={'schema':'polar.hyp008-s1-pre-admission/1','code_ref':code,'build_ref':build,
+        'verdicts':{'code':'PASS','numeric':'PASS','admission':'PASS'},
+        'proof_refs':[proof],'system_status':'NOT_RUN'}
+    plan=s.object({'schema':'polar.hyp008-s1-runtime-plan/1','candidate':candidate,
+        'image_id':'sha256:'+'c'*64,'source_build_ref':build,'launcher_refs':[proof],
+        'store_profile_ref':s.deployment.profile_ref})
+    assignment=s.object({'schema':'polar.hyp008-s1-execution-assignment/1',
+        'prepared_ref':value['prepared_ref'],'registration_ref':value['registration_ref'],
+        'native_qitem':'qitem-invented-pre-admission-control','scope':'INVENTED'})
+    value.update(code_ref=code,build_ref=build,runtime_plan_ref=plan,execution_assignment_ref=assignment)
+    return s,S1Service(s,{}),value,qa
+
+
+def test_pre_admission_accepts_not_run_system_without_creating_authority_or_charge(tmp_path):
+    s,service,value,qa=pre_admission_fixture(tmp_path)
+    value['qa_ref']=s.object(qa)
+    code,plan=service._qualification(value,{})
+    assert code['candidate']==plan['candidate']
+    assert s.get(value['qa_ref'])['system_status']=='NOT_RUN'
+    value['seal_id']=sha(canonical({k:v for k,v in value.items() if k!='seal_id'}))
+    with pytest.raises(S1ContractError,match='EXECUTION_NOT_AUTHORIZED'):s.begin(value)
+    assert not (s.root/s.family()).exists()
+
+
+def test_non_object_qualification_record_fails_closed(tmp_path):
+    s,service,value,qa=pre_admission_fixture(tmp_path)
+    value['qa_ref']=s.object([])
+    with pytest.raises(S1ContractError,match='RECORD_SCHEMA'):service._qualification(value,{})
+    assert not (s.root/s.family()).exists()
+
+
+@pytest.mark.parametrize('change,reason',[
+    ({'system_status':'PASS'},'PRE_ADMISSION_SYSTEM_STATUS'),
+    ({'verdicts':{'code':'PASS','numeric':'PASS','admission':'NOT_RUN'}},'QUALIFICATION_NOT_BOUND'),
+    ({'verdicts':{'code':'PASS','numeric':'PASS','admission':'PASS','system':'PASS'}},'QUALIFICATION_NOT_BOUND'),
+    ({'proof_refs':[]},'QUALIFICATION_NOT_BOUND'),
+    ({'extra':'ignored-proof'},'RECORD_SCHEMA'),
+    ({'schema':'polar.s1-author-prerequisite-fixture/1'},'RECORD_SCHEMA'),
+])
+def test_pre_admission_rejects_unbound_or_overclaimed_evidence(tmp_path,change,reason):
+    s,service,value,qa=pre_admission_fixture(tmp_path)
+    value['qa_ref']=s.object({**qa,**change})
+    with pytest.raises(S1ContractError,match=reason):service._qualification(value,{})
+    assert not (s.root/s.family()).exists()
+
+
+def test_pre_admission_keeps_exact_code_build_and_legacy_qualification_contract(tmp_path):
+    s,service,value,qa=pre_admission_fixture(tmp_path)
+    value['qa_ref']=s.object({**qa,'code_ref':value['build_ref']})
+    with pytest.raises(S1ContractError,match='QUALIFICATION_NOT_BOUND'):service._qualification(value,{})
+    legacy={k:v for k,v in qa.items() if k!='system_status'}
+    legacy.update(schema='polar.hyp008-s1-qualification/1',
+        verdicts={'code':'PASS','numeric':'PASS','system':'PASS'})
+    value['qa_ref']=s.object(legacy)
+    assert service._qualification(value,{})[0]['candidate']['commit']=='a'*40
+    value['qa_ref']=s.object({**legacy,'verdicts':{'code':'PASS','numeric':'PASS','system':'NOT_RUN'}})
+    with pytest.raises(S1ContractError,match='QUALIFICATION_NOT_BOUND'):service._qualification(value,{})
+    assert not (s.root/s.family()).exists()
+
+
 def test_observed_host_mount_identity_never_equates_host_and_container_inode(tmp_path,monkeypatch):
     import polar.hyp008_s1_store as module
     s=store(tmp_path);binding={**s.deployment.binding,'canonical_root':'/trusted/host/store'}

@@ -79,10 +79,20 @@ class S1Service:
         require(type(code['candidate']) is dict and set(code['candidate'])=={'commit','tree'},'CODE_CANDIDATE')
         require(build['commit']==code['candidate']['commit'] and build['tree']==code['candidate']['tree']
                 and code['files']==build['source_files'],'CODE_BUILD_MAP')
-        closed(qa,('schema','code_ref','build_ref','verdicts','proof_refs'),'polar.hyp008-s1-qualification/1')
+        require(type(qa) is dict,'RECORD_SCHEMA')
+        if qa.get('schema')=='polar.hyp008-s1-pre-admission/1':
+            closed(qa,('schema','code_ref','build_ref','verdicts','proof_refs','system_status'),
+                'polar.hyp008-s1-pre-admission/1')
+            require(qa['system_status']=='NOT_RUN','PRE_ADMISSION_SYSTEM_STATUS')
+            verdicts={'code':'PASS','numeric':'PASS','admission':'PASS'}
+        else:
+            # Retain the old fully-qualified record contract without treating it
+            # as a prerequisite for independently testing the first positive run.
+            closed(qa,('schema','code_ref','build_ref','verdicts','proof_refs'),'polar.hyp008-s1-qualification/1')
+            verdicts={'code':'PASS','numeric':'PASS','system':'PASS'}
         require(qa['code_ref']==seal['code_ref'] and qa['build_ref']==seal['build_ref'] and
-                qa['verdicts']=={'code':'PASS','numeric':'PASS','system':'PASS'} and
-                type(qa['proof_refs']) is list and qa['proof_refs'],'QUALIFICATION_NOT_BOUND')
+                qa['verdicts']==verdicts and type(qa['proof_refs']) is list and qa['proof_refs'],
+                'QUALIFICATION_NOT_BOUND')
         for pin in qa['proof_refs']:self.store.raw_get(pin)
         closed(assignment,('schema','prepared_ref','registration_ref','native_qitem','scope'),
                'polar.hyp008-s1-execution-assignment/1')

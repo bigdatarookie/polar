@@ -68,10 +68,34 @@ The service checks exact code candidate/full source map against the build, QA
 verdict/proof references, prepared/registration assignment and runtime plan.
 The plan keys are schema, candidate, image_id, source_build_ref, launcher_refs and
 store_profile_ref. Source projection keys are schema, candidate and files;
-files use the build's full `/app/src/polar/...` byte/hash map. Qualification keys
-are schema, code_ref, build_ref, verdicts and proof_refs. Assignment keys are
+files use the build's full `/app/src/polar/...` byte/hash map. Assignment keys are
 schema, prepared_ref, registration_ref, native_qitem and scope. Exact schemas and
 field checks are in `hyp008_s1_schema.json` and `hyp008_s1_service.py`.
+
+### Pre-admission evidence and independent post-run acceptance
+
+For the first positive technical control, use the closed
+`polar.hyp008-s1-pre-admission/1` record. Its keys are schema, code_ref,
+build_ref, verdicts, proof_refs and system_status. It requires exact code/build
+references, nonempty verified proof references, independent
+`{code: PASS, numeric: PASS, admission: PASS}` evidence and
+`system_status: NOT_RUN`. Admission means the independently checked admission
+contract; it does not claim that a positive System/runtime run has passed.
+An author test double or invented verdict is not independent evidence.
+
+The historical `polar.hyp008-s1-qualification/1` record remains supported with
+its exact original keys and `{code: PASS, numeric: PASS, system: PASS}` contract.
+Do not manufacture that System verdict to start the first positive control.
+The pre-admission record is deliberately distinct and cannot carry System PASS.
+
+Both record forms pass through the same exact source/build/assignment/runtime
+plan checks, trusted external authority, runtime verification and irreversible
+family/stage accounting. Neither form creates authority, changes scientific
+limits or proves a successful run. Actual completion still needs matched native
+witnesses, immutable publication and stored verification. Final independent
+positive System/runtime acceptance is a separate post-run verdict bound to the
+actual candidate, operation and resulting artifacts; neither pre-admission proof
+nor the Service's functional SUCCESS substitutes for that verdict.
 
 Only a later independently authorized deployment owner may provision the exact
 `<seal_id>.json` Authority in the fixed external authority directory. Seal creation
