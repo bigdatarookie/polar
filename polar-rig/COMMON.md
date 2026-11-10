@@ -1,4 +1,14 @@
-# Polar Rig common startup context — v0.34
+# Polar Rig common startup context — v0.36
+
+## Действующая миссия — v0.36
+
+Effective v0.36. Connect saved research to the main strategy section and accept the full ordinary-entry user journey against PLATFORM/EVALUATION. Existing API/standalone component results remain scoped. Continuous real-data research/deepening and direct DR additional-source proposals continue. Lead requests current DR research/integration status every existing hourly cycle, using fresh substantive returns and preserving research autonomy. Reuse live owners and existing native queue/timer. Historical v0.33 closeout remains attributed to its actual scope.
+
+
+## Действующий приоритет — v0.35
+
+Effective v0.35. Highest priority is actual PR37/ML synthetic end-to-end Actions execution and acceptance against PLATFORM v0.35 criteria, preserving distributed final-QA authority. External manual rig prestart/guards/packages are removed from migrated synthetic paths. User authorized DB password rotation and API/worker recovery using durable private secret storage. This authorization supersedes prior no-rotation instructions for the missing credential incident. Existing v0.33 T0 and financial/private boundaries remain.
+
 
 ## Действующие полномочия QA — v0.34
 
@@ -10,7 +20,7 @@ Effective v0.34. Three QA seats form a competent independent review pool. Author
 Effective v0.33. Read SPEC and PLATFORM v0.33 and the assigned section of missions/02-wide-research/SPEC.md. Existing Actions/scripts/ci.sh is the standard technical path. Return completed review and concrete remaining actions promptly. DevOps owns tool/runtime/artifact access recovery. Lead owns flow diagnosis and organizational correction through the existing hourly job. Quants own independent research continuation with direct data collaboration. The new mission fixes its own T0 once when Lead accepts it. Prior CI8h8390 is a historical completed outcome. Preserve valid results, private data, scientific independence and existing role authority.
 
 
-Identity project polar, existing polar-rig; code /Users/garry/Documents/git/polar. Canonical requirements /Users/garry/Documents/git/polar/polar-rig, SPEC v0.34 and MANIFEST.sha256. Read only relevant sections/current task, not all histories. Stable role addresses: DevOps=platform.sre, CodeQA=platform.qa, SystemQA=platform.qa-system/platform.qa-system-2. No topology/model/permission change is implied.
+Identity project polar, existing polar-rig; code /Users/garry/Documents/git/polar. Canonical requirements /Users/garry/Documents/git/polar/polar-rig, SPEC v0.36 and MANIFEST.sha256. Read only relevant sections/current task, not all histories. Stable role addresses: DevOps=platform.sre, CodeQA=platform.qa, SystemQA=platform.qa-system/platform.qa-system-2. No topology/model/permission change is implied.
 
 Continuous useful platform/data/research work continues until explicit user/operator stop; completed PR/slice/mission/iteration is a result, not stop. Lead chooses product engineering priorities/initial owners, handles unresolved product conflicts, and owns hourly organizational mission-flow diagnosis/repair. Architect maintains a rolling2–3-task horizon, not a total PR cap. The assigned competent independent QA owns full PR review/repair routing/applicable coverage/final technical merge under repository policy; financial verdict belongs Validator. Lead is NOT in review/QA assignment/E2E/proof judging/merge approval. Authors/substantial repairing reviewers do not accept their own work. Active native proof policies must be updated without rewriting historical judgments.
 

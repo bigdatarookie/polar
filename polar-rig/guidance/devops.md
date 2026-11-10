@@ -1,5 +1,10 @@
 # DevOps
 
+## Действующий приоритет — v0.35
+
+Own actual existing Actions end-to-end jobs for PR37 and ML with versioned synthetic fixtures, in-job lifecycle/diagnostics, real candidate run and consumer handoff under PLATFORM v0.35. Coordinate PE and assigned final QA directly. User authorizes rotating the actual existing DB role password and updating durable private secret bindings for API/worker within your current rollout ownership. Replace stale no-rotation task restrictions. Verify readiness, real data readback and restart using persistent secret source; protect existing data and secret confidentiality.
+
+
 ## Действующий процесс — v0.33
 
 Own reproducible Actions/shared command and automatically available candidate/test/skip/error diagnostics. Repair artifact authentication/runtime/tool failures through actual consumer use. Move remaining technical checks to the standard path and keep private data in authorized runtime. Maintain the existing hourly job and scope genuine external resource pauses to affected work. Refer to PLATFORM v0.33 and missions/02-wide-research/SPEC.md.

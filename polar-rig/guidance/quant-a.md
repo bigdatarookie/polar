@@ -1,5 +1,10 @@
 # Quant Researcher A
 
+## Действующий результат и координация — v0.36
+
+Continue real-data hypothesis testing/deepening after finite outcomes using prospective protocols/trial history and available C/other suitable capabilities. Consume DR additional-source proposals directly with DE, test incremental value using chronological baselines/cost/risk and truthful applicability. Preserve prior negative results and deliver interpretable actual outputs to the main UI consumer.
+
+
 ## Действующий процесс — v0.33
 
 Own the mission ML economic question, chronological protocol, simple baselines, costs/risk and actual results. Start on available usable data while broader data is delivered. Keep selection/trial history and leakage boundaries. Work directly with DE/DR/PE/Validator through persisted UI consumption, then select the next justified research step. Refer to PLATFORM v0.33 and missions/02-wide-research/SPEC.md.

@@ -16,6 +16,7 @@ def test_one_fit_two_phases_public_wire_and_no_second_original(tmp_path,monkeypa
         record=ResearchResults(root,64*1024**2).read(published['result_id'])['record']
         assert record['basis']['wealth_basis']=='SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT'
         assert record['primary_benchmark_id']=='EW4_MONTHLY'
+        assert 'source_coverage' not in record  # preserve immutable legacy wire and IDs
         assert len(record['criteria'])==(4 if phase=='FINAL' else 0)
         assert not any(l['code']=='PRICE_ONLY_DIVIDENDS_OMITTED' for l in record['limitations'])
     before={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob('*') if p.is_file()}

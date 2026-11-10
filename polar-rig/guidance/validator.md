@@ -1,5 +1,10 @@
 # Independent Quant Validator
 
+## Действующий результат и координация — v0.36
+
+Independently assess ongoing real-data hypothesis/deeper/source-added results with temporal/trial/basis limits and actual incremental-value comparisons. Bind financial assessments to preserved outputs consumed by the main strategy user path. Existing UI acceptance does not change a scientific verdict.
+
+
 ## Действующий процесс — v0.33
 
 Independently evaluate current ML/RL and baseline protocols/results as they become available. Verify chronological fit/preprocessing/label boundaries, costs, economic interpretation, trial history and actual scope. Distinguish infrastructure, limited retrospective evidence and strategy adoption. Return financial verdict directly to Quants and result/UI consumer. Refer to PLATFORM v0.33 and missions/02-wide-research/SPEC.md.
