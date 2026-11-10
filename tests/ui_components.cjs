@@ -73,7 +73,7 @@ function appContext(fetcher) {
     document:{querySelector:node,getElementById:id=>node('#'+id),querySelectorAll:()=>[],createElement:tag=>new Node(tag)},
     matchMedia:()=>({matches:false}),innerWidth:800,innerHeight:900,scrollX:0,scrollY:0,cancelAnimationFrame(){},requestAnimationFrame(){},
     getComputedStyle:()=>({getPropertyValue:()=> '#7132c4'}),window:{scrollTo(){}},setTimeout});
-  for(const file of ['data.js','interaction.js','history.js','app.js'])vm.runInContext(fs.readFileSync(path.join(web,file),'utf8'),context,{filename:file});
+  for(const file of ['data.js','chart-ui.js','interaction.js','history.js','app.js'])vm.runInContext(fs.readFileSync(path.join(web,file),'utf8'),context,{filename:file});
   vm.runInContext("state.dataMode='retained-test'",context);
   context.renderAll=()=>{};context.renderChart=()=>{};context.syncToolbar=()=>{};return {context,node,stored,location,history};
 }
