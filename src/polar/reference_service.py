@@ -60,7 +60,7 @@ def portable(value):
     if type(value) is float:
         require(__import__("math").isfinite(value),"REFERENCE_ARTIFACT_NONFINITE")
         return repr(value)
-    if type(value) is list:return [portable(x) for x in value]
+    if type(value) in (list,tuple):return [portable(x) for x in value]
     if type(value) is dict:return {k:portable(v) for k,v in value.items()}
     return value
 

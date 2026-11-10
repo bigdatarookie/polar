@@ -159,7 +159,9 @@ def select_development(candidates):
         value=item['metrics']['sharpe_252_rf0']
         if value['status']=='OK' and value['value'] is not None and Decimal(value['value']).is_finite():
             eligible.append((Decimal(value['value']),item['seed']))
-    return min(eligible,key=lambda x:(-x[0],x[1]))[1] if eligible else None
+    if not eligible:return None
+    best=max(value for value,_ in eligible) # Decimal comparison does not round through unary minus.
+    return min(seed for value,seed in eligible if value==best)
 
 
 def fit_select_test(market,partitions,tz,persist,*,invented_steps=None,native=None):

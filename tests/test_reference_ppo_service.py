@@ -9,7 +9,7 @@ from polar.reference_ppo import select_development
 
 def test_exact_canonical_selection_and_tie():
     def item(seed,value):return {'seed':seed,'metrics':{'sharpe_252_rf0':{'value':value,'status':'OK' if value else 'UNAVAILABLE'}}}
-    assert select_development([item(2,'1.000000000000000000000001'),item(0,'1')])==2
+    assert select_development([item(2,'1.00000000000000000000000000000000000000000000001'),item(0,'1')])==2
     assert select_development([item(2,'1'),item(0,'1')])==0
     assert select_development([item(0,None),item(1,None),item(2,None)]) is None
 
