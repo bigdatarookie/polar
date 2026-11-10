@@ -1,0 +1,6601 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:polar:hyp007-fixed-score:semantic:1",
+  "title": "Fixed no-refit HYP007 success semantic files and partial-stage envelope",
+  "description": "Planning schema only. No execution or counters created. Cross-field invariants and partial-prefix rules in wire-invariants-v1.md are normative. No unknown extension fields.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/bindings_file"
+    },
+    {
+      "$ref": "#/$defs/scores_file"
+    },
+    {
+      "$ref": "#/$defs/targets_file"
+    },
+    {
+      "$ref": "#/$defs/allocations_file"
+    },
+    {
+      "$ref": "#/$defs/events_file"
+    },
+    {
+      "$ref": "#/$defs/samples_file"
+    },
+    {
+      "$ref": "#/$defs/metrics_file"
+    },
+    {
+      "$ref": "#/$defs/status_file"
+    }
+  ],
+  "$defs": {
+    "hash": {
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "image": {
+      "type": "string",
+      "maxLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "token": {
+      "type": "string",
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$"
+    },
+    "ns": {
+      "type": "string",
+      "maxLength": 19,
+      "pattern": "^(0|[1-9][0-9]{0,18})$"
+    },
+    "utc_micro": {
+      "type": "string",
+      "maxLength": 27,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$"
+    },
+    "money": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^(0|[1-9][0-9]*)\\.[0-9]{2}$"
+    },
+    "weight": {
+      "type": "string",
+      "maxLength": 14,
+      "pattern": "^(0\\.[0-9]{12}|1\\.000000000000)$"
+    },
+    "rational": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "numerator": {
+          "type": "string",
+          "maxLength": 512,
+          "pattern": "^(0|-?[1-9][0-9]*)$"
+        },
+        "denominator": {
+          "type": "string",
+          "maxLength": 512,
+          "pattern": "^[1-9][0-9]*$"
+        }
+      },
+      "required": [
+        "numerator",
+        "denominator"
+      ]
+    },
+    "hash_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "record_token": {
+          "$ref": "#/$defs/token"
+        },
+        "sha256": {
+          "$ref": "#/$defs/hash"
+        }
+      },
+      "required": [
+        "record_token",
+        "sha256"
+      ]
+    },
+    "lineage_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "enum": [
+            "model_file",
+            "model_subobject",
+            "transform_file",
+            "transform_subobject",
+            "fit_receipt",
+            "feature_anchor",
+            "source_record",
+            "qualification",
+            "code_projection",
+            "build",
+            "runtime_lock"
+          ]
+        },
+        "record_token": {
+          "$ref": "#/$defs/token"
+        },
+        "sha256": {
+          "$ref": "#/$defs/hash"
+        }
+      },
+      "required": [
+        "role",
+        "record_token",
+        "sha256"
+      ]
+    },
+    "mapping_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "opportunity_token": {
+          "enum": [
+            "2022-01-04:AAPL",
+            "2022-01-04:AMZN",
+            "2022-01-04:TSLA",
+            "2022-01-04:TWTR"
+          ]
+        },
+        "source_symbol": {
+          "enum": [
+            "AAPL",
+            "AMZN",
+            "TSLA",
+            "TWTR"
+          ]
+        },
+        "simulated_instrument_id": {
+          "enum": [
+            "AAPL.XCAP",
+            "AMZN.XCAP",
+            "TSLA.XCAP",
+            "TWTR.XCAP"
+          ]
+        }
+      },
+      "required": [
+        "opportunity_token",
+        "source_symbol",
+        "simulated_instrument_id"
+      ]
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "instrument_id": {
+          "enum": [
+            "2022-01-04:AAPL",
+            "2022-01-04:AMZN",
+            "2022-01-04:TSLA",
+            "2022-01-04:TWTR"
+          ]
+        },
+        "weight": {
+          "$ref": "#/$defs/weight"
+        }
+      },
+      "required": [
+        "instrument_id",
+        "weight"
+      ]
+    },
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "opportunity_token": {
+          "enum": [
+            "2022-01-04:AAPL",
+            "2022-01-04:AMZN",
+            "2022-01-04:TSLA",
+            "2022-01-04:TWTR"
+          ]
+        },
+        "source_symbol": {
+          "enum": [
+            "AAPL",
+            "AMZN",
+            "TSLA",
+            "TWTR"
+          ]
+        },
+        "simulated_instrument_id": {
+          "enum": [
+            "AAPL.XCAP",
+            "AMZN.XCAP",
+            "TSLA.XCAP",
+            "TWTR.XCAP"
+          ]
+        },
+        "weight": {
+          "$ref": "#/$defs/weight"
+        }
+      },
+      "required": [
+        "opportunity_token",
+        "source_symbol",
+        "simulated_instrument_id",
+        "weight"
+      ]
+    },
+    "event_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "record_token": {
+          "$ref": "#/$defs/token"
+        },
+        "source_record_sha256": {
+          "$ref": "#/$defs/hash"
+        },
+        "field": {
+          "enum": [
+            "o",
+            "c"
+          ]
+        },
+        "estimated_fullbar_K": {
+          "$ref": "#/$defs/utc_micro"
+        },
+        "observed_event_at": {
+          "type": "null"
+        },
+        "observed_historical_available_at": {
+          "type": "null"
+        },
+        "role": {
+          "enum": [
+            "EXECUTOR_MODELED_OPEN",
+            "EX_POST_REFERENCE_CLOSE"
+          ]
+        }
+      },
+      "required": [
+        "record_token",
+        "source_record_sha256",
+        "field",
+        "estimated_fullbar_K",
+        "observed_event_at",
+        "observed_historical_available_at",
+        "role"
+      ]
+    },
+    "quote_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "opportunity_token": {
+          "enum": [
+            "2022-01-04:AAPL",
+            "2022-01-04:AMZN",
+            "2022-01-04:TSLA",
+            "2022-01-04:TWTR"
+          ]
+        },
+        "source_symbol": {
+          "enum": [
+            "AAPL",
+            "AMZN",
+            "TSLA",
+            "TWTR"
+          ]
+        },
+        "simulated_instrument_id": {
+          "enum": [
+            "AAPL.XCAP",
+            "AMZN.XCAP",
+            "TSLA.XCAP",
+            "TWTR.XCAP"
+          ]
+        },
+        "quote_event_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "snapshot_as_of": {
+          "$ref": "#/$defs/utc_micro"
+        },
+        "price": {
+          "$ref": "#/$defs/money"
+        },
+        "source": {
+          "$ref": "#/$defs/event_source"
+        }
+      },
+      "required": [
+        "opportunity_token",
+        "source_symbol",
+        "simulated_instrument_id",
+        "quote_event_ns",
+        "snapshot_as_of",
+        "price",
+        "source"
+      ]
+    },
+    "position": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "opportunity_token": {
+          "enum": [
+            "2022-01-04:AAPL",
+            "2022-01-04:AMZN",
+            "2022-01-04:TSLA",
+            "2022-01-04:TWTR"
+          ]
+        },
+        "source_symbol": {
+          "enum": [
+            "AAPL",
+            "AMZN",
+            "TSLA",
+            "TWTR"
+          ]
+        },
+        "simulated_instrument_id": {
+          "enum": [
+            "AAPL.XCAP",
+            "AMZN.XCAP",
+            "TSLA.XCAP",
+            "TWTR.XCAP"
+          ]
+        },
+        "quantity": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        }
+      },
+      "required": [
+        "opportunity_token",
+        "source_symbol",
+        "simulated_instrument_id",
+        "quantity"
+      ]
+    },
+    "allocation_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "instrument_id": {
+          "enum": [
+            "2022-01-04:AAPL",
+            "2022-01-04:AMZN",
+            "2022-01-04:TSLA",
+            "2022-01-04:TWTR"
+          ]
+        },
+        "current_quantity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "target_weight": {
+          "$ref": "#/$defs/weight"
+        },
+        "mark": {
+          "$ref": "#/$defs/money"
+        },
+        "desired_quantity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "delta": {
+          "type": "integer",
+          "minimum": -1000000,
+          "maximum": 1000000
+        }
+      },
+      "required": [
+        "instrument_id",
+        "current_quantity",
+        "target_weight",
+        "mark",
+        "desired_quantity",
+        "delta"
+      ]
+    },
+    "allocation_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "currency": {
+          "const": "USD"
+        },
+        "as_of": {
+          "$ref": "#/$defs/utc_micro"
+        },
+        "marked_nav": {
+          "$ref": "#/$defs/money"
+        },
+        "total_target_weight": {
+          "$ref": "#/$defs/weight"
+        },
+        "allocated_value": {
+          "$ref": "#/$defs/money"
+        },
+        "residual_cash": {
+          "$ref": "#/$defs/money"
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/allocation_row"
+          },
+          "minItems": 0,
+          "maxItems": 4
+        },
+        "method": {
+          "const": "ZERO_COST_ALLOCATION_ARITHMETIC"
+        },
+        "financial_verdict": {
+          "const": "NOT_RUN"
+        }
+      },
+      "required": [
+        "currency",
+        "as_of",
+        "marked_nav",
+        "total_target_weight",
+        "allocated_value",
+        "residual_cash",
+        "rows",
+        "method",
+        "financial_verdict"
+      ]
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "currency": {
+          "const": "USD"
+        },
+        "as_of": {
+          "$ref": "#/$defs/utc_micro"
+        },
+        "cash": {
+          "$ref": "#/$defs/money"
+        },
+        "positions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/position"
+          },
+          "minItems": 0,
+          "maxItems": 4
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/target"
+          },
+          "minItems": 0,
+          "maxItems": 4
+        },
+        "marks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/quote_ref"
+          },
+          "minItems": 0,
+          "maxItems": 4
+        }
+      },
+      "required": [
+        "currency",
+        "as_of",
+        "cash",
+        "positions",
+        "targets",
+        "marks"
+      ]
+    },
+    "allocation_phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "phase": {
+          "enum": [
+            "entry",
+            "exit"
+          ]
+        },
+        "boundary": {
+          "enum": [
+            "O1",
+            "O6"
+          ]
+        },
+        "nominal_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "snapshot_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/snapshot"
+        },
+        "allocation": {
+          "$ref": "#/$defs/allocation_result"
+        },
+        "domain_checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "expected_state": {
+              "enum": [
+                "PASS",
+                "FAIL"
+              ]
+            },
+            "exact_mark_union": {
+              "enum": [
+                "PASS",
+                "FAIL"
+              ]
+            },
+            "positive_cent_prices": {
+              "enum": [
+                "PASS",
+                "FAIL"
+              ]
+            },
+            "native_representation": {
+              "enum": [
+                "PASS",
+                "FAIL"
+              ]
+            },
+            "single_side_only": {
+              "enum": [
+                "PASS",
+                "FAIL"
+              ]
+            }
+          },
+          "required": [
+            "expected_state",
+            "exact_mark_union",
+            "positive_cent_prices",
+            "native_representation",
+            "single_side_only"
+          ]
+        }
+      },
+      "required": [
+        "phase",
+        "boundary",
+        "nominal_ns",
+        "snapshot_ns",
+        "snapshot",
+        "allocation",
+        "domain_checks"
+      ]
+    },
+    "order_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "ORDER_SUBMITTED"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "logical_order_id": {
+          "$ref": "#/$defs/token"
+        },
+        "phase": {
+          "enum": [
+            "entry",
+            "exit"
+          ]
+        },
+        "route_sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
+        },
+        "opportunity_token": {
+          "enum": [
+            "2022-01-04:AAPL",
+            "2022-01-04:AMZN",
+            "2022-01-04:TSLA",
+            "2022-01-04:TWTR"
+          ]
+        },
+        "source_symbol": {
+          "enum": [
+            "AAPL",
+            "AMZN",
+            "TSLA",
+            "TWTR"
+          ]
+        },
+        "simulated_instrument_id": {
+          "enum": [
+            "AAPL.XCAP",
+            "AMZN.XCAP",
+            "TSLA.XCAP",
+            "TWTR.XCAP"
+          ]
+        },
+        "side": {
+          "enum": [
+            "BUY",
+            "SELL"
+          ]
+        },
+        "logical_route_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "native_event_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "native_init_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "quantity": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        },
+        "price_reference": {
+          "$ref": "#/$defs/money"
+        },
+        "cash_before": {
+          "$ref": "#/$defs/money"
+        },
+        "held_before": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        }
+      },
+      "required": [
+        "kind",
+        "sequence",
+        "logical_order_id",
+        "phase",
+        "route_sequence",
+        "opportunity_token",
+        "source_symbol",
+        "simulated_instrument_id",
+        "side",
+        "logical_route_ns",
+        "native_event_ns",
+        "native_init_ns",
+        "quantity",
+        "price_reference",
+        "cash_before",
+        "held_before"
+      ]
+    },
+    "fill_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "ORDER_FILLED"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "logical_order_id": {
+          "$ref": "#/$defs/token"
+        },
+        "phase": {
+          "enum": [
+            "entry",
+            "exit"
+          ]
+        },
+        "route_sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
+        },
+        "opportunity_token": {
+          "enum": [
+            "2022-01-04:AAPL",
+            "2022-01-04:AMZN",
+            "2022-01-04:TSLA",
+            "2022-01-04:TWTR"
+          ]
+        },
+        "source_symbol": {
+          "enum": [
+            "AAPL",
+            "AMZN",
+            "TSLA",
+            "TWTR"
+          ]
+        },
+        "simulated_instrument_id": {
+          "enum": [
+            "AAPL.XCAP",
+            "AMZN.XCAP",
+            "TSLA.XCAP",
+            "TWTR.XCAP"
+          ]
+        },
+        "side": {
+          "enum": [
+            "BUY",
+            "SELL"
+          ]
+        },
+        "logical_route_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "native_event_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "native_init_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "quantity": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        },
+        "logical_fill_id": {
+          "$ref": "#/$defs/token"
+        },
+        "fill_price": {
+          "$ref": "#/$defs/money"
+        },
+        "cash_after": {
+          "$ref": "#/$defs/money"
+        },
+        "held_after": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "fee_receipt": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "logical_fee_id": {
+              "$ref": "#/$defs/token"
+            },
+            "native_receipt_kind": {
+              "const": "ORDER_FILLED_COMMISSION"
+            },
+            "currency": {
+              "const": "USD"
+            },
+            "amount": {
+              "$ref": "#/$defs/money"
+            }
+          },
+          "required": [
+            "logical_fee_id",
+            "native_receipt_kind",
+            "currency",
+            "amount"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "sequence",
+        "logical_order_id",
+        "phase",
+        "route_sequence",
+        "opportunity_token",
+        "source_symbol",
+        "simulated_instrument_id",
+        "side",
+        "logical_route_ns",
+        "native_event_ns",
+        "native_init_ns",
+        "quantity",
+        "logical_fill_id",
+        "fill_price",
+        "cash_after",
+        "held_after",
+        "fee_receipt"
+      ]
+    },
+    "event": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/order_event"
+        },
+        {
+          "$ref": "#/$defs/fill_event"
+        }
+      ]
+    },
+    "sample_position": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "opportunity_token": {
+          "enum": [
+            "2022-01-04:AAPL",
+            "2022-01-04:AMZN",
+            "2022-01-04:TSLA",
+            "2022-01-04:TWTR"
+          ]
+        },
+        "source_symbol": {
+          "enum": [
+            "AAPL",
+            "AMZN",
+            "TSLA",
+            "TWTR"
+          ]
+        },
+        "simulated_instrument_id": {
+          "enum": [
+            "AAPL.XCAP",
+            "AMZN.XCAP",
+            "TSLA.XCAP",
+            "TWTR.XCAP"
+          ]
+        },
+        "quantity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "mark": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/money"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mark_event_ns": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ns"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mark_source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/event_source"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mark_requirement": {
+          "enum": [
+            "ADMITTED_HELD_MARK",
+            "NOT_REQUIRED_ZERO_QUANTITY"
+          ]
+        }
+      },
+      "required": [
+        "opportunity_token",
+        "source_symbol",
+        "simulated_instrument_id",
+        "quantity",
+        "mark",
+        "mark_event_ns",
+        "mark_source",
+        "mark_requirement"
+      ]
+    },
+    "sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "logical_sample_id": {
+          "$ref": "#/$defs/token"
+        },
+        "sample_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 6
+        },
+        "role": {
+          "enum": [
+            "INITIAL",
+            "CLOSE",
+            "TERMINAL"
+          ]
+        },
+        "effective_nominal_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "native_sample_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "cash": {
+          "$ref": "#/$defs/money"
+        },
+        "positions": {
+          "$ref": "#/$defs/shared_2069924f47992185"
+        },
+        "native_exposure_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "nav": {
+          "$ref": "#/$defs/money"
+        },
+        "nav_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "outstanding_order_count": {
+          "const": 0
+        },
+        "claims_count": {
+          "const": 0
+        }
+      },
+      "required": [
+        "logical_sample_id",
+        "sample_index",
+        "role",
+        "effective_nominal_ns",
+        "native_sample_ns",
+        "cash",
+        "positions",
+        "native_exposure_usd",
+        "nav",
+        "nav_exact_usd",
+        "outstanding_order_count",
+        "claims_count"
+      ]
+    },
+    "stage_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "stage": {
+          "enum": [
+            "input_validation",
+            "score_restore",
+            "mapping",
+            "account_creation",
+            "entry_allocation_execution",
+            "valuation",
+            "exit_allocation_execution",
+            "exact_evaluation",
+            "semantic_payload_validation"
+          ]
+        },
+        "status": {
+          "enum": [
+            "COMPLETE",
+            "NOT_RUN",
+            "FAILED",
+            "INTERRUPTED",
+            "PARTIAL"
+          ]
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reason"
+          },
+          "minItems": 0,
+          "maxItems": 43,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "stage",
+        "status",
+        "reason_codes"
+      ]
+    },
+    "reason": {
+      "enum": [
+        "SCHEMA_INVALID",
+        "BINDING_MISMATCH",
+        "UNBOUND_EXECUTION_AUTHORIZATION",
+        "FAMILY_ROOT_MISMATCH",
+        "FAMILY_ALREADY_FAILED",
+        "START_LIMIT",
+        "REPLAY_NOT_ADMISSIBLE",
+        "ACCOUNT_LIMIT",
+        "ACCOUNT_ORDER_MISMATCH",
+        "INPUT_INTEGRITY",
+        "SCORE_COHORT_MISMATCH",
+        "SCORE_REPRESENTATION",
+        "CLOCK_ORDER",
+        "FORBIDDEN_INPUT",
+        "FORBIDDEN_ML_CALL",
+        "MAPPER_RESULT_INVALID",
+        "METHOD_JOIN_MISMATCH",
+        "MAPPING_MISMATCH",
+        "ALLOCATION_DOMAIN",
+        "UNEXPECTED_ACCOUNT_STATE",
+        "NATIVE_REPRESENTATION",
+        "NATIVE_ACCOUNT_FAILURE",
+        "QUOTE_PHASE_MISMATCH",
+        "ORDER_SEQUENCE_MISMATCH",
+        "FEE_INFEASIBLE",
+        "QUOTE_QUANTITY_EXCEEDED",
+        "NATIVE_FILL_MISMATCH",
+        "FEE_RECEIPT_MISMATCH",
+        "PENDING_ORDER",
+        "MISSING_HELD_MARK",
+        "INVALID_NAV",
+        "MISSING_SAMPLE",
+        "METRIC_MISMATCH",
+        "SEMANTIC_FILE_SET",
+        "SEMANTIC_INTEGRITY",
+        "REPLAY_MISMATCH",
+        "EXPECTED_IMAGE_MISMATCH",
+        "OBSERVATION_MISSING",
+        "RESOURCE_CPU_LIMIT",
+        "RESOURCE_WALL_LIMIT",
+        "NATIVE_WALL_LIMIT",
+        "INTERRUPTED",
+        "INTERNAL_EXECUTION_ERROR"
+      ]
+    },
+    "bindings_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol_refs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "proposal_v1": {
+              "$ref": "#/$defs/hash_ref"
+            },
+            "disposition_v2": {
+              "$ref": "#/$defs/hash_ref"
+            },
+            "implementation_contract": {
+              "$ref": "#/$defs/hash_ref"
+            },
+            "semantic_schema": {
+              "$ref": "#/$defs/hash_ref"
+            }
+          },
+          "required": [
+            "proposal_v1",
+            "disposition_v2",
+            "implementation_contract",
+            "semantic_schema"
+          ]
+        },
+        "input_refs": {
+          "$ref": "#/$defs/shared_8fcdf00f2ff233a5"
+        },
+        "profile": {
+          "$ref": "#/$defs/shared_1336691637d6c9ff"
+        },
+        "roster": {
+          "$ref": "#/$defs/shared_e35cc5794495084e"
+        },
+        "mapping": {
+          "$ref": "#/$defs/shared_bb9616914d22db6a"
+        },
+        "mapping_sha256": {
+          "$ref": "#/$defs/hash"
+        },
+        "lineage_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/lineage_ref"
+          },
+          "minItems": 1,
+          "maxItems": 512
+        },
+        "code": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "accepted_commit": {
+              "type": "string",
+              "maxLength": 40,
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "accepted_tree": {
+              "type": "string",
+              "maxLength": 40,
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "source_projection": {
+              "$ref": "#/$defs/hash_ref"
+            }
+          },
+          "required": [
+            "accepted_commit",
+            "accepted_tree",
+            "source_projection"
+          ]
+        },
+        "build_ref": {
+          "$ref": "#/$defs/hash_ref"
+        },
+        "expected_image_id": {
+          "$ref": "#/$defs/image"
+        },
+        "observed_image_id": {
+          "$ref": "#/$defs/image"
+        },
+        "runtime": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "nautilus_trader": {
+              "const": "1.231.0"
+            },
+            "python": {
+              "type": "string",
+              "maxLength": 16,
+              "pattern": "^3\\.13\\.[0-9]+$"
+            },
+            "system": {
+              "const": "Linux"
+            },
+            "machine": {
+              "const": "aarch64"
+            },
+            "packages_ref": {
+              "$ref": "#/$defs/hash_ref"
+            },
+            "api_lock_ref": {
+              "$ref": "#/$defs/hash_ref"
+            }
+          },
+          "required": [
+            "nautilus_trader",
+            "python",
+            "system",
+            "machine",
+            "packages_ref",
+            "api_lock_ref"
+          ]
+        },
+        "assurance": {
+          "$ref": "#/$defs/shared_42b1e8cfe7f0c779"
+        },
+        "basis": {
+          "$ref": "#/$defs/basis"
+        }
+      },
+      "required": [
+        "protocol_refs",
+        "input_refs",
+        "profile",
+        "roster",
+        "mapping",
+        "mapping_sha256",
+        "lineage_refs",
+        "code",
+        "build_ref",
+        "expected_image_id",
+        "observed_image_id",
+        "runtime",
+        "assurance",
+        "basis"
+      ]
+    },
+    "bindings_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "polar.hyp007-fixed-score.bindings/1"
+        },
+        "profile_id": {
+          "const": "HYP007_FIXED_SCORE_CAPABILITY_V1"
+        },
+        "stage_status": {
+          "enum": [
+            "COMPLETE",
+            "NOT_RUN",
+            "FAILED",
+            "INTERRUPTED",
+            "PARTIAL"
+          ]
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reason"
+          },
+          "minItems": 0,
+          "maxItems": 43,
+          "uniqueItems": true
+        },
+        "payload": {}
+      },
+      "required": [
+        "schema",
+        "profile_id",
+        "stage_status",
+        "reason_codes",
+        "payload"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "stage_status": {
+                "const": "COMPLETE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reason_codes": {
+                "type": "array",
+                "prefixItems": [],
+                "items": false,
+                "minItems": 0,
+                "maxItems": 0
+              },
+              "payload": {
+                "$ref": "#/$defs/bindings_payload"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "reason_codes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/reason"
+                },
+                "minItems": 1,
+                "maxItems": 43,
+                "uniqueItems": true
+              },
+              "payload": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "protocol_refs": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "proposal_v1": {
+                                "$ref": "#/$defs/hash_ref"
+                              },
+                              "disposition_v2": {
+                                "$ref": "#/$defs/hash_ref"
+                              },
+                              "implementation_contract": {
+                                "$ref": "#/$defs/hash_ref"
+                              },
+                              "semantic_schema": {
+                                "$ref": "#/$defs/hash_ref"
+                              }
+                            },
+                            "required": [
+                              "proposal_v1",
+                              "disposition_v2",
+                              "implementation_contract",
+                              "semantic_schema"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "input_refs": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/shared_8fcdf00f2ff233a5"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "profile": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/shared_1336691637d6c9ff"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "roster": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/shared_e35cc5794495084e"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "mapping": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/shared_bb9616914d22db6a"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "mapping_sha256": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/hash"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "lineage_refs": {
+                        "anyOf": [
+                          {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/$defs/lineage_ref"
+                            },
+                            "minItems": 1,
+                            "maxItems": 512
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "code": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "accepted_commit": {
+                                "type": "string",
+                                "maxLength": 40,
+                                "pattern": "^[0-9a-f]{40}$"
+                              },
+                              "accepted_tree": {
+                                "type": "string",
+                                "maxLength": 40,
+                                "pattern": "^[0-9a-f]{40}$"
+                              },
+                              "source_projection": {
+                                "$ref": "#/$defs/hash_ref"
+                              }
+                            },
+                            "required": [
+                              "accepted_commit",
+                              "accepted_tree",
+                              "source_projection"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "build_ref": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/hash_ref"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "expected_image_id": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/image"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "observed_image_id": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/image"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "runtime": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "nautilus_trader": {
+                                "const": "1.231.0"
+                              },
+                              "python": {
+                                "type": "string",
+                                "maxLength": 16,
+                                "pattern": "^3\\.13\\.[0-9]+$"
+                              },
+                              "system": {
+                                "const": "Linux"
+                              },
+                              "machine": {
+                                "const": "aarch64"
+                              },
+                              "packages_ref": {
+                                "$ref": "#/$defs/hash_ref"
+                              },
+                              "api_lock_ref": {
+                                "$ref": "#/$defs/hash_ref"
+                              }
+                            },
+                            "required": [
+                              "nautilus_trader",
+                              "python",
+                              "system",
+                              "machine",
+                              "packages_ref",
+                              "api_lock_ref"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "assurance": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/shared_42b1e8cfe7f0c779"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "basis": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/basis"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": []
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "scores_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required_methods": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "const": "RAW_MOM252_21_V1"
+            },
+            {
+              "const": "RAW_REV5_V1"
+            },
+            {
+              "const": "ridge6"
+            },
+            {
+              "const": "ridge21"
+            },
+            {
+              "const": "tree"
+            }
+          ],
+          "items": false,
+          "minItems": 5,
+          "maxItems": 5
+        },
+        "D": {
+          "$ref": "#/$defs/utc_micro"
+        },
+        "I": {
+          "$ref": "#/$defs/utc_micro"
+        },
+        "rows": {
+          "$ref": "#/$defs/shared_00ddd8c6c17854b9"
+        }
+      },
+      "required": [
+        "required_methods",
+        "D",
+        "I",
+        "rows"
+      ]
+    },
+    "scores_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "polar.hyp007-fixed-score.scores/1"
+        },
+        "profile_id": {
+          "const": "HYP007_FIXED_SCORE_CAPABILITY_V1"
+        },
+        "stage_status": {
+          "enum": [
+            "COMPLETE",
+            "NOT_RUN",
+            "FAILED",
+            "INTERRUPTED",
+            "PARTIAL"
+          ]
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reason"
+          },
+          "minItems": 0,
+          "maxItems": 43,
+          "uniqueItems": true
+        },
+        "payload": {}
+      },
+      "required": [
+        "schema",
+        "profile_id",
+        "stage_status",
+        "reason_codes",
+        "payload"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "stage_status": {
+                "const": "COMPLETE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reason_codes": {
+                "type": "array",
+                "prefixItems": [],
+                "items": false,
+                "minItems": 0,
+                "maxItems": 0
+              },
+              "payload": {
+                "$ref": "#/$defs/scores_payload"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "reason_codes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/reason"
+                },
+                "minItems": 1,
+                "maxItems": 43,
+                "uniqueItems": true
+              },
+              "payload": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "required_methods": {
+                        "anyOf": [
+                          {
+                            "type": "array",
+                            "prefixItems": [
+                              {
+                                "const": "RAW_MOM252_21_V1"
+                              },
+                              {
+                                "const": "RAW_REV5_V1"
+                              },
+                              {
+                                "const": "ridge6"
+                              },
+                              {
+                                "const": "ridge21"
+                              },
+                              {
+                                "const": "tree"
+                              }
+                            ],
+                            "items": false,
+                            "minItems": 5,
+                            "maxItems": 5
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "D": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/utc_micro"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "I": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/utc_micro"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "rows": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/shared_00ddd8c6c17854b9"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": []
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "targets_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "D": {
+          "$ref": "#/$defs/utc_micro"
+        },
+        "I": {
+          "$ref": "#/$defs/utc_micro"
+        },
+        "mapper_result": {
+          "$ref": "#/$defs/shared_3b2847c39da47439"
+        },
+        "accounts": {
+          "$ref": "#/$defs/shared_d7a31ceaabaa2256"
+        }
+      },
+      "required": [
+        "D",
+        "I",
+        "mapper_result",
+        "accounts"
+      ]
+    },
+    "targets_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "polar.hyp007-fixed-score.targets/1"
+        },
+        "profile_id": {
+          "const": "HYP007_FIXED_SCORE_CAPABILITY_V1"
+        },
+        "stage_status": {
+          "enum": [
+            "COMPLETE",
+            "NOT_RUN",
+            "FAILED",
+            "INTERRUPTED",
+            "PARTIAL"
+          ]
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reason"
+          },
+          "minItems": 0,
+          "maxItems": 43,
+          "uniqueItems": true
+        },
+        "payload": {}
+      },
+      "required": [
+        "schema",
+        "profile_id",
+        "stage_status",
+        "reason_codes",
+        "payload"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "stage_status": {
+                "const": "COMPLETE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reason_codes": {
+                "type": "array",
+                "prefixItems": [],
+                "items": false,
+                "minItems": 0,
+                "maxItems": 0
+              },
+              "payload": {
+                "$ref": "#/$defs/targets_payload"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "reason_codes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/reason"
+                },
+                "minItems": 1,
+                "maxItems": 43,
+                "uniqueItems": true
+              },
+              "payload": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "D": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/utc_micro"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "I": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/utc_micro"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "mapper_result": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/shared_3b2847c39da47439"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "accounts": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/shared_d7a31ceaabaa2256"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": []
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "allocations_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "accounts": {
+          "$ref": "#/$defs/shared_5265ddbba974f343"
+        }
+      },
+      "required": [
+        "accounts"
+      ]
+    },
+    "allocations_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "polar.hyp007-fixed-score.allocations/1"
+        },
+        "profile_id": {
+          "const": "HYP007_FIXED_SCORE_CAPABILITY_V1"
+        },
+        "stage_status": {
+          "enum": [
+            "COMPLETE",
+            "NOT_RUN",
+            "FAILED",
+            "INTERRUPTED",
+            "PARTIAL"
+          ]
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reason"
+          },
+          "minItems": 0,
+          "maxItems": 43,
+          "uniqueItems": true
+        },
+        "payload": {}
+      },
+      "required": [
+        "schema",
+        "profile_id",
+        "stage_status",
+        "reason_codes",
+        "payload"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "stage_status": {
+                "const": "COMPLETE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reason_codes": {
+                "type": "array",
+                "prefixItems": [],
+                "items": false,
+                "minItems": 0,
+                "maxItems": 0
+              },
+              "payload": {
+                "$ref": "#/$defs/allocations_payload"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "reason_codes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/reason"
+                },
+                "minItems": 1,
+                "maxItems": 43,
+                "uniqueItems": true
+              },
+              "payload": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "accounts": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/shared_5265ddbba974f343"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": []
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "events_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "accounts": {
+          "$ref": "#/$defs/shared_4a97fcbe7417f1f3"
+        }
+      },
+      "required": [
+        "accounts"
+      ]
+    },
+    "events_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "polar.hyp007-fixed-score.events/1"
+        },
+        "profile_id": {
+          "const": "HYP007_FIXED_SCORE_CAPABILITY_V1"
+        },
+        "stage_status": {
+          "enum": [
+            "COMPLETE",
+            "NOT_RUN",
+            "FAILED",
+            "INTERRUPTED",
+            "PARTIAL"
+          ]
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reason"
+          },
+          "minItems": 0,
+          "maxItems": 43,
+          "uniqueItems": true
+        },
+        "payload": {}
+      },
+      "required": [
+        "schema",
+        "profile_id",
+        "stage_status",
+        "reason_codes",
+        "payload"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "stage_status": {
+                "const": "COMPLETE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reason_codes": {
+                "type": "array",
+                "prefixItems": [],
+                "items": false,
+                "minItems": 0,
+                "maxItems": 0
+              },
+              "payload": {
+                "$ref": "#/$defs/events_payload"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "reason_codes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/reason"
+                },
+                "minItems": 1,
+                "maxItems": 43,
+                "uniqueItems": true
+              },
+              "payload": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "accounts": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/shared_4a97fcbe7417f1f3"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": []
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "samples_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "accounts": {
+          "$ref": "#/$defs/shared_9e4554b84c90ebbb"
+        }
+      },
+      "required": [
+        "accounts"
+      ]
+    },
+    "samples_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "polar.hyp007-fixed-score.samples/1"
+        },
+        "profile_id": {
+          "const": "HYP007_FIXED_SCORE_CAPABILITY_V1"
+        },
+        "stage_status": {
+          "enum": [
+            "COMPLETE",
+            "NOT_RUN",
+            "FAILED",
+            "INTERRUPTED",
+            "PARTIAL"
+          ]
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reason"
+          },
+          "minItems": 0,
+          "maxItems": 43,
+          "uniqueItems": true
+        },
+        "payload": {}
+      },
+      "required": [
+        "schema",
+        "profile_id",
+        "stage_status",
+        "reason_codes",
+        "payload"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "stage_status": {
+                "const": "COMPLETE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reason_codes": {
+                "type": "array",
+                "prefixItems": [],
+                "items": false,
+                "minItems": 0,
+                "maxItems": 0
+              },
+              "payload": {
+                "$ref": "#/$defs/samples_payload"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "reason_codes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/reason"
+                },
+                "minItems": 1,
+                "maxItems": 43,
+                "uniqueItems": true
+              },
+              "payload": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "accounts": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/shared_9e4554b84c90ebbb"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": []
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "metrics_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "accounts": {
+          "$ref": "#/$defs/shared_b5be4f3deeaf67a4"
+        }
+      },
+      "required": [
+        "accounts"
+      ]
+    },
+    "metrics_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "polar.hyp007-fixed-score.metrics/1"
+        },
+        "profile_id": {
+          "const": "HYP007_FIXED_SCORE_CAPABILITY_V1"
+        },
+        "stage_status": {
+          "enum": [
+            "COMPLETE",
+            "NOT_RUN",
+            "FAILED",
+            "INTERRUPTED",
+            "PARTIAL"
+          ]
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reason"
+          },
+          "minItems": 0,
+          "maxItems": 43,
+          "uniqueItems": true
+        },
+        "payload": {}
+      },
+      "required": [
+        "schema",
+        "profile_id",
+        "stage_status",
+        "reason_codes",
+        "payload"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "stage_status": {
+                "const": "COMPLETE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reason_codes": {
+                "type": "array",
+                "prefixItems": [],
+                "items": false,
+                "minItems": 0,
+                "maxItems": 0
+              },
+              "payload": {
+                "$ref": "#/$defs/metrics_payload"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "reason_codes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/reason"
+                },
+                "minItems": 1,
+                "maxItems": 43,
+                "uniqueItems": true
+              },
+              "payload": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "accounts": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/shared_b5be4f3deeaf67a4"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": []
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "status_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "packet_status": {
+          "const": "COMPLETE"
+        },
+        "required_accounts": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "const": "RAW_MOM252_21_V1"
+            },
+            {
+              "const": "RAW_REV5_V1"
+            },
+            {
+              "const": "ridge6"
+            },
+            {
+              "const": "ridge21"
+            },
+            {
+              "const": "tree"
+            },
+            {
+              "const": "REF_EW4_CAP"
+            },
+            {
+              "const": "REF_CASH"
+            }
+          ],
+          "items": false,
+          "minItems": 7,
+          "maxItems": 7
+        },
+        "accounts": {
+          "$ref": "#/$defs/shared_447859330bb969ca"
+        },
+        "stages": {
+          "$ref": "#/$defs/shared_f3761b07202274a3"
+        },
+        "mapper_calls": {
+          "const": 1
+        },
+        "allocator_calls": {
+          "const": 14
+        },
+        "fresh_native_accounts": {
+          "const": 7
+        },
+        "forbidden_calls": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "fits": {
+              "const": 0
+            },
+            "predict": {
+              "const": 0
+            },
+            "transform": {
+              "const": 0
+            },
+            "feature_rebuild": {
+              "const": 0
+            },
+            "label_rebuild": {
+              "const": 0
+            }
+          },
+          "required": [
+            "fits",
+            "predict",
+            "transform",
+            "feature_rebuild",
+            "label_rebuild"
+          ]
+        },
+        "financial_evidence": {
+          "const": "INSUFFICIENT_EVIDENCE_ENGINEERING_CAPABILITY"
+        },
+        "original_hyp007_adoption": {
+          "const": "NOT_ASSESSED"
+        }
+      },
+      "required": [
+        "packet_status",
+        "required_accounts",
+        "accounts",
+        "stages",
+        "mapper_calls",
+        "allocator_calls",
+        "fresh_native_accounts",
+        "forbidden_calls",
+        "financial_evidence",
+        "original_hyp007_adoption"
+      ]
+    },
+    "status_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "polar.hyp007-fixed-score.status/1"
+        },
+        "profile_id": {
+          "const": "HYP007_FIXED_SCORE_CAPABILITY_V1"
+        },
+        "stage_status": {
+          "enum": [
+            "COMPLETE",
+            "NOT_RUN",
+            "FAILED",
+            "INTERRUPTED",
+            "PARTIAL"
+          ]
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reason"
+          },
+          "minItems": 0,
+          "maxItems": 43,
+          "uniqueItems": true
+        },
+        "payload": {}
+      },
+      "required": [
+        "schema",
+        "profile_id",
+        "stage_status",
+        "reason_codes",
+        "payload"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "stage_status": {
+                "const": "COMPLETE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reason_codes": {
+                "type": "array",
+                "prefixItems": [],
+                "items": false,
+                "minItems": 0,
+                "maxItems": 0
+              },
+              "payload": {
+                "$ref": "#/$defs/status_payload"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "reason_codes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/reason"
+                },
+                "minItems": 1,
+                "maxItems": 43,
+                "uniqueItems": true
+              },
+              "payload": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "packet_status": {
+                        "anyOf": [
+                          {
+                            "const": "COMPLETE"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "required_accounts": {
+                        "anyOf": [
+                          {
+                            "type": "array",
+                            "prefixItems": [
+                              {
+                                "const": "RAW_MOM252_21_V1"
+                              },
+                              {
+                                "const": "RAW_REV5_V1"
+                              },
+                              {
+                                "const": "ridge6"
+                              },
+                              {
+                                "const": "ridge21"
+                              },
+                              {
+                                "const": "tree"
+                              },
+                              {
+                                "const": "REF_EW4_CAP"
+                              },
+                              {
+                                "const": "REF_CASH"
+                              }
+                            ],
+                            "items": false,
+                            "minItems": 7,
+                            "maxItems": 7
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "accounts": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/shared_447859330bb969ca"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "stages": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/shared_f3761b07202274a3"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "mapper_calls": {
+                        "anyOf": [
+                          {
+                            "const": 1
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "allocator_calls": {
+                        "anyOf": [
+                          {
+                            "const": 14
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "fresh_native_accounts": {
+                        "anyOf": [
+                          {
+                            "const": 7
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "forbidden_calls": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "fits": {
+                                "const": 0
+                              },
+                              "predict": {
+                                "const": 0
+                              },
+                              "transform": {
+                                "const": 0
+                              },
+                              "feature_rebuild": {
+                                "const": 0
+                              },
+                              "label_rebuild": {
+                                "const": 0
+                              }
+                            },
+                            "required": [
+                              "fits",
+                              "predict",
+                              "transform",
+                              "feature_rebuild",
+                              "label_rebuild"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "financial_evidence": {
+                        "anyOf": [
+                          {
+                            "const": "INSUFFICIENT_EVIDENCE_ENGINEERING_CAPABILITY"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "original_hyp007_adoption": {
+                        "anyOf": [
+                          {
+                            "const": "NOT_ASSESSED"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": []
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "semantic_manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "polar.hyp007-fixed-score-semantic-manifest/1"
+        },
+        "profile_id": {
+          "const": "HYP007_FIXED_SCORE_CAPABILITY_V1"
+        },
+        "protocol_sha256": {
+          "$ref": "#/$defs/hash"
+        },
+        "files": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "filename": {
+                  "const": "allocations.json"
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 33554432
+                },
+                "sha256": {
+                  "$ref": "#/$defs/hash"
+                }
+              },
+              "required": [
+                "filename",
+                "bytes",
+                "sha256"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "filename": {
+                  "const": "bindings.json"
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 33554432
+                },
+                "sha256": {
+                  "$ref": "#/$defs/hash"
+                }
+              },
+              "required": [
+                "filename",
+                "bytes",
+                "sha256"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "filename": {
+                  "const": "events.json"
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 33554432
+                },
+                "sha256": {
+                  "$ref": "#/$defs/hash"
+                }
+              },
+              "required": [
+                "filename",
+                "bytes",
+                "sha256"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "filename": {
+                  "const": "metrics.json"
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 33554432
+                },
+                "sha256": {
+                  "$ref": "#/$defs/hash"
+                }
+              },
+              "required": [
+                "filename",
+                "bytes",
+                "sha256"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "filename": {
+                  "const": "samples.json"
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 33554432
+                },
+                "sha256": {
+                  "$ref": "#/$defs/hash"
+                }
+              },
+              "required": [
+                "filename",
+                "bytes",
+                "sha256"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "filename": {
+                  "const": "scores.json"
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 33554432
+                },
+                "sha256": {
+                  "$ref": "#/$defs/hash"
+                }
+              },
+              "required": [
+                "filename",
+                "bytes",
+                "sha256"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "filename": {
+                  "const": "status.json"
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 33554432
+                },
+                "sha256": {
+                  "$ref": "#/$defs/hash"
+                }
+              },
+              "required": [
+                "filename",
+                "bytes",
+                "sha256"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "filename": {
+                  "const": "targets.json"
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 33554432
+                },
+                "sha256": {
+                  "$ref": "#/$defs/hash"
+                }
+              },
+              "required": [
+                "filename",
+                "bytes",
+                "sha256"
+              ]
+            }
+          ],
+          "items": false,
+          "minItems": 8,
+          "maxItems": 8
+        }
+      },
+      "required": [
+        "schema",
+        "profile_id",
+        "protocol_sha256",
+        "files"
+      ]
+    },
+    "shared_2069924f47992185": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/shared_615da389d6f69bd6"
+        },
+        {
+          "$ref": "#/$defs/shared_6fff522ee5fe1000"
+        },
+        {
+          "$ref": "#/$defs/shared_6925b1d78f34df7e"
+        },
+        {
+          "$ref": "#/$defs/shared_c2852d3551717b39"
+        }
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "shared_615da389d6f69bd6": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "opportunity_token": {
+          "const": "2022-01-04:AAPL"
+        },
+        "source_symbol": {
+          "const": "AAPL"
+        },
+        "simulated_instrument_id": {
+          "const": "AAPL.XCAP"
+        },
+        "quantity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "mark": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/money"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mark_event_ns": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ns"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mark_source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/event_source"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mark_requirement": {
+          "enum": [
+            "ADMITTED_HELD_MARK",
+            "NOT_REQUIRED_ZERO_QUANTITY"
+          ]
+        }
+      },
+      "required": [
+        "opportunity_token",
+        "source_symbol",
+        "simulated_instrument_id",
+        "quantity",
+        "mark",
+        "mark_event_ns",
+        "mark_source",
+        "mark_requirement"
+      ]
+    },
+    "shared_6fff522ee5fe1000": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "opportunity_token": {
+          "const": "2022-01-04:AMZN"
+        },
+        "source_symbol": {
+          "const": "AMZN"
+        },
+        "simulated_instrument_id": {
+          "const": "AMZN.XCAP"
+        },
+        "quantity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "mark": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/money"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mark_event_ns": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ns"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mark_source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/event_source"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mark_requirement": {
+          "enum": [
+            "ADMITTED_HELD_MARK",
+            "NOT_REQUIRED_ZERO_QUANTITY"
+          ]
+        }
+      },
+      "required": [
+        "opportunity_token",
+        "source_symbol",
+        "simulated_instrument_id",
+        "quantity",
+        "mark",
+        "mark_event_ns",
+        "mark_source",
+        "mark_requirement"
+      ]
+    },
+    "shared_6925b1d78f34df7e": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "opportunity_token": {
+          "const": "2022-01-04:TSLA"
+        },
+        "source_symbol": {
+          "const": "TSLA"
+        },
+        "simulated_instrument_id": {
+          "const": "TSLA.XCAP"
+        },
+        "quantity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "mark": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/money"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mark_event_ns": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ns"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mark_source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/event_source"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mark_requirement": {
+          "enum": [
+            "ADMITTED_HELD_MARK",
+            "NOT_REQUIRED_ZERO_QUANTITY"
+          ]
+        }
+      },
+      "required": [
+        "opportunity_token",
+        "source_symbol",
+        "simulated_instrument_id",
+        "quantity",
+        "mark",
+        "mark_event_ns",
+        "mark_source",
+        "mark_requirement"
+      ]
+    },
+    "shared_c2852d3551717b39": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "opportunity_token": {
+          "const": "2022-01-04:TWTR"
+        },
+        "source_symbol": {
+          "const": "TWTR"
+        },
+        "simulated_instrument_id": {
+          "const": "TWTR.XCAP"
+        },
+        "quantity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "mark": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/money"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mark_event_ns": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ns"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mark_source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/event_source"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mark_requirement": {
+          "enum": [
+            "ADMITTED_HELD_MARK",
+            "NOT_REQUIRED_ZERO_QUANTITY"
+          ]
+        }
+      },
+      "required": [
+        "opportunity_token",
+        "source_symbol",
+        "simulated_instrument_id",
+        "quantity",
+        "mark",
+        "mark_event_ns",
+        "mark_source",
+        "mark_requirement"
+      ]
+    },
+    "shared_8fcdf00f2ff233a5": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "score_seal": {
+          "$ref": "#/$defs/hash_ref"
+        },
+        "score_manifest": {
+          "$ref": "#/$defs/hash_ref"
+        },
+        "capsule_manifest": {
+          "$ref": "#/$defs/hash_ref"
+        },
+        "capsule_readiness": {
+          "$ref": "#/$defs/hash_ref"
+        },
+        "raw_manifest": {
+          "$ref": "#/$defs/hash_ref"
+        },
+        "actions_manifest": {
+          "$ref": "#/$defs/hash_ref"
+        },
+        "calendar": {
+          "$ref": "#/$defs/hash_ref"
+        },
+        "tzdata": {
+          "$ref": "#/$defs/hash_ref"
+        }
+      },
+      "required": [
+        "score_seal",
+        "score_manifest",
+        "capsule_manifest",
+        "capsule_readiness",
+        "raw_manifest",
+        "actions_manifest",
+        "calendar",
+        "tzdata"
+      ]
+    },
+    "shared_1336691637d6c9ff": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "currency": {
+          "const": "USD"
+        },
+        "initial_cash": {
+          "const": "100000.00"
+        },
+        "cap": {
+          "const": "0.200000000000"
+        },
+        "call_limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max_population": {
+              "const": 4
+            },
+            "max_methods": {
+              "const": 5
+            },
+            "max_rows": {
+              "const": 20
+            },
+            "max_selected": {
+              "const": 1
+            }
+          },
+          "required": [
+            "max_population",
+            "max_methods",
+            "max_rows",
+            "max_selected"
+          ]
+        },
+        "allocation_max_names": {
+          "const": 4
+        },
+        "quantity_lot": {
+          "const": 1
+        },
+        "price_precision": {
+          "const": 4
+        },
+        "price_tick": {
+          "const": "0.0001"
+        },
+        "quote_quantity": {
+          "const": 1000000
+        },
+        "fee_per_filled_order": {
+          "const": "1.00"
+        },
+        "order_type": {
+          "const": "MARKET"
+        },
+        "time_in_force": {
+          "const": "GTC"
+        },
+        "latency_ns": {
+          "const": 0
+        },
+        "spread": {
+          "const": "0.00"
+        },
+        "matching": {
+          "const": "SYNCHRONOUS_FULL_QUOTE_PROXY"
+        },
+        "bar_execution": {
+          "const": false
+        },
+        "trade_execution": {
+          "const": false
+        },
+        "interest": {
+          "const": "0.00"
+        },
+        "other_direct_events": {
+          "const": "CONDITIONAL_CAPTURED_SET_NO_OTHER_DIRECT_EVENT_ASSUMPTION"
+        },
+        "max_packet_starts": {
+          "const": 2
+        },
+        "max_family_account_creations": {
+          "const": 14
+        },
+        "max_account_creations_per_packet": {
+          "const": 7
+        },
+        "fits": {
+          "const": 0
+        },
+        "predict_calls": {
+          "const": 0
+        },
+        "transform_calls": {
+          "const": 0
+        },
+        "family_cpu_seconds": {
+          "const": 600
+        },
+        "family_summed_wall_seconds": {
+          "const": 900
+        },
+        "packet_summed_native_wall_seconds": {
+          "const": 300
+        }
+      },
+      "required": [
+        "currency",
+        "initial_cash",
+        "cap",
+        "call_limits",
+        "allocation_max_names",
+        "quantity_lot",
+        "price_precision",
+        "price_tick",
+        "quote_quantity",
+        "fee_per_filled_order",
+        "order_type",
+        "time_in_force",
+        "latency_ns",
+        "spread",
+        "matching",
+        "bar_execution",
+        "trade_execution",
+        "interest",
+        "other_direct_events",
+        "max_packet_starts",
+        "max_family_account_creations",
+        "max_account_creations_per_packet",
+        "fits",
+        "predict_calls",
+        "transform_calls",
+        "family_cpu_seconds",
+        "family_summed_wall_seconds",
+        "packet_summed_native_wall_seconds"
+      ]
+    },
+    "shared_e35cc5794495084e": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "D": {
+          "const": "2022-01-05T04:59:59.999999Z"
+        },
+        "I": {
+          "const": "2022-01-05T14:00:00.000000Z"
+        },
+        "reference_opens": {
+          "$ref": "#/$defs/shared_2bc1e7c117cef36c"
+        },
+        "close_dates": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "const": "2022-01-05"
+            },
+            {
+              "const": "2022-01-06"
+            },
+            {
+              "const": "2022-01-07"
+            },
+            {
+              "const": "2022-01-10"
+            },
+            {
+              "const": "2022-01-11"
+            }
+          ],
+          "items": false,
+          "minItems": 5,
+          "maxItems": 5
+        },
+        "close_nominal_utc_time": {
+          "const": "21:00:00.000000Z"
+        },
+        "quote_offsets_ns": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "const": 0
+            },
+            {
+              "const": 1
+            },
+            {
+              "const": 2
+            },
+            {
+              "const": 3
+            }
+          ],
+          "items": false,
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "snapshot_offset_ns": {
+          "const": 1000
+        },
+        "first_route_offset_ns": {
+          "const": 2000
+        },
+        "route_step_ns": {
+          "const": 1000
+        },
+        "sample_offset_ns": {
+          "const": 10000
+        },
+        "execution_boundaries": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "const": "O1"
+            },
+            {
+              "const": "O6"
+            }
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        }
+      },
+      "required": [
+        "D",
+        "I",
+        "reference_opens",
+        "close_dates",
+        "close_nominal_utc_time",
+        "quote_offsets_ns",
+        "snapshot_offset_ns",
+        "first_route_offset_ns",
+        "route_step_ns",
+        "sample_offset_ns",
+        "execution_boundaries"
+      ]
+    },
+    "shared_2bc1e7c117cef36c": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "role": {
+              "const": "O1"
+            },
+            "reference_date": {
+              "const": "2022-01-05"
+            },
+            "nominal_at": {
+              "const": "2022-01-05T14:30:00.000000Z"
+            }
+          },
+          "required": [
+            "role",
+            "reference_date",
+            "nominal_at"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "role": {
+              "const": "O2"
+            },
+            "reference_date": {
+              "const": "2022-01-06"
+            },
+            "nominal_at": {
+              "const": "2022-01-06T14:30:00.000000Z"
+            }
+          },
+          "required": [
+            "role",
+            "reference_date",
+            "nominal_at"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "role": {
+              "const": "O3"
+            },
+            "reference_date": {
+              "const": "2022-01-07"
+            },
+            "nominal_at": {
+              "const": "2022-01-07T14:30:00.000000Z"
+            }
+          },
+          "required": [
+            "role",
+            "reference_date",
+            "nominal_at"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "role": {
+              "const": "O4"
+            },
+            "reference_date": {
+              "const": "2022-01-10"
+            },
+            "nominal_at": {
+              "const": "2022-01-10T14:30:00.000000Z"
+            }
+          },
+          "required": [
+            "role",
+            "reference_date",
+            "nominal_at"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "role": {
+              "const": "O5"
+            },
+            "reference_date": {
+              "const": "2022-01-11"
+            },
+            "nominal_at": {
+              "const": "2022-01-11T14:30:00.000000Z"
+            }
+          },
+          "required": [
+            "role",
+            "reference_date",
+            "nominal_at"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "role": {
+              "const": "O6"
+            },
+            "reference_date": {
+              "const": "2022-01-12"
+            },
+            "nominal_at": {
+              "const": "2022-01-12T14:30:00.000000Z"
+            }
+          },
+          "required": [
+            "role",
+            "reference_date",
+            "nominal_at"
+          ]
+        }
+      ],
+      "items": false,
+      "minItems": 6,
+      "maxItems": 6
+    },
+    "shared_bb9616914d22db6a": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "opportunity_token": {
+              "const": "2022-01-04:AAPL"
+            },
+            "source_symbol": {
+              "const": "AAPL"
+            },
+            "simulated_instrument_id": {
+              "const": "AAPL.XCAP"
+            }
+          },
+          "required": [
+            "opportunity_token",
+            "source_symbol",
+            "simulated_instrument_id"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "opportunity_token": {
+              "const": "2022-01-04:AMZN"
+            },
+            "source_symbol": {
+              "const": "AMZN"
+            },
+            "simulated_instrument_id": {
+              "const": "AMZN.XCAP"
+            }
+          },
+          "required": [
+            "opportunity_token",
+            "source_symbol",
+            "simulated_instrument_id"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "opportunity_token": {
+              "const": "2022-01-04:TSLA"
+            },
+            "source_symbol": {
+              "const": "TSLA"
+            },
+            "simulated_instrument_id": {
+              "const": "TSLA.XCAP"
+            }
+          },
+          "required": [
+            "opportunity_token",
+            "source_symbol",
+            "simulated_instrument_id"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "opportunity_token": {
+              "const": "2022-01-04:TWTR"
+            },
+            "source_symbol": {
+              "const": "TWTR"
+            },
+            "simulated_instrument_id": {
+              "const": "TWTR.XCAP"
+            }
+          },
+          "required": [
+            "opportunity_token",
+            "source_symbol",
+            "simulated_instrument_id"
+          ]
+        }
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "shared_42b1e8cfe7f0c779": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "identity": {
+          "const": "CAPABILITY_OPPORTUNITY_TOKENS_NOT_ORIGINAL_P_D"
+        },
+        "source_economic_id": {
+          "type": "null"
+        },
+        "source_observed_historical_clocks": {
+          "type": "null"
+        },
+        "clock_basis": {
+          "const": "MODELED_HISTORICAL_EXECUTION_AND_ESTIMATED_SOURCE_K"
+        },
+        "physical_source_time": {
+          "const": "ACTUAL_2026_CAPTURE_RETAINED_PHYSICALLY"
+        },
+        "exposure": {
+          "const": "POST_DIAGNOSTIC_DEVELOPMENT_NOT_FRESH_HOLDOUT"
+        }
+      },
+      "required": [
+        "identity",
+        "source_economic_id",
+        "source_observed_historical_clocks",
+        "clock_basis",
+        "physical_source_time",
+        "exposure"
+      ]
+    },
+    "shared_00ddd8c6c17854b9": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/shared_62a0da487cbb0fde"
+        },
+        {
+          "$ref": "#/$defs/shared_cf22f2980200350d"
+        },
+        {
+          "$ref": "#/$defs/shared_868c1a8bea50ff7d"
+        },
+        {
+          "$ref": "#/$defs/shared_d1e9487224ef91f1"
+        }
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "shared_62a0da487cbb0fde": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "opportunity_token": {
+          "const": "2022-01-04:AAPL"
+        },
+        "source_symbol": {
+          "const": "AAPL"
+        },
+        "simulated_instrument_id": {
+          "const": "AAPL.XCAP"
+        },
+        "feature_anchor_ref": {
+          "$ref": "#/$defs/hash_ref"
+        },
+        "feature_K": {
+          "$ref": "#/$defs/utc_micro"
+        },
+        "model_readiness_ref": {
+          "$ref": "#/$defs/hash_ref"
+        },
+        "scores": {
+          "$ref": "#/$defs/shared_27c3adb7814da898"
+        }
+      },
+      "required": [
+        "opportunity_token",
+        "source_symbol",
+        "simulated_instrument_id",
+        "feature_anchor_ref",
+        "feature_K",
+        "model_readiness_ref",
+        "scores"
+      ]
+    },
+    "shared_27c3adb7814da898": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method_id": {
+              "const": "RAW_MOM252_21_V1"
+            },
+            "binary64_bits_be": {
+              "type": "string",
+              "maxLength": 16,
+              "pattern": "^[0-9a-f]{16}$"
+            },
+            "binary64_hex": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^-?0x[0-9a-f]+\\.[0-9a-f]+p[+-][0-9]+$"
+            },
+            "lineage_refs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/lineage_ref"
+              },
+              "minItems": 1,
+              "maxItems": 32
+            }
+          },
+          "required": [
+            "method_id",
+            "binary64_bits_be",
+            "binary64_hex",
+            "lineage_refs"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method_id": {
+              "const": "RAW_REV5_V1"
+            },
+            "binary64_bits_be": {
+              "type": "string",
+              "maxLength": 16,
+              "pattern": "^[0-9a-f]{16}$"
+            },
+            "binary64_hex": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^-?0x[0-9a-f]+\\.[0-9a-f]+p[+-][0-9]+$"
+            },
+            "lineage_refs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/lineage_ref"
+              },
+              "minItems": 1,
+              "maxItems": 32
+            }
+          },
+          "required": [
+            "method_id",
+            "binary64_bits_be",
+            "binary64_hex",
+            "lineage_refs"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method_id": {
+              "const": "ridge6"
+            },
+            "binary64_bits_be": {
+              "type": "string",
+              "maxLength": 16,
+              "pattern": "^[0-9a-f]{16}$"
+            },
+            "binary64_hex": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^-?0x[0-9a-f]+\\.[0-9a-f]+p[+-][0-9]+$"
+            },
+            "lineage_refs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/lineage_ref"
+              },
+              "minItems": 1,
+              "maxItems": 32
+            }
+          },
+          "required": [
+            "method_id",
+            "binary64_bits_be",
+            "binary64_hex",
+            "lineage_refs"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method_id": {
+              "const": "ridge21"
+            },
+            "binary64_bits_be": {
+              "type": "string",
+              "maxLength": 16,
+              "pattern": "^[0-9a-f]{16}$"
+            },
+            "binary64_hex": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^-?0x[0-9a-f]+\\.[0-9a-f]+p[+-][0-9]+$"
+            },
+            "lineage_refs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/lineage_ref"
+              },
+              "minItems": 1,
+              "maxItems": 32
+            }
+          },
+          "required": [
+            "method_id",
+            "binary64_bits_be",
+            "binary64_hex",
+            "lineage_refs"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "method_id": {
+              "const": "tree"
+            },
+            "binary64_bits_be": {
+              "type": "string",
+              "maxLength": 16,
+              "pattern": "^[0-9a-f]{16}$"
+            },
+            "binary64_hex": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^-?0x[0-9a-f]+\\.[0-9a-f]+p[+-][0-9]+$"
+            },
+            "lineage_refs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/lineage_ref"
+              },
+              "minItems": 1,
+              "maxItems": 32
+            }
+          },
+          "required": [
+            "method_id",
+            "binary64_bits_be",
+            "binary64_hex",
+            "lineage_refs"
+          ]
+        }
+      ],
+      "items": false,
+      "minItems": 5,
+      "maxItems": 5
+    },
+    "shared_cf22f2980200350d": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "opportunity_token": {
+          "const": "2022-01-04:AMZN"
+        },
+        "source_symbol": {
+          "const": "AMZN"
+        },
+        "simulated_instrument_id": {
+          "const": "AMZN.XCAP"
+        },
+        "feature_anchor_ref": {
+          "$ref": "#/$defs/hash_ref"
+        },
+        "feature_K": {
+          "$ref": "#/$defs/utc_micro"
+        },
+        "model_readiness_ref": {
+          "$ref": "#/$defs/hash_ref"
+        },
+        "scores": {
+          "$ref": "#/$defs/shared_27c3adb7814da898"
+        }
+      },
+      "required": [
+        "opportunity_token",
+        "source_symbol",
+        "simulated_instrument_id",
+        "feature_anchor_ref",
+        "feature_K",
+        "model_readiness_ref",
+        "scores"
+      ]
+    },
+    "shared_868c1a8bea50ff7d": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "opportunity_token": {
+          "const": "2022-01-04:TSLA"
+        },
+        "source_symbol": {
+          "const": "TSLA"
+        },
+        "simulated_instrument_id": {
+          "const": "TSLA.XCAP"
+        },
+        "feature_anchor_ref": {
+          "$ref": "#/$defs/hash_ref"
+        },
+        "feature_K": {
+          "$ref": "#/$defs/utc_micro"
+        },
+        "model_readiness_ref": {
+          "$ref": "#/$defs/hash_ref"
+        },
+        "scores": {
+          "$ref": "#/$defs/shared_27c3adb7814da898"
+        }
+      },
+      "required": [
+        "opportunity_token",
+        "source_symbol",
+        "simulated_instrument_id",
+        "feature_anchor_ref",
+        "feature_K",
+        "model_readiness_ref",
+        "scores"
+      ]
+    },
+    "shared_d1e9487224ef91f1": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "opportunity_token": {
+          "const": "2022-01-04:TWTR"
+        },
+        "source_symbol": {
+          "const": "TWTR"
+        },
+        "simulated_instrument_id": {
+          "const": "TWTR.XCAP"
+        },
+        "feature_anchor_ref": {
+          "$ref": "#/$defs/hash_ref"
+        },
+        "feature_K": {
+          "$ref": "#/$defs/utc_micro"
+        },
+        "model_readiness_ref": {
+          "$ref": "#/$defs/hash_ref"
+        },
+        "scores": {
+          "$ref": "#/$defs/shared_27c3adb7814da898"
+        }
+      },
+      "required": [
+        "opportunity_token",
+        "source_symbol",
+        "simulated_instrument_id",
+        "feature_anchor_ref",
+        "feature_K",
+        "model_readiness_ref",
+        "scores"
+      ]
+    },
+    "shared_3b2847c39da47439": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "FORMED"
+        },
+        "reason_codes": {
+          "type": "array",
+          "prefixItems": [],
+          "items": false,
+          "minItems": 0,
+          "maxItems": 0
+        },
+        "primary_reason": {
+          "type": "null"
+        },
+        "methods": {
+          "$ref": "#/$defs/shared_e98b6d0339bc7132"
+        },
+        "N": {
+          "const": 4
+        },
+        "k": {
+          "const": 1
+        },
+        "unavailable_method_ids": {
+          "type": "array",
+          "prefixItems": [],
+          "items": false,
+          "minItems": 0,
+          "maxItems": 0
+        },
+        "formation_ref": {
+          "type": "null"
+        },
+        "definition_ref": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "status",
+        "reason_codes",
+        "primary_reason",
+        "methods",
+        "N",
+        "k",
+        "unavailable_method_ids",
+        "formation_ref",
+        "definition_ref"
+      ]
+    },
+    "shared_e98b6d0339bc7132": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/shared_0e733b4a3359093e"
+        },
+        {
+          "$ref": "#/$defs/shared_932e7dbba3102e2c"
+        },
+        {
+          "$ref": "#/$defs/shared_31b27170d3615b9c"
+        },
+        {
+          "$ref": "#/$defs/shared_b4b37f5edba03599"
+        },
+        {
+          "$ref": "#/$defs/shared_a898bc500e1b8e18"
+        }
+      ],
+      "items": false,
+      "minItems": 5,
+      "maxItems": 5
+    },
+    "shared_0e733b4a3359093e": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method_id": {
+          "const": "RAW_MOM252_21_V1"
+        },
+        "selected_ids": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "2022-01-04:AAPL",
+              "2022-01-04:AMZN",
+              "2022-01-04:TSLA",
+              "2022-01-04:TWTR"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/target"
+          },
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "target_cash_weight": {
+          "const": "0.800000000000"
+        },
+        "constant_score_tie": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "method_id",
+        "selected_ids",
+        "targets",
+        "target_cash_weight",
+        "constant_score_tie"
+      ]
+    },
+    "shared_932e7dbba3102e2c": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method_id": {
+          "const": "RAW_REV5_V1"
+        },
+        "selected_ids": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "2022-01-04:AAPL",
+              "2022-01-04:AMZN",
+              "2022-01-04:TSLA",
+              "2022-01-04:TWTR"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/target"
+          },
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "target_cash_weight": {
+          "const": "0.800000000000"
+        },
+        "constant_score_tie": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "method_id",
+        "selected_ids",
+        "targets",
+        "target_cash_weight",
+        "constant_score_tie"
+      ]
+    },
+    "shared_31b27170d3615b9c": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method_id": {
+          "const": "ridge21"
+        },
+        "selected_ids": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "2022-01-04:AAPL",
+              "2022-01-04:AMZN",
+              "2022-01-04:TSLA",
+              "2022-01-04:TWTR"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/target"
+          },
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "target_cash_weight": {
+          "const": "0.800000000000"
+        },
+        "constant_score_tie": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "method_id",
+        "selected_ids",
+        "targets",
+        "target_cash_weight",
+        "constant_score_tie"
+      ]
+    },
+    "shared_b4b37f5edba03599": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method_id": {
+          "const": "ridge6"
+        },
+        "selected_ids": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "2022-01-04:AAPL",
+              "2022-01-04:AMZN",
+              "2022-01-04:TSLA",
+              "2022-01-04:TWTR"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/target"
+          },
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "target_cash_weight": {
+          "const": "0.800000000000"
+        },
+        "constant_score_tie": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "method_id",
+        "selected_ids",
+        "targets",
+        "target_cash_weight",
+        "constant_score_tie"
+      ]
+    },
+    "shared_a898bc500e1b8e18": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method_id": {
+          "const": "tree"
+        },
+        "selected_ids": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "2022-01-04:AAPL",
+              "2022-01-04:AMZN",
+              "2022-01-04:TSLA",
+              "2022-01-04:TWTR"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/target"
+          },
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "target_cash_weight": {
+          "const": "0.800000000000"
+        },
+        "constant_score_tie": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "method_id",
+        "selected_ids",
+        "targets",
+        "target_cash_weight",
+        "constant_score_tie"
+      ]
+    },
+    "shared_d7a31ceaabaa2256": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account_id": {
+              "const": "RAW_MOM252_21_V1"
+            },
+            "origin": {
+              "const": "MAPPER"
+            },
+            "method_id": {
+              "const": "RAW_MOM252_21_V1"
+            },
+            "targets": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/intent"
+              },
+              "minItems": 1,
+              "maxItems": 1
+            },
+            "target_cash_weight": {
+              "const": "0.800000000000"
+            }
+          },
+          "required": [
+            "account_id",
+            "origin",
+            "method_id",
+            "targets",
+            "target_cash_weight"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account_id": {
+              "const": "RAW_REV5_V1"
+            },
+            "origin": {
+              "const": "MAPPER"
+            },
+            "method_id": {
+              "const": "RAW_REV5_V1"
+            },
+            "targets": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/intent"
+              },
+              "minItems": 1,
+              "maxItems": 1
+            },
+            "target_cash_weight": {
+              "const": "0.800000000000"
+            }
+          },
+          "required": [
+            "account_id",
+            "origin",
+            "method_id",
+            "targets",
+            "target_cash_weight"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account_id": {
+              "const": "ridge6"
+            },
+            "origin": {
+              "const": "MAPPER"
+            },
+            "method_id": {
+              "const": "ridge6"
+            },
+            "targets": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/intent"
+              },
+              "minItems": 1,
+              "maxItems": 1
+            },
+            "target_cash_weight": {
+              "const": "0.800000000000"
+            }
+          },
+          "required": [
+            "account_id",
+            "origin",
+            "method_id",
+            "targets",
+            "target_cash_weight"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account_id": {
+              "const": "ridge21"
+            },
+            "origin": {
+              "const": "MAPPER"
+            },
+            "method_id": {
+              "const": "ridge21"
+            },
+            "targets": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/intent"
+              },
+              "minItems": 1,
+              "maxItems": 1
+            },
+            "target_cash_weight": {
+              "const": "0.800000000000"
+            }
+          },
+          "required": [
+            "account_id",
+            "origin",
+            "method_id",
+            "targets",
+            "target_cash_weight"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account_id": {
+              "const": "tree"
+            },
+            "origin": {
+              "const": "MAPPER"
+            },
+            "method_id": {
+              "const": "tree"
+            },
+            "targets": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/intent"
+              },
+              "minItems": 1,
+              "maxItems": 1
+            },
+            "target_cash_weight": {
+              "const": "0.800000000000"
+            }
+          },
+          "required": [
+            "account_id",
+            "origin",
+            "method_id",
+            "targets",
+            "target_cash_weight"
+          ]
+        },
+        {
+          "$ref": "#/$defs/shared_55633cde10eb15b5"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account_id": {
+              "const": "REF_CASH"
+            },
+            "origin": {
+              "const": "PURE_CASH_REFERENCE"
+            },
+            "method_id": {
+              "type": "null"
+            },
+            "targets": {
+              "type": "array",
+              "prefixItems": [],
+              "items": false,
+              "minItems": 0,
+              "maxItems": 0
+            },
+            "target_cash_weight": {
+              "const": "1.000000000000"
+            }
+          },
+          "required": [
+            "account_id",
+            "origin",
+            "method_id",
+            "targets",
+            "target_cash_weight"
+          ]
+        }
+      ],
+      "items": false,
+      "minItems": 7,
+      "maxItems": 7
+    },
+    "shared_55633cde10eb15b5": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "const": "REF_EW4_CAP"
+        },
+        "origin": {
+          "const": "CAPPED_FULL_COHORT_REFERENCE"
+        },
+        "method_id": {
+          "type": "null"
+        },
+        "targets": {
+          "$ref": "#/$defs/shared_762d5e62a04d6cb7"
+        },
+        "target_cash_weight": {
+          "const": "0.200000000000"
+        }
+      },
+      "required": [
+        "account_id",
+        "origin",
+        "method_id",
+        "targets",
+        "target_cash_weight"
+      ]
+    },
+    "shared_762d5e62a04d6cb7": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "opportunity_token": {
+              "const": "2022-01-04:AAPL"
+            },
+            "source_symbol": {
+              "const": "AAPL"
+            },
+            "simulated_instrument_id": {
+              "const": "AAPL.XCAP"
+            },
+            "weight": {
+              "const": "0.200000000000"
+            }
+          },
+          "required": [
+            "opportunity_token",
+            "source_symbol",
+            "simulated_instrument_id",
+            "weight"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "opportunity_token": {
+              "const": "2022-01-04:AMZN"
+            },
+            "source_symbol": {
+              "const": "AMZN"
+            },
+            "simulated_instrument_id": {
+              "const": "AMZN.XCAP"
+            },
+            "weight": {
+              "const": "0.200000000000"
+            }
+          },
+          "required": [
+            "opportunity_token",
+            "source_symbol",
+            "simulated_instrument_id",
+            "weight"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "opportunity_token": {
+              "const": "2022-01-04:TSLA"
+            },
+            "source_symbol": {
+              "const": "TSLA"
+            },
+            "simulated_instrument_id": {
+              "const": "TSLA.XCAP"
+            },
+            "weight": {
+              "const": "0.200000000000"
+            }
+          },
+          "required": [
+            "opportunity_token",
+            "source_symbol",
+            "simulated_instrument_id",
+            "weight"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "opportunity_token": {
+              "const": "2022-01-04:TWTR"
+            },
+            "source_symbol": {
+              "const": "TWTR"
+            },
+            "simulated_instrument_id": {
+              "const": "TWTR.XCAP"
+            },
+            "weight": {
+              "const": "0.200000000000"
+            }
+          },
+          "required": [
+            "opportunity_token",
+            "source_symbol",
+            "simulated_instrument_id",
+            "weight"
+          ]
+        }
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "shared_5265ddbba974f343": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/shared_81f2b9429e5a196d"
+        },
+        {
+          "$ref": "#/$defs/shared_98bffcad96ad3dfc"
+        },
+        {
+          "$ref": "#/$defs/shared_7f5622d7668d3aae"
+        },
+        {
+          "$ref": "#/$defs/shared_ca7be838ba2850a1"
+        },
+        {
+          "$ref": "#/$defs/shared_76ffd83ba9e0107e"
+        },
+        {
+          "$ref": "#/$defs/shared_3aa502d1ea6e9031"
+        },
+        {
+          "$ref": "#/$defs/shared_aa196313c2fd0fb6"
+        }
+      ],
+      "items": false,
+      "minItems": 7,
+      "maxItems": 7
+    },
+    "shared_81f2b9429e5a196d": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "const": "RAW_MOM252_21_V1"
+        },
+        "phases": {
+          "$ref": "#/$defs/shared_9f02d146f4f7d289"
+        }
+      },
+      "required": [
+        "account_id",
+        "phases"
+      ]
+    },
+    "shared_9f02d146f4f7d289": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/shared_6eb53b0a1f2d5d47"
+        },
+        {
+          "$ref": "#/$defs/shared_e02a3c0a70ad620c"
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "shared_6eb53b0a1f2d5d47": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "phase": {
+          "const": "entry"
+        },
+        "boundary": {
+          "const": "O1"
+        },
+        "nominal_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "snapshot_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/snapshot"
+        },
+        "allocation": {
+          "$ref": "#/$defs/allocation_result"
+        },
+        "domain_checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "expected_state": {
+              "enum": [
+                "PASS",
+                "FAIL"
+              ]
+            },
+            "exact_mark_union": {
+              "enum": [
+                "PASS",
+                "FAIL"
+              ]
+            },
+            "positive_cent_prices": {
+              "enum": [
+                "PASS",
+                "FAIL"
+              ]
+            },
+            "native_representation": {
+              "enum": [
+                "PASS",
+                "FAIL"
+              ]
+            },
+            "single_side_only": {
+              "enum": [
+                "PASS",
+                "FAIL"
+              ]
+            }
+          },
+          "required": [
+            "expected_state",
+            "exact_mark_union",
+            "positive_cent_prices",
+            "native_representation",
+            "single_side_only"
+          ]
+        }
+      },
+      "required": [
+        "phase",
+        "boundary",
+        "nominal_ns",
+        "snapshot_ns",
+        "snapshot",
+        "allocation",
+        "domain_checks"
+      ]
+    },
+    "shared_e02a3c0a70ad620c": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "phase": {
+          "const": "exit"
+        },
+        "boundary": {
+          "const": "O6"
+        },
+        "nominal_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "snapshot_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/snapshot"
+        },
+        "allocation": {
+          "$ref": "#/$defs/allocation_result"
+        },
+        "domain_checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "expected_state": {
+              "enum": [
+                "PASS",
+                "FAIL"
+              ]
+            },
+            "exact_mark_union": {
+              "enum": [
+                "PASS",
+                "FAIL"
+              ]
+            },
+            "positive_cent_prices": {
+              "enum": [
+                "PASS",
+                "FAIL"
+              ]
+            },
+            "native_representation": {
+              "enum": [
+                "PASS",
+                "FAIL"
+              ]
+            },
+            "single_side_only": {
+              "enum": [
+                "PASS",
+                "FAIL"
+              ]
+            }
+          },
+          "required": [
+            "expected_state",
+            "exact_mark_union",
+            "positive_cent_prices",
+            "native_representation",
+            "single_side_only"
+          ]
+        }
+      },
+      "required": [
+        "phase",
+        "boundary",
+        "nominal_ns",
+        "snapshot_ns",
+        "snapshot",
+        "allocation",
+        "domain_checks"
+      ]
+    },
+    "shared_98bffcad96ad3dfc": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "const": "RAW_REV5_V1"
+        },
+        "phases": {
+          "$ref": "#/$defs/shared_9f02d146f4f7d289"
+        }
+      },
+      "required": [
+        "account_id",
+        "phases"
+      ]
+    },
+    "shared_7f5622d7668d3aae": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "const": "ridge6"
+        },
+        "phases": {
+          "$ref": "#/$defs/shared_9f02d146f4f7d289"
+        }
+      },
+      "required": [
+        "account_id",
+        "phases"
+      ]
+    },
+    "shared_ca7be838ba2850a1": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "const": "ridge21"
+        },
+        "phases": {
+          "$ref": "#/$defs/shared_9f02d146f4f7d289"
+        }
+      },
+      "required": [
+        "account_id",
+        "phases"
+      ]
+    },
+    "shared_76ffd83ba9e0107e": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "const": "tree"
+        },
+        "phases": {
+          "$ref": "#/$defs/shared_9f02d146f4f7d289"
+        }
+      },
+      "required": [
+        "account_id",
+        "phases"
+      ]
+    },
+    "shared_3aa502d1ea6e9031": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "const": "REF_EW4_CAP"
+        },
+        "phases": {
+          "$ref": "#/$defs/shared_9f02d146f4f7d289"
+        }
+      },
+      "required": [
+        "account_id",
+        "phases"
+      ]
+    },
+    "shared_aa196313c2fd0fb6": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "const": "REF_CASH"
+        },
+        "phases": {
+          "$ref": "#/$defs/shared_9f02d146f4f7d289"
+        }
+      },
+      "required": [
+        "account_id",
+        "phases"
+      ]
+    },
+    "shared_4a97fcbe7417f1f3": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account_id": {
+              "const": "RAW_MOM252_21_V1"
+            },
+            "events": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/event"
+              },
+              "minItems": 0,
+              "maxItems": 16
+            }
+          },
+          "required": [
+            "account_id",
+            "events"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account_id": {
+              "const": "RAW_REV5_V1"
+            },
+            "events": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/event"
+              },
+              "minItems": 0,
+              "maxItems": 16
+            }
+          },
+          "required": [
+            "account_id",
+            "events"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account_id": {
+              "const": "ridge6"
+            },
+            "events": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/event"
+              },
+              "minItems": 0,
+              "maxItems": 16
+            }
+          },
+          "required": [
+            "account_id",
+            "events"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account_id": {
+              "const": "ridge21"
+            },
+            "events": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/event"
+              },
+              "minItems": 0,
+              "maxItems": 16
+            }
+          },
+          "required": [
+            "account_id",
+            "events"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account_id": {
+              "const": "tree"
+            },
+            "events": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/event"
+              },
+              "minItems": 0,
+              "maxItems": 16
+            }
+          },
+          "required": [
+            "account_id",
+            "events"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account_id": {
+              "const": "REF_EW4_CAP"
+            },
+            "events": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/event"
+              },
+              "minItems": 0,
+              "maxItems": 16
+            }
+          },
+          "required": [
+            "account_id",
+            "events"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account_id": {
+              "const": "REF_CASH"
+            },
+            "events": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/event"
+              },
+              "minItems": 0,
+              "maxItems": 16
+            }
+          },
+          "required": [
+            "account_id",
+            "events"
+          ]
+        }
+      ],
+      "items": false,
+      "minItems": 7,
+      "maxItems": 7
+    },
+    "shared_9e4554b84c90ebbb": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/shared_698bc84c06c253b9"
+        },
+        {
+          "$ref": "#/$defs/shared_5f1ffb7a35ed4c39"
+        },
+        {
+          "$ref": "#/$defs/shared_478eaf5ddb927784"
+        },
+        {
+          "$ref": "#/$defs/shared_e01e5340589572ef"
+        },
+        {
+          "$ref": "#/$defs/shared_2f66f8ed63ae68c9"
+        },
+        {
+          "$ref": "#/$defs/shared_68d0311dc0790419"
+        },
+        {
+          "$ref": "#/$defs/shared_8427769036ce8fec"
+        }
+      ],
+      "items": false,
+      "minItems": 7,
+      "maxItems": 7
+    },
+    "shared_698bc84c06c253b9": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "const": "RAW_MOM252_21_V1"
+        },
+        "samples": {
+          "$ref": "#/$defs/shared_5514a65c76043f42"
+        }
+      },
+      "required": [
+        "account_id",
+        "samples"
+      ]
+    },
+    "shared_5514a65c76043f42": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/shared_76214dddc63224a9"
+        },
+        {
+          "$ref": "#/$defs/shared_0b450a86a5ab573e"
+        },
+        {
+          "$ref": "#/$defs/shared_018926d2247ccff3"
+        },
+        {
+          "$ref": "#/$defs/shared_00d345755d1a195b"
+        },
+        {
+          "$ref": "#/$defs/shared_a911c6bc58cb6af4"
+        },
+        {
+          "$ref": "#/$defs/shared_9f5f884beec15b04"
+        },
+        {
+          "$ref": "#/$defs/shared_5c902ad30682c408"
+        }
+      ],
+      "items": false,
+      "minItems": 7,
+      "maxItems": 7
+    },
+    "shared_76214dddc63224a9": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "logical_sample_id": {
+          "$ref": "#/$defs/token"
+        },
+        "sample_index": {
+          "const": 0
+        },
+        "role": {
+          "const": "INITIAL"
+        },
+        "effective_nominal_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "native_sample_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "cash": {
+          "$ref": "#/$defs/money"
+        },
+        "positions": {
+          "$ref": "#/$defs/shared_2069924f47992185"
+        },
+        "native_exposure_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "nav": {
+          "$ref": "#/$defs/money"
+        },
+        "nav_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "outstanding_order_count": {
+          "const": 0
+        },
+        "claims_count": {
+          "const": 0
+        }
+      },
+      "required": [
+        "logical_sample_id",
+        "sample_index",
+        "role",
+        "effective_nominal_ns",
+        "native_sample_ns",
+        "cash",
+        "positions",
+        "native_exposure_usd",
+        "nav",
+        "nav_exact_usd",
+        "outstanding_order_count",
+        "claims_count"
+      ]
+    },
+    "shared_0b450a86a5ab573e": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "logical_sample_id": {
+          "$ref": "#/$defs/token"
+        },
+        "sample_index": {
+          "const": 1
+        },
+        "role": {
+          "const": "CLOSE"
+        },
+        "effective_nominal_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "native_sample_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "cash": {
+          "$ref": "#/$defs/money"
+        },
+        "positions": {
+          "$ref": "#/$defs/shared_2069924f47992185"
+        },
+        "native_exposure_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "nav": {
+          "$ref": "#/$defs/money"
+        },
+        "nav_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "outstanding_order_count": {
+          "const": 0
+        },
+        "claims_count": {
+          "const": 0
+        }
+      },
+      "required": [
+        "logical_sample_id",
+        "sample_index",
+        "role",
+        "effective_nominal_ns",
+        "native_sample_ns",
+        "cash",
+        "positions",
+        "native_exposure_usd",
+        "nav",
+        "nav_exact_usd",
+        "outstanding_order_count",
+        "claims_count"
+      ]
+    },
+    "shared_018926d2247ccff3": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "logical_sample_id": {
+          "$ref": "#/$defs/token"
+        },
+        "sample_index": {
+          "const": 2
+        },
+        "role": {
+          "const": "CLOSE"
+        },
+        "effective_nominal_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "native_sample_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "cash": {
+          "$ref": "#/$defs/money"
+        },
+        "positions": {
+          "$ref": "#/$defs/shared_2069924f47992185"
+        },
+        "native_exposure_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "nav": {
+          "$ref": "#/$defs/money"
+        },
+        "nav_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "outstanding_order_count": {
+          "const": 0
+        },
+        "claims_count": {
+          "const": 0
+        }
+      },
+      "required": [
+        "logical_sample_id",
+        "sample_index",
+        "role",
+        "effective_nominal_ns",
+        "native_sample_ns",
+        "cash",
+        "positions",
+        "native_exposure_usd",
+        "nav",
+        "nav_exact_usd",
+        "outstanding_order_count",
+        "claims_count"
+      ]
+    },
+    "shared_00d345755d1a195b": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "logical_sample_id": {
+          "$ref": "#/$defs/token"
+        },
+        "sample_index": {
+          "const": 3
+        },
+        "role": {
+          "const": "CLOSE"
+        },
+        "effective_nominal_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "native_sample_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "cash": {
+          "$ref": "#/$defs/money"
+        },
+        "positions": {
+          "$ref": "#/$defs/shared_2069924f47992185"
+        },
+        "native_exposure_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "nav": {
+          "$ref": "#/$defs/money"
+        },
+        "nav_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "outstanding_order_count": {
+          "const": 0
+        },
+        "claims_count": {
+          "const": 0
+        }
+      },
+      "required": [
+        "logical_sample_id",
+        "sample_index",
+        "role",
+        "effective_nominal_ns",
+        "native_sample_ns",
+        "cash",
+        "positions",
+        "native_exposure_usd",
+        "nav",
+        "nav_exact_usd",
+        "outstanding_order_count",
+        "claims_count"
+      ]
+    },
+    "shared_a911c6bc58cb6af4": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "logical_sample_id": {
+          "$ref": "#/$defs/token"
+        },
+        "sample_index": {
+          "const": 4
+        },
+        "role": {
+          "const": "CLOSE"
+        },
+        "effective_nominal_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "native_sample_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "cash": {
+          "$ref": "#/$defs/money"
+        },
+        "positions": {
+          "$ref": "#/$defs/shared_2069924f47992185"
+        },
+        "native_exposure_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "nav": {
+          "$ref": "#/$defs/money"
+        },
+        "nav_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "outstanding_order_count": {
+          "const": 0
+        },
+        "claims_count": {
+          "const": 0
+        }
+      },
+      "required": [
+        "logical_sample_id",
+        "sample_index",
+        "role",
+        "effective_nominal_ns",
+        "native_sample_ns",
+        "cash",
+        "positions",
+        "native_exposure_usd",
+        "nav",
+        "nav_exact_usd",
+        "outstanding_order_count",
+        "claims_count"
+      ]
+    },
+    "shared_9f5f884beec15b04": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "logical_sample_id": {
+          "$ref": "#/$defs/token"
+        },
+        "sample_index": {
+          "const": 5
+        },
+        "role": {
+          "const": "CLOSE"
+        },
+        "effective_nominal_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "native_sample_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "cash": {
+          "$ref": "#/$defs/money"
+        },
+        "positions": {
+          "$ref": "#/$defs/shared_2069924f47992185"
+        },
+        "native_exposure_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "nav": {
+          "$ref": "#/$defs/money"
+        },
+        "nav_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "outstanding_order_count": {
+          "const": 0
+        },
+        "claims_count": {
+          "const": 0
+        }
+      },
+      "required": [
+        "logical_sample_id",
+        "sample_index",
+        "role",
+        "effective_nominal_ns",
+        "native_sample_ns",
+        "cash",
+        "positions",
+        "native_exposure_usd",
+        "nav",
+        "nav_exact_usd",
+        "outstanding_order_count",
+        "claims_count"
+      ]
+    },
+    "shared_5c902ad30682c408": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "logical_sample_id": {
+          "$ref": "#/$defs/token"
+        },
+        "sample_index": {
+          "const": 6
+        },
+        "role": {
+          "const": "TERMINAL"
+        },
+        "effective_nominal_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "native_sample_ns": {
+          "$ref": "#/$defs/ns"
+        },
+        "cash": {
+          "$ref": "#/$defs/money"
+        },
+        "positions": {
+          "$ref": "#/$defs/shared_2069924f47992185"
+        },
+        "native_exposure_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "nav": {
+          "$ref": "#/$defs/money"
+        },
+        "nav_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "outstanding_order_count": {
+          "const": 0
+        },
+        "claims_count": {
+          "const": 0
+        }
+      },
+      "required": [
+        "logical_sample_id",
+        "sample_index",
+        "role",
+        "effective_nominal_ns",
+        "native_sample_ns",
+        "cash",
+        "positions",
+        "native_exposure_usd",
+        "nav",
+        "nav_exact_usd",
+        "outstanding_order_count",
+        "claims_count"
+      ]
+    },
+    "shared_5f1ffb7a35ed4c39": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "const": "RAW_REV5_V1"
+        },
+        "samples": {
+          "$ref": "#/$defs/shared_5514a65c76043f42"
+        }
+      },
+      "required": [
+        "account_id",
+        "samples"
+      ]
+    },
+    "shared_478eaf5ddb927784": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "const": "ridge6"
+        },
+        "samples": {
+          "$ref": "#/$defs/shared_5514a65c76043f42"
+        }
+      },
+      "required": [
+        "account_id",
+        "samples"
+      ]
+    },
+    "shared_e01e5340589572ef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "const": "ridge21"
+        },
+        "samples": {
+          "$ref": "#/$defs/shared_5514a65c76043f42"
+        }
+      },
+      "required": [
+        "account_id",
+        "samples"
+      ]
+    },
+    "shared_2f66f8ed63ae68c9": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "const": "tree"
+        },
+        "samples": {
+          "$ref": "#/$defs/shared_5514a65c76043f42"
+        }
+      },
+      "required": [
+        "account_id",
+        "samples"
+      ]
+    },
+    "shared_68d0311dc0790419": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "const": "REF_EW4_CAP"
+        },
+        "samples": {
+          "$ref": "#/$defs/shared_5514a65c76043f42"
+        }
+      },
+      "required": [
+        "account_id",
+        "samples"
+      ]
+    },
+    "shared_8427769036ce8fec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "const": "REF_CASH"
+        },
+        "samples": {
+          "$ref": "#/$defs/shared_5514a65c76043f42"
+        }
+      },
+      "required": [
+        "account_id",
+        "samples"
+      ]
+    },
+    "shared_b5be4f3deeaf67a4": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/shared_fa163511c4740cb6"
+        },
+        {
+          "$ref": "#/$defs/shared_27ad5c5ba81b0e9e"
+        },
+        {
+          "$ref": "#/$defs/shared_fd3b2fc2bf31c62d"
+        },
+        {
+          "$ref": "#/$defs/shared_70e8ed6c18702cf4"
+        },
+        {
+          "$ref": "#/$defs/shared_2636bf72d401c312"
+        },
+        {
+          "$ref": "#/$defs/shared_2c4b57a3daac86c1"
+        },
+        {
+          "$ref": "#/$defs/shared_5e17bf1379e0c24e"
+        }
+      ],
+      "items": false,
+      "minItems": 7,
+      "maxItems": 7
+    },
+    "shared_fa163511c4740cb6": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "const": "RAW_MOM252_21_V1"
+        },
+        "terminal_cash_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "terminal_nav_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "terminal_nav_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "terminal_net_return": {
+          "$ref": "#/$defs/rational"
+        },
+        "fees_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "fees_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "filled_order_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        },
+        "gross_notional_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "gross_notional_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "sampled_max_drawdown": {
+          "$ref": "#/$defs/rational"
+        },
+        "sampled_max_single_name_concentration": {
+          "$ref": "#/$defs/rational"
+        }
+      },
+      "required": [
+        "account_id",
+        "terminal_cash_usd",
+        "terminal_nav_usd",
+        "terminal_nav_exact_usd",
+        "terminal_net_return",
+        "fees_usd",
+        "fees_exact_usd",
+        "filled_order_count",
+        "gross_notional_usd",
+        "gross_notional_exact_usd",
+        "sampled_max_drawdown",
+        "sampled_max_single_name_concentration"
+      ]
+    },
+    "shared_27ad5c5ba81b0e9e": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "const": "RAW_REV5_V1"
+        },
+        "terminal_cash_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "terminal_nav_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "terminal_nav_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "terminal_net_return": {
+          "$ref": "#/$defs/rational"
+        },
+        "fees_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "fees_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "filled_order_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        },
+        "gross_notional_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "gross_notional_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "sampled_max_drawdown": {
+          "$ref": "#/$defs/rational"
+        },
+        "sampled_max_single_name_concentration": {
+          "$ref": "#/$defs/rational"
+        }
+      },
+      "required": [
+        "account_id",
+        "terminal_cash_usd",
+        "terminal_nav_usd",
+        "terminal_nav_exact_usd",
+        "terminal_net_return",
+        "fees_usd",
+        "fees_exact_usd",
+        "filled_order_count",
+        "gross_notional_usd",
+        "gross_notional_exact_usd",
+        "sampled_max_drawdown",
+        "sampled_max_single_name_concentration"
+      ]
+    },
+    "shared_fd3b2fc2bf31c62d": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "const": "ridge6"
+        },
+        "terminal_cash_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "terminal_nav_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "terminal_nav_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "terminal_net_return": {
+          "$ref": "#/$defs/rational"
+        },
+        "fees_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "fees_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "filled_order_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        },
+        "gross_notional_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "gross_notional_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "sampled_max_drawdown": {
+          "$ref": "#/$defs/rational"
+        },
+        "sampled_max_single_name_concentration": {
+          "$ref": "#/$defs/rational"
+        }
+      },
+      "required": [
+        "account_id",
+        "terminal_cash_usd",
+        "terminal_nav_usd",
+        "terminal_nav_exact_usd",
+        "terminal_net_return",
+        "fees_usd",
+        "fees_exact_usd",
+        "filled_order_count",
+        "gross_notional_usd",
+        "gross_notional_exact_usd",
+        "sampled_max_drawdown",
+        "sampled_max_single_name_concentration"
+      ]
+    },
+    "shared_70e8ed6c18702cf4": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "const": "ridge21"
+        },
+        "terminal_cash_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "terminal_nav_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "terminal_nav_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "terminal_net_return": {
+          "$ref": "#/$defs/rational"
+        },
+        "fees_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "fees_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "filled_order_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        },
+        "gross_notional_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "gross_notional_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "sampled_max_drawdown": {
+          "$ref": "#/$defs/rational"
+        },
+        "sampled_max_single_name_concentration": {
+          "$ref": "#/$defs/rational"
+        }
+      },
+      "required": [
+        "account_id",
+        "terminal_cash_usd",
+        "terminal_nav_usd",
+        "terminal_nav_exact_usd",
+        "terminal_net_return",
+        "fees_usd",
+        "fees_exact_usd",
+        "filled_order_count",
+        "gross_notional_usd",
+        "gross_notional_exact_usd",
+        "sampled_max_drawdown",
+        "sampled_max_single_name_concentration"
+      ]
+    },
+    "shared_2636bf72d401c312": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "const": "tree"
+        },
+        "terminal_cash_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "terminal_nav_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "terminal_nav_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "terminal_net_return": {
+          "$ref": "#/$defs/rational"
+        },
+        "fees_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "fees_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "filled_order_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        },
+        "gross_notional_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "gross_notional_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "sampled_max_drawdown": {
+          "$ref": "#/$defs/rational"
+        },
+        "sampled_max_single_name_concentration": {
+          "$ref": "#/$defs/rational"
+        }
+      },
+      "required": [
+        "account_id",
+        "terminal_cash_usd",
+        "terminal_nav_usd",
+        "terminal_nav_exact_usd",
+        "terminal_net_return",
+        "fees_usd",
+        "fees_exact_usd",
+        "filled_order_count",
+        "gross_notional_usd",
+        "gross_notional_exact_usd",
+        "sampled_max_drawdown",
+        "sampled_max_single_name_concentration"
+      ]
+    },
+    "shared_2c4b57a3daac86c1": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "const": "REF_EW4_CAP"
+        },
+        "terminal_cash_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "terminal_nav_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "terminal_nav_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "terminal_net_return": {
+          "$ref": "#/$defs/rational"
+        },
+        "fees_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "fees_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "filled_order_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        },
+        "gross_notional_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "gross_notional_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "sampled_max_drawdown": {
+          "$ref": "#/$defs/rational"
+        },
+        "sampled_max_single_name_concentration": {
+          "$ref": "#/$defs/rational"
+        }
+      },
+      "required": [
+        "account_id",
+        "terminal_cash_usd",
+        "terminal_nav_usd",
+        "terminal_nav_exact_usd",
+        "terminal_net_return",
+        "fees_usd",
+        "fees_exact_usd",
+        "filled_order_count",
+        "gross_notional_usd",
+        "gross_notional_exact_usd",
+        "sampled_max_drawdown",
+        "sampled_max_single_name_concentration"
+      ]
+    },
+    "shared_5e17bf1379e0c24e": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "const": "REF_CASH"
+        },
+        "terminal_cash_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "terminal_nav_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "terminal_nav_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "terminal_net_return": {
+          "$ref": "#/$defs/rational"
+        },
+        "fees_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "fees_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "filled_order_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        },
+        "gross_notional_usd": {
+          "$ref": "#/$defs/money"
+        },
+        "gross_notional_exact_usd": {
+          "$ref": "#/$defs/rational"
+        },
+        "sampled_max_drawdown": {
+          "$ref": "#/$defs/rational"
+        },
+        "sampled_max_single_name_concentration": {
+          "$ref": "#/$defs/rational"
+        }
+      },
+      "required": [
+        "account_id",
+        "terminal_cash_usd",
+        "terminal_nav_usd",
+        "terminal_nav_exact_usd",
+        "terminal_net_return",
+        "fees_usd",
+        "fees_exact_usd",
+        "filled_order_count",
+        "gross_notional_usd",
+        "gross_notional_exact_usd",
+        "sampled_max_drawdown",
+        "sampled_max_single_name_concentration"
+      ]
+    },
+    "shared_447859330bb969ca": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account_id": {
+              "const": "RAW_MOM252_21_V1"
+            },
+            "status": {
+              "const": "COMPLETE"
+            },
+            "samples": {
+              "const": 7
+            },
+            "outstanding_orders": {
+              "const": 0
+            },
+            "terminal_positions_zero": {
+              "const": true
+            },
+            "all_required_checks_passed": {
+              "const": true
+            }
+          },
+          "required": [
+            "account_id",
+            "status",
+            "samples",
+            "outstanding_orders",
+            "terminal_positions_zero",
+            "all_required_checks_passed"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account_id": {
+              "const": "RAW_REV5_V1"
+            },
+            "status": {
+              "const": "COMPLETE"
+            },
+            "samples": {
+              "const": 7
+            },
+            "outstanding_orders": {
+              "const": 0
+            },
+            "terminal_positions_zero": {
+              "const": true
+            },
+            "all_required_checks_passed": {
+              "const": true
+            }
+          },
+          "required": [
+            "account_id",
+            "status",
+            "samples",
+            "outstanding_orders",
+            "terminal_positions_zero",
+            "all_required_checks_passed"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account_id": {
+              "const": "ridge6"
+            },
+            "status": {
+              "const": "COMPLETE"
+            },
+            "samples": {
+              "const": 7
+            },
+            "outstanding_orders": {
+              "const": 0
+            },
+            "terminal_positions_zero": {
+              "const": true
+            },
+            "all_required_checks_passed": {
+              "const": true
+            }
+          },
+          "required": [
+            "account_id",
+            "status",
+            "samples",
+            "outstanding_orders",
+            "terminal_positions_zero",
+            "all_required_checks_passed"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account_id": {
+              "const": "ridge21"
+            },
+            "status": {
+              "const": "COMPLETE"
+            },
+            "samples": {
+              "const": 7
+            },
+            "outstanding_orders": {
+              "const": 0
+            },
+            "terminal_positions_zero": {
+              "const": true
+            },
+            "all_required_checks_passed": {
+              "const": true
+            }
+          },
+          "required": [
+            "account_id",
+            "status",
+            "samples",
+            "outstanding_orders",
+            "terminal_positions_zero",
+            "all_required_checks_passed"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account_id": {
+              "const": "tree"
+            },
+            "status": {
+              "const": "COMPLETE"
+            },
+            "samples": {
+              "const": 7
+            },
+            "outstanding_orders": {
+              "const": 0
+            },
+            "terminal_positions_zero": {
+              "const": true
+            },
+            "all_required_checks_passed": {
+              "const": true
+            }
+          },
+          "required": [
+            "account_id",
+            "status",
+            "samples",
+            "outstanding_orders",
+            "terminal_positions_zero",
+            "all_required_checks_passed"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account_id": {
+              "const": "REF_EW4_CAP"
+            },
+            "status": {
+              "const": "COMPLETE"
+            },
+            "samples": {
+              "const": 7
+            },
+            "outstanding_orders": {
+              "const": 0
+            },
+            "terminal_positions_zero": {
+              "const": true
+            },
+            "all_required_checks_passed": {
+              "const": true
+            }
+          },
+          "required": [
+            "account_id",
+            "status",
+            "samples",
+            "outstanding_orders",
+            "terminal_positions_zero",
+            "all_required_checks_passed"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account_id": {
+              "const": "REF_CASH"
+            },
+            "status": {
+              "const": "COMPLETE"
+            },
+            "samples": {
+              "const": 7
+            },
+            "outstanding_orders": {
+              "const": 0
+            },
+            "terminal_positions_zero": {
+              "const": true
+            },
+            "all_required_checks_passed": {
+              "const": true
+            }
+          },
+          "required": [
+            "account_id",
+            "status",
+            "samples",
+            "outstanding_orders",
+            "terminal_positions_zero",
+            "all_required_checks_passed"
+          ]
+        }
+      ],
+      "items": false,
+      "minItems": 7,
+      "maxItems": 7
+    },
+    "shared_f3761b07202274a3": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "stage": {
+              "const": "input_validation"
+            },
+            "status": {
+              "const": "COMPLETE"
+            },
+            "reason_codes": {
+              "type": "array",
+              "prefixItems": [],
+              "items": false,
+              "minItems": 0,
+              "maxItems": 0
+            }
+          },
+          "required": [
+            "stage",
+            "status",
+            "reason_codes"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "stage": {
+              "const": "score_restore"
+            },
+            "status": {
+              "const": "COMPLETE"
+            },
+            "reason_codes": {
+              "type": "array",
+              "prefixItems": [],
+              "items": false,
+              "minItems": 0,
+              "maxItems": 0
+            }
+          },
+          "required": [
+            "stage",
+            "status",
+            "reason_codes"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "stage": {
+              "const": "mapping"
+            },
+            "status": {
+              "const": "COMPLETE"
+            },
+            "reason_codes": {
+              "type": "array",
+              "prefixItems": [],
+              "items": false,
+              "minItems": 0,
+              "maxItems": 0
+            }
+          },
+          "required": [
+            "stage",
+            "status",
+            "reason_codes"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "stage": {
+              "const": "account_creation"
+            },
+            "status": {
+              "const": "COMPLETE"
+            },
+            "reason_codes": {
+              "type": "array",
+              "prefixItems": [],
+              "items": false,
+              "minItems": 0,
+              "maxItems": 0
+            }
+          },
+          "required": [
+            "stage",
+            "status",
+            "reason_codes"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "stage": {
+              "const": "entry_allocation_execution"
+            },
+            "status": {
+              "const": "COMPLETE"
+            },
+            "reason_codes": {
+              "type": "array",
+              "prefixItems": [],
+              "items": false,
+              "minItems": 0,
+              "maxItems": 0
+            }
+          },
+          "required": [
+            "stage",
+            "status",
+            "reason_codes"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "stage": {
+              "const": "valuation"
+            },
+            "status": {
+              "const": "COMPLETE"
+            },
+            "reason_codes": {
+              "type": "array",
+              "prefixItems": [],
+              "items": false,
+              "minItems": 0,
+              "maxItems": 0
+            }
+          },
+          "required": [
+            "stage",
+            "status",
+            "reason_codes"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "stage": {
+              "const": "exit_allocation_execution"
+            },
+            "status": {
+              "const": "COMPLETE"
+            },
+            "reason_codes": {
+              "type": "array",
+              "prefixItems": [],
+              "items": false,
+              "minItems": 0,
+              "maxItems": 0
+            }
+          },
+          "required": [
+            "stage",
+            "status",
+            "reason_codes"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "stage": {
+              "const": "exact_evaluation"
+            },
+            "status": {
+              "const": "COMPLETE"
+            },
+            "reason_codes": {
+              "type": "array",
+              "prefixItems": [],
+              "items": false,
+              "minItems": 0,
+              "maxItems": 0
+            }
+          },
+          "required": [
+            "stage",
+            "status",
+            "reason_codes"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "stage": {
+              "const": "semantic_payload_validation"
+            },
+            "status": {
+              "const": "COMPLETE"
+            },
+            "reason_codes": {
+              "type": "array",
+              "prefixItems": [],
+              "items": false,
+              "minItems": 0,
+              "maxItems": 0
+            }
+          },
+          "required": [
+            "stage",
+            "status",
+            "reason_codes"
+          ]
+        }
+      ],
+      "items": false,
+      "minItems": 9,
+      "maxItems": 9
+    },
+    "basis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prices",
+        "requested_currency",
+        "requested_asof",
+        "source_identity",
+        "source_K",
+        "observed_fields"
+      ],
+      "properties": {
+        "prices": {
+          "const": "RAW_UNADJUSTED_SIP_SOURCE"
+        },
+        "requested_currency": {
+          "const": "USD_REQUEST_CONTRACT"
+        },
+        "requested_asof": {
+          "const": "2020-09-02"
+        },
+        "source_identity": {
+          "const": "ENTITY_OR_LITERAL_FALLBACK_UNVERIFIED"
+        },
+        "source_K": {
+          "const": "INHERITED_TWO_REFERENCE_DATE_ESTIMATE_NOT_OBSERVED"
+        },
+        "observed_fields": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "economic_security_id": {
+              "type": "null"
+            },
+            "event_open_at": {
+              "type": "null"
+            },
+            "event_close_at": {
+              "type": "null"
+            },
+            "observed_published_at": {
+              "type": "null"
+            },
+            "observed_historical_available_at": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "economic_security_id",
+            "event_open_at",
+            "event_close_at",
+            "observed_published_at",
+            "observed_historical_available_at"
+          ]
+        }
+      }
+    }
+  }
+}
