@@ -100,7 +100,13 @@ function createResearchWorkspace({root,historyWorkspace,fetcher,theme=()=> 'auto
     const controls=el('div',undefined,'research-table-controls'),previous=button('Previous columns',()=>navigate('ArrowLeft')),next=button('Next columns',()=>navigate('ArrowRight'));
     controls.hidden=true;controls.append(el('small','Portfolio columns'),previous,next);for(const b of [previous,next])b.setAttribute('aria-controls',scroll.id);
     function update(){const max=Math.max(0,scroll.scrollWidth-scroll.clientWidth);controls.hidden=max<1;previous.disabled=scroll.scrollLeft<=1;next.disabled=scroll.scrollLeft>=max-1;}
-    function navigate(key){const left=researchTableScrollTarget(scroll.scrollLeft,Math.max(0,scroll.scrollWidth-scroll.clientWidth),key,scroll.clientWidth);if(left===null)return false;scroll.scrollLeft=left;update();return true;}
+    function navigate(key){
+      const left=researchTableScrollTarget(scroll.scrollLeft,Math.max(0,scroll.scrollWidth-scroll.clientWidth),key,scroll.clientWidth);if(left===null)return false;
+      const origin=document.activeElement;scroll.scrollLeft=left;update();
+      if(origin===previous&&previous.disabled)(next.disabled?scroll:next).focus({preventScroll:true});
+      else if(origin===next&&next.disabled)(previous.disabled?scroll:previous).focus({preventScroll:true});
+      return true;
+    }
     scroll.onkeydown=e=>{if(e.target!==scroll||e.altKey||e.ctrlKey||e.metaKey)return;if(navigate(e.key))e.preventDefault();};
     scroll.onscroll=update;scroll.updateColumnNavigation=update;section.append(controls);
     const table=el('table'),caption=el('caption',title+' · producer values; no frontend calculation');table.append(caption);
