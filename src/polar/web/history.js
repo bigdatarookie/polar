@@ -22,10 +22,20 @@ function historyControls(source) {return {sma:!!source.sma,ema:!!source.ema,boll
 function historyNeedsSeries(controls) {return ['sma','ema','bollinger','rsi','benchmark'].some(k=>controls?.[k]);}
 function historyDecimalEqual(a,b) {const difference=decimalDelta(a,b);return difference!==null&&!/[1-9]/.test(difference);}
 function historySeriesValue(point,key) {return point?.statuses?.[key]?.status==='VALUE'?point.values[key]:null;}
+// Cache identity covers immutable input and all backend calculation parameters.
+function historySeriesCacheKey(context,controls){return historyStable({pin:historyPin(context.revision),instrument:context.instrument.instrument_id,interval:'1D',basis:'RAW_CLOSE',controls:historyControls(controls),benchmark:'hist-us-0004',calculation:'polar.history-calculation/1',numeric:'decimal50-v1',definition:'467df7e251db727ecc35ae413b5416d2a61dea36a7f717850a06b1b03807f424'});}
+function historyWindowContains(outer,inner){return !!outer&&!!inner&&outer.start<=inner.start&&outer.end_exclusive>=inner.end_exclusive;}
+function historyBufferedWindow(context,visible){
+  const rows=context.rows,first=context.instrument.first_date,last=context.instrument.last_date;
+  if(rows.length<=5000)return {start:first,end_exclusive:historyDayAfter(last)};
+  const lo=Math.max(0,rows.findIndex(r=>r.session_date>=visible.start));let hi=rows.findIndex(r=>r.session_date>=visible.end_exclusive);if(hi<0)hi=rows.length;
+  const margin=Math.max(128,hi-lo),start=Math.max(0,lo-margin),end=Math.min(rows.length-1,hi+margin);
+  return {start:rows[start].session_date,end_exclusive:historyDayAfter(rows[end].session_date)};
+}
 function createHistoryClient(fetcher) {
-  let controller=null;
+  let controller=null;const seriesCache=new Map(),seriesPending=new Map();
   return {
-    cancel(){controller?.abort();},
+    cancel(){controller?.abort();for(const p of seriesPending.values())p.controller.abort();seriesPending.clear();},
     async load(selection={}) {
       controller?.abort();const own=new AbortController();controller=own;
       let pinnedSelection=selection;
@@ -88,9 +98,14 @@ function createHistoryClient(fetcher) {
       historyRequire(metadata.window_complete===true&&rows.length===metadata.coverage.observed_in_window,'HISTORY_WINDOW_INCOMPLETE');
       return {catalog,revision:summary,assets,instrument,rows,bars:metadata};
     },
-    async series(context,controls,window) {
+    series(context,controls,window) {
       historyRequire(HISTORY_SERIES_RUNTIME.enabled,'C_RUNTIME_NOT_QUALIFIED');
-      controller?.abort();const own=new AbortController();controller=own;
+      const base=historySeriesCacheKey(context,controls),key=base+'|'+window.start+'|'+window.end_exclusive;
+      for(const [k,p] of seriesPending)if(k!==key){p.controller.abort();seriesPending.delete(k);}
+      for(const [k,cached] of seriesCache)if(cached.base===base&&historyWindowContains(cached.result.window,window)){seriesCache.delete(k);seriesCache.set(k,cached);return Promise.resolve(cached.result);}
+      if(seriesPending.has(key))return seriesPending.get(key).promise;
+      const own=new AbortController(),entry={controller:own,promise:null};
+      const work=(async()=>{
       const pin=historyPin(context.revision),asset=context.instrument.instrument_id;
       historyRequire(historyDate(window.start)&&historyDate(window.end_exclusive)&&window.start<window.end_exclusive,'HISTORY_WINDOW_INVALID');
       const benchmark=context.assets.find(a=>a.instrument_id==='hist-us-0004');historyRequire(!!benchmark,'HISTORY_BENCHMARK_NOT_AVAILABLE');
@@ -129,7 +144,11 @@ function createHistoryClient(fetcher) {
       const observed=context.rows.filter(r=>r.session_date>=window.start&&r.session_date<window.end_exclusive).length;
       historyRequire(metadata.window_complete&&metadata.coverage.observed_in_window===observed,'HISTORY_SERIES_COVERAGE_MISMATCH');
       if(metadata.coverage.expected_sessions!==null)historyRequire(rows.length===metadata.coverage.expected_sessions,'HISTORY_SERIES_COVERAGE_MISMATCH');
+      historyRequire(!own.signal.aborted,'HISTORY_REQUEST_CANCELLED');
       return {rows,metadata,window:{...window},controls};
+      })();
+      entry.promise=work.then(result=>{historyRequire(!own.signal.aborted,'HISTORY_REQUEST_CANCELLED');seriesCache.set(key,{base,result});while(seriesCache.size>4)seriesCache.delete(seriesCache.keys().next().value);return result;}).finally(()=>{if(seriesPending.get(key)===entry)seriesPending.delete(key);});
+      seriesPending.set(key,entry);return entry.promise;
     }
   };
 }
@@ -141,3 +160,5 @@ function buildHistoryView(context) {
   const bars=dates.map(date=>{const row=originals.get(date);return row?{...row,sourceRow:row,time:date,endTime:date,originalStatuses:[row.price_status],coverage:{observed:row.price_status==='OBSERVED'?1:0,supplied:1,calendar:context.bars?.coverage.calendar_status||'UNVERIFIED'}}:{time:date,endTime:date,session_date:date,sourceRow:null,missingBar:true,originalStatuses:[],coverage:{observed:0,supplied:0,calendar:'COMMON_REFERENCE_DATE_ONLY'}};});
   return {history:true,bars,cPoints:dates.map(date=>points.get(date)||null),equity:bars.map(b=>({time:b.time,value:null,at:null,status:'NO_STRATEGY_RESULT'})),markers:[],sma:[],baseClose:null,initialCash:null};
 }
+
+if(typeof module!=='undefined')module.exports={createHistoryClient,historySeriesCacheKey,historyWindowContains,historyBufferedWindow,buildHistoryView};
