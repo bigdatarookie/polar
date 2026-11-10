@@ -52,6 +52,19 @@ def inputs(config):
     require(set(f)=={'schema','rows','context'} and f['schema']=='polar.obs158-invented-input/1'
             and f['context']=={'pointer_scope':'PUBLIC_DETERMINISTIC_SYNTHETIC_NO_PROVIDER'},
             'OBS158_CI_INVENTED_FIXTURE')
+    aliases=p['members']['cohort-order-v1.json']['symbols_in_route_order']
+    dates=p['members']['calendar-profile-v1.json']['reference_dates']
+    expected_keys={'source_symbol','reference_date','adjustment','feed','currency','asof',
+        'raw_fields_exact_tokens','aggregation_label','estimated_K','raw_open','raw_high',
+        'raw_low','raw_close','raw_volume','event_open_at','event_close_at',
+        'observed_published_at','observed_historical_available_at','economic_security_id'}
+    require(len(f['rows'])==len(aliases)*len(dates)==39974,'OBS158_CI_FULL_PUBLIC_GRID')
+    for index,row in enumerate(f['rows']):
+        expected_tokens={'o':'31.5000','h':'31.500250','l':'31.500000','c':'31.500250',
+                         'v':'0' if index<960 else '1000000'}
+        require(set(row)==expected_keys and row['raw_fields_exact_tokens']==expected_tokens and
+                row['source_symbol']==aliases[index%158] and row['reference_date']==dates[index//158],
+                'OBS158_CI_DETERMINISTIC_PUBLIC_ONLY')
     refs={'profile':{'sha256':sha(profile),'bytes':len(profile)},
           'fixture':{'sha256':sha(raw),'bytes':len(raw)},'calendar':{'sha256':sha(cal),'bytes':len(cal)},
           'timezone':{'sha256':sha(tz),'bytes':len(tz)}}

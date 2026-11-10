@@ -1,0 +1,33 @@
+{
+  "schema": "polar.obs158-public-expected/2",
+  "source": "INDEPENDENT_SYSTEM1_CONTRACT_DERIVATION",
+  "review_sha256": "708f6bcfa0da23d20feb30b1ff1653a7f87e729c0dbec4b6f7c40b36e9668c45",
+  "initial_cents": 10000000,
+  "positive_fills_each_strategy": 158,
+  "fees_cents_each_strategy": 15800,
+  "cash_after_entry_cents": 30200,
+  "pre_split_position_cents": 63000,
+  "post_entry_pre_split_nav_cents": 9984200,
+  "final_nav_cents": 10425204,
+  "final_AAPL_physical": 80,
+  "final_TSLA_physical": 100,
+  "native_initial_units_AAPL_TSLA": 20,
+  "other_physical_quantity": 20,
+  "final_AAPL_position_cents": 252002,
+  "final_TSLA_position_cents": 315002,
+  "sample_points": 253,
+  "unit_events": 2,
+  "native_bar_round_trips": 39974,
+  "derivation": "156*63000+252002+315002+30200; raw constant close unchanged, per-position HALF_EVEN cents, physical shares multiply by known split before final mark; no funded post-split rebalance",
+  "prior_v13_control": {
+    "status": "SUPERSEDED_CONTROL_DEFECT_HISTORY_PRESERVED",
+    "constant_nav_cents": 9984200,
+    "final_physical_AAPL_TSLA": 20,
+    "native_units_AAPL_TSLA": [
+      5,
+      4
+    ],
+    "actual_initial_run": "42875072326/job130036155734",
+    "product_semantics_changed": false
+  }
+}

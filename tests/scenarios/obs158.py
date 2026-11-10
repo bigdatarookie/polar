@@ -56,7 +56,7 @@ def execute(report):
                                 'v':'0' if i*158+j<960 else '1000000'}
                         row={'source_symbol':alias,'reference_date':day,'adjustment':'raw','feed':'sip',
                              'currency':'USD_REQUEST_CONTRACT','asof':'2020-09-02',
-                             'raw_fields_exact_tokens':tokens,'aggregation_label':day+'T16:00:00-04:00',
+                             'raw_fields_exact_tokens':tokens,'aggregation_label':datetime.fromisoformat(day+'T16:00:00').replace(tzinfo=tz).isoformat(),
                              'estimated_K':known}
                         row.update({n:None for n in ['event_open_at','event_close_at','observed_published_at',
                                                    'observed_historical_available_at','economic_security_id']})
@@ -71,12 +71,7 @@ def execute(report):
                 r.update(aliases=158,dates=253,rows=39974,zero_volume_cells=960,private_source_reads=0)
             with phase('exact_checkout_ci_runtime_and_data_preflight') as r:
                 code=source_code()
-                controls_ref=write('expected-vector.json',{'schema':'polar.obs158-public-expected/1',
-                    'source':'SYSTEM1_V13_INDEPENDENT_PUBLIC_VECTOR','initial_cents':10000000,
-                    'positive_fills_each_strategy':158,'fees_cents_each_strategy':15800,
-                    'cash_after_entry_cents':30200,'each_position_cents':63000,'post_entry_nav_cents':9984200,
-                    'aggregate_exact_mark_micro':99540790000,'separately_settled_mark_cents':9954000,
-                    'sample_points':253,'unit_events':2,'native_bar_round_trips':39974})
+                controls_ref=ref(metadata/'expected.json')
                 controls=write('controls.json',{'schema':'polar.obs158-controls-binding/1',
                     'public_sha256':PUBLIC_SHA,'metric_sha256':METRIC_SHA,'source_code_sha256':sha(canonical(code)),
                     'output_contract_sha256':code['obs158_output_schema.json']['sha256'],
@@ -121,19 +116,32 @@ def execute(report):
                     assert len(converted['private_close_marks'])==39974 and len(converted['eligible_bars'])==39974
                     assert len(converted['barriers'])==518 and len(converted['unit_events'])==2
                     assert len(converted['sample_grid'])==253
+                    r['observed_boundary_accounts']=[{'strategy':t['strategy_id'],
+                        'cash_first':t['samples'][0]['cash_cents'],
+                        'nav_first':t['samples'][0]['price_ledger_value_cents'],
+                        'nav_first_entry':t['samples'][3]['price_ledger_value_cents'],
+                        'cash_last':t['samples'][-1]['cash_cents'],
+                        'nav_last':t['samples'][-1]['price_ledger_value_cents'],
+                        'AAPL_last_physical':t['samples'][-1]['positions']['AAPL'],
+                        'TSLA_last_physical':t['samples'][-1]['positions']['TSLA'],
+                        'fills':len(t['fills']), 'unit_events':t['unit_events']}
+                        for t in simulation['strategies']]
                     summaries=[]
                     for strategy in simulation['strategies']:
                         samples=strategy['samples'];fills=strategy['fills']
                         assert len(samples)==253 and len(fills)==158
                         assert sum(int(f['fee_cents']) for f in fills)==15800
                         assert all(int(s['price_ledger_value_cents'])==10000000 for s in samples[:3])
-                        assert all(int(s['price_ledger_value_cents'])==9984200 and int(s['cash_cents'])==30200 for s in samples[3:])
-                        assert all(int(q)==20 for q in samples[-1]['positions'].values())
-                        assert len(strategy['unit_events'])==2
+                        assert all(int(s['price_ledger_value_cents'])==9984200 and int(s['cash_cents'])==30200 for s in samples[3:-1])
+                        assert int(samples[-1]['price_ledger_value_cents'])==10425204
+                        assert samples[-1]['date']=='2020-08-31'
+                        assert int(samples[-1]['positions']['AAPL'])==80 and int(samples[-1]['positions']['TSLA'])==100
+                        assert all(int(q)==20 for alias,q in samples[-1]['positions'].items() if alias not in ['AAPL','TSLA'])
+                        assert len(strategy['unit_events'])==2 and all(int(u['native_quantity'])==20 for u in strategy['unit_events'])
                         assert all(int(b['observed_aliases'])==158 for b in strategy['barriers'])
                         summaries.append({'strategy':strategy['strategy_id'],'samples':253,'fills':158,
                             'fees_cents':15800,'post_entry_nav_cents':9984200,'cash_cents':30200,
-                            'terminal_positions_physical_each':20,'unit_events':strategy['unit_events']})
+                            'terminal_physical':{'other_aliases':20,'AAPL':80,'TSLA':100},'terminal_nav_cents':10425204,'unit_events':strategy['unit_events']})
                     r.update(strategies=summaries,semantic_files=list(FILES),manifest=saved['manifest'],
                              converted_counts={'marks':39974,'eligible':39974,'quotes':1896,'barriers':518,'samples':253,'units':2})
                 with phase('fresh_native_semantic_replay_and_immutable_readback') as r:
@@ -151,6 +159,9 @@ def execute(report):
         value['cleanup_status']=('PASS_TASK_DIRECTORY_REMOVED' if temporary is not None and not temporary.exists()
                                  else 'FAIL_TASK_DIRECTORY_REMAINS' if temporary is not None else 'NOT_CREATED')
         value['status']='PASS' if value['compute_status']=='PASS' and value['cleanup_status'].startswith('PASS') else 'FAIL'
+        import resource
+        value['resource_usage']={'self_maxrss_linux_kib':resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+                                 'children_maxrss_linux_kib':resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss}
         report.write_text(json.dumps(value,indent=2)+'\n')
 
 

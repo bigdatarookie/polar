@@ -5,11 +5,12 @@ TOOLS_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SOURCE_ROOT=$TOOLS_ROOT
 REPORT_DIR=
 TESTS=()
+SCENARIO_MODE=0
 while (($#)); do
   case "$1" in
     --source) SOURCE_ROOT=$(cd "$2" && pwd); shift 2 ;;
     --reports) REPORT_DIR=$2; shift 2 ;;
-    --scenario) TESTS+=(--scenario "$2"); shift 2 ;;
+    --scenario) SCENARIO_MODE=1; TESTS+=(--scenario "$2"); shift 2 ;;
     --test) TESTS+=(--test "$2"); shift 2 ;;
     *) echo 'usage: scripts/ci.sh [--source CHECKOUT] [--reports EMPTY_DIR] [--test tests/path.py]' >&2; exit 2 ;;
   esac
@@ -58,7 +59,12 @@ docker exec "$DB_ID" psql -U polar -h 127.0.0.1 -d polar_test_ci -c 'CREATE DATA
 GIT_MOUNTS=()
 GIT_COMMON=$(git -C "$SOURCE_ROOT" rev-parse --path-format=absolute --git-common-dir)
 case "$GIT_COMMON" in "$SOURCE_ROOT"/*) ;; *) GIT_MOUNTS+=(--mount "type=bind,src=$GIT_COMMON,dst=$GIT_COMMON,readonly") ;; esac
-TEST_ID=$(docker create --network "$NETWORK_ID" ${GIT_MOUNTS[@]+"${GIT_MOUNTS[@]}"} --label polar.resource.project=polar --label "polar.resource.task=$RUN_ID" \
+RESOURCE_ARGS=()
+if [[ "$SCENARIO_MODE" == 1 ]]; then
+  RESOURCE_ARGS=(--cpus 2 --memory 4g --memory-swap 4g)
+  echo '{"cpus":2,"memory_bytes":4294967296,"total_memory_swap_bytes":4294967296,"scope":"public synthetic scenario container"}' >"$REPORT_DIR/resource-limits.json"
+fi
+TEST_ID=$(docker create ${RESOURCE_ARGS[@]+"${RESOURCE_ARGS[@]}"} --network "$NETWORK_ID" ${GIT_MOUNTS[@]+"${GIT_MOUNTS[@]}"} --label polar.resource.project=polar --label "polar.resource.task=$RUN_ID" \
   --mount "type=bind,src=$SOURCE_ROOT,dst=/workspace,readonly" --mount "type=bind,src=$REPORT_DIR,dst=/reports" \
   -e POLAR_CI_RUNTIME_IMAGE_ID="$IMAGE_ID" \
   -e POLAR_TEST_DATABASE_URL=postgresql://polar:polar_ci@ci-db:5432/polar_test_ci \
