@@ -35,9 +35,11 @@ def fixture(tmp_path, mutate=None):
                  for s in aliases[:2]}
     rows = {}
     for s in aliases[:2]:
-        raw = canonical(originals[s]); raw_file = 'objects/'+sha(raw)+'.json'
         rows[s] = []
         for i,d in enumerate(days):
+            page = 0 if i == 0 else 1
+            raw = canonical({'bars': {s: originals[s]['bars'][s][:1] if page == 0 else originals[s]['bars'][s][1:]}})
+            raw_file = 'objects/'+sha(raw)+'.json'
             token = originals[s]['bars'][s][i]['c']
             row = source_row({'query_symbol': s, 'source_symbol': s, 'reference_date': d,
                 'raw_fields_exact_tokens': originals[s]['bars'][s][i],
@@ -45,7 +47,8 @@ def fixture(tmp_path, mutate=None):
                 'parent_relation': parents[s], 'observed_published_at': None,
                 'observed_historical_available_at': None,
                 'source_reference': {'raw_file': raw_file,'source_body_sha256': sha(raw),'source_array': 'bars/'+s,
-                    'source_row_ordinal': i, 'job_id': 'canonical-'+s, 'request_id': 'request-'+s, 'page': 1}})
+                    'source_row_ordinal': 0 if page == 0 else i-1, 'job_id': 'canonical-'+s,
+                    'request_id': 'request-'+s+'-'+str(page), 'page': page}})
             if mutate: mutate(s,i,row)
             rows[s].append(canonical(row)+b'\n')
     records = [{'literal_alias':s,'source_records':parents[s]['source_records'],
@@ -62,7 +65,8 @@ def fixture(tmp_path, mutate=None):
             'raw_coverage_ref':'canonical-'+s})+b'\n' for i,s in enumerate(aliases))
         m=put(directory/'parent-coverage-ledger.ndjson',cover);members['parent-coverage-ledger.ndjson']={k:m[k] for k in ['sha256','bytes']}
         for s in aliases[:2]:
-            raw=canonical(originals[s]); name='objects/'+sha(raw)+'.json';m=put(directory/name,raw);members[name]={k:m[k] for k in ['sha256','bytes']}
+            raw=canonical({'bars': {s: originals[s]['bars'][s][:1] if part == 0 else originals[s]['bars'][s][1:]}})
+            name='objects/'+sha(raw)+'.json';m=put(directory/name,raw);members[name]={k:m[k] for k in ['sha256','bytes']}
         partition={'schema':'polar.vendor-all-adjusted-source-content/1','source_plan_id':'INVENTED-PLAN','objects':members}
         pin=put(directory/'content-manifest.json',partition)
         for key,v in members.items():objects[rel+key]=v
@@ -104,6 +108,9 @@ def test_projection_preserves_original_token_all_relations_clocks_and_date_major
     assert quotes[0]['source_ref']['line_sha256']==sha(rows['AAA'][0])
     assert quotes[0]['source_ref']['line_sha256']!=sha(rows['AAA'][0].rstrip(b'\n'))
     assert quotes[0]['source_ref']['original_source_reference']['source_row_ordinal']==0
+    assert quotes[0]['source_ref']['original_source_reference']['page']==0
+    assert quotes[2]['source_ref']['original_source_reference']['page']==1
+    assert quotes[2]['source_ref']['original_source_reference']['source_row_ordinal']==0
     assert quotes[0]['source_ref']['original_source_reference']['source_array']=='bars/AAA'
     assert all(q['observed_published_at'] is None and q['observed_historical_available_at'] is None for q in quotes)
     relations=json.loads(Path(manifest['source_relations']['path']).read_text())
@@ -126,6 +133,10 @@ def test_projection_preserves_original_token_all_relations_clocks_and_date_major
     (lambda s,i,r:r.update(source_symbol='WRONG') if s=='AAA' and i==0 else None,'REFERENCE_NORMALIZED_ROW_IDENTITY'),
     (lambda s,i,r:r['source_reference'].update(source_body_sha256='0'*64) if s=='AAA' and i==0 else None,'REFERENCE_SOURCE_BODY_BINDING'),
     (lambda s,i,r:r['source_reference'].update(source_row_ordinal=999) if s=='AAA' and i==0 else None,'REFERENCE_SOURCE_ROW_BINDING'),
+    (lambda s,i,r:r['source_reference'].update(page=-1) if s=='AAA' and i==0 else None,'REFERENCE_ORIGINAL_SOURCE_POINTER'),
+    (lambda s,i,r:r['source_reference'].update(page=True) if s=='AAA' and i==0 else None,'REFERENCE_ORIGINAL_SOURCE_POINTER'),
+    (lambda s,i,r:r['source_reference'].update(page='0') if s=='AAA' and i==0 else None,'REFERENCE_ORIGINAL_SOURCE_POINTER'),
+    (lambda s,i,r:r['source_reference'].update(page=2) if s=='AAA' and i==0 else None,'REFERENCE_ORIGINAL_SOURCE_POINTER'),
     (lambda s,i,r:r['parent_relation'].update(job_id='wrong') if s=='AAA' and i==0 else None,'REFERENCE_PARENT_BINDING'),
 ])
 def test_rejects_actual_loss_or_conflict_without_publishing(tmp_path,mutation,error):

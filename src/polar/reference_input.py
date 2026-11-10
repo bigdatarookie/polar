@@ -49,7 +49,7 @@ def validate_source(value, members, relations):
     require(type(s) is dict and set(s) == SOURCE_FIELDS and
             type(s['source_body_sha256']) is str and re.fullmatch('[a-f0-9]{64}', s['source_body_sha256']) and
             type(s['source_row_ordinal']) is int and s['source_row_ordinal'] >= 0 and
-            type(s['page']) is int and s['page'] > 0 and
+            type(s['page']) is int and s['page'] in (0, 1) and
             (s['request_id'] is None or type(s['request_id']) is str), 'REFERENCE_ORIGINAL_SOURCE_POINTER')
     require(type(s['raw_file']) is str and not Path(s['raw_file']).is_absolute() and
             '..' not in Path(s['raw_file']).parts and
