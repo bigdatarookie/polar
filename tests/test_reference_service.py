@@ -8,7 +8,7 @@ import subprocess
 from zoneinfo import TZPATH
 import pytest
 
-from polar.reference_service import ReferenceResearchService,A,config_from_seed
+from polar.reference_service import ReferenceResearchService,A,INVENTED_A,config_from_seed
 from polar.research_results import ResearchResults
 
 
@@ -37,7 +37,8 @@ def fixture(tmp_path, monkeypatch):
     manifest={'schema':'polar.synthetic-reference-source-input/1','quote_basis':'VENDOR_SPLIT_AND_DIVIDEND_ADJUSTED_REFERENCE_CLOSE',
         'unit_type':'SYNTHETIC_REFERENCE_UNIT_NOT_RAW_SHARE','double_action_policy':'NO_ADDITIONAL_SPLIT_DIVIDEND_CREDIT_IN_REFERENCE_UNIT_MODEL',
         'symbols':symbols,'dates':{'count':400,'start':days[0],'end':days[-1]},'rows':1600,'schedule':sp,'quotes':qp,
-        'source_members':[{'sha256':'a'*64}],'parent_dataset_revision':'INVENTED-PUBLIC-FIXTURE','rights':'INVENTED_PUBLIC_TEST'}
+        'source_members':[{'sha256':'a'*64}],'parent_dataset_revision':'INVENTED-PUBLIC-FIXTURE','rights':'INVENTED_PUBLIC_TEST',
+        'provenance':{'kind':'DETERMINISTIC_INVENTED_FIXTURE','producer':'polar-public-tests','source_payloads':'NONE'}}
     mp=write(root/'manifest.json',manifest)
     cycles=[{'signal':days[i],'signal_index':i,'entry':days[i+1],'label_exit':days[i+22]} for i in [252,274]]
     def grid(lo,hi):
@@ -48,15 +49,17 @@ def fixture(tmp_path, monkeypatch):
         'validation_financial_grid':grid(320,350),'final_financial_grid':grid(351,399),
         'validation_complete_label_cycles':[{'signal':days[333],'signal_index':333,'entry':days[334],'label_exit':days[340]}],
         'final_complete_label_cycles':[{'signal':days[364],'signal_index':364,'entry':days[365],'label_exit':days[395]}]})
-    pp=write(root/'protocol.json',{'fit_event':days[310]+'T00:00:30+00:00','classification':'INVENTED'})
     timezone_path=next((Path(p)/'America/New_York' for p in TZPATH if (Path(p)/'America/New_York').is_file()),None)
     if timezone_path is None:
         from importlib.resources import files
         raw=files('tzdata').joinpath('zoneinfo/America/New_York').read_bytes()
     else:raw=timezone_path.read_bytes()
     tz=root/'New_York';tz.write_bytes(raw)
+    pp=write(root/'protocol.json',{'schema':'polar.invented-reference-protocol/1','profile_id':INVENTED_A,
+        'fit_event':days[310]+'T00:00:30+00:00','classification':'INVENTED','calendar_sha256':cp['sha256'],
+        'timezone_sha256':hashlib.sha256(raw).hexdigest(),'input_sha256':mp['sha256']})
     revision=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
-    cfg=config_from_seed({'namespace':'INVENTED','profile_id':A,'protocol_path':pp['path'],'input_path':mp['path'],
+    cfg=config_from_seed({'namespace':'INVENTED','profile_id':INVENTED_A,'protocol_path':pp['path'],'input_path':mp['path'],
         'calendar_path':cp['path'],'timezone_path':str(tz),'code_revision':revision,'runtime_image_id':'sha256:'+'f'*64,
         'candidate_id':'INVENTED-A','experiment_id':'INVENTED-A-ONE-FIT'})
     return store,cfg
@@ -86,4 +89,37 @@ def test_retained_source_cannot_be_relabeled_invented(tmp_path,monkeypatch):
     root,cfg=fixture(tmp_path,monkeypatch)
     cfg['input_ref']['sha256']='070ea3eb9363894aa37ec4254997be34116b745166b173e1ab1e7dcc4182e3cd'
     with pytest.raises(ValueError,match='RETAINED_AS_INVENTED_FORBIDDEN'):
+        ReferenceResearchService(root,64*1024**2).preflight(cfg)
+
+
+@pytest.mark.parametrize('field,value', [('rights','LICENSED_PRIVATE'),('parent_dataset_revision','PRIVATE-ANOTHER-REVISION'),
+    ('provenance',{'kind':'RETAINED_SOURCE','producer':'vendor','source_payloads':'PRIVATE'})])
+def test_invented_requires_positive_rights_and_provenance(tmp_path,monkeypatch,field,value):
+    root,cfg=fixture(tmp_path,monkeypatch);path=Path(cfg['input_ref']['path'])
+    manifest=json.loads(path.read_text());manifest[field]=value;cfg['input_ref']=write(path,manifest)
+    import polar.reference_service as service
+    def forbidden(*a,**k):raise AssertionError('UNADMITTED_SOURCE_NUMERIC_LOADER')
+    monkeypatch.setattr(service,'load_reference',forbidden)
+    with pytest.raises(ValueError,match='REFERENCE_INVENTED_RIGHTS_PROVENANCE'):
+        ReferenceResearchService(root,64*1024**2).preflight(cfg)
+
+
+@pytest.mark.parametrize('target',['calendar_ref','timezone_ref','protocol_ref'])
+def test_invented_control_rejects_unbound_protocol_calendar_timezone(tmp_path,monkeypatch,target):
+    root,cfg=fixture(tmp_path,monkeypatch);path=Path(cfg[target]['path'])
+    if target=='timezone_ref':
+        path.write_bytes(path.read_bytes()+b'changed')
+        cfg[target]={'path':str(path),'sha256':hashlib.sha256(path.read_bytes()).hexdigest()}
+    else:
+        value=json.loads(path.read_text());value['changed']=True;cfg[target]=write(path,value)
+    import polar.reference_service as service
+    def forbidden(*a,**k):raise AssertionError('UNADMITTED_SOURCE_NUMERIC_LOADER')
+    monkeypatch.setattr(service,'load_reference',forbidden)
+    with pytest.raises(ValueError,match='REFERENCE_INVENTED_PROTOCOL_BINDING'):
+        ReferenceResearchService(root,64*1024**2).preflight(cfg)
+
+
+def test_frozen_A_cannot_be_used_as_invented_control(tmp_path,monkeypatch):
+    root,cfg=fixture(tmp_path,monkeypatch);cfg['profile_id']=A
+    with pytest.raises(ValueError,match='REFERENCE_PROFILE_NAMESPACE'):
         ReferenceResearchService(root,64*1024**2).preflight(cfg)
