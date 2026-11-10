@@ -46,7 +46,7 @@ def public_reference(config, simulation, evaluation, *, semantic_id, semantic_ha
             ('NO_DOUBLE_ACTION_CREDIT','Vendor source already incorporates adjustment. No additional split units, dividend cash, or rebasing is credited.'),
             ('COUNTERFACTUAL_TIMING','Observed source availability remains unknown. Protocol K and D are counterfactual clock assumptions.'),
             ('MODEL_CLOSE_TIMING',config['clock_description']),
-            ('SURVIVOR_CONDITIONED_FOUR_ASSETS','Four fixed known survivors/ETF; distinct from the mission broad-data target, no full-universe claim.'),
+            config.get('cohort_limitation', ('SURVIVOR_CONDITIONED_FOUR_ASSETS','Four fixed known survivors/ETF; distinct from the mission broad-data target, no full-universe claim.')),
             ('EXPOSED_RETROSPECTIVE_INTERVAL','Chronological evaluation does not establish pristine process holdout or unseen history.'),
             ('MODELED_EXECUTION_COSTS','Whole reference units, exact-cent modeled costs, frozen decision quantities and next-close cash clipping; no calibrated capacity proof.'),
             ('UNMODELED_MARKET_EFFECTS','Spread, additional slippage, market impact, tax and financing are not estimated, not evidenced zero.'),
@@ -54,6 +54,7 @@ def public_reference(config, simulation, evaluation, *, semantic_id, semantic_ha
             ('PHASE_AND_FRESH_CAPITAL',phase+' uses a separate fresh model USD100000 portfolio; phases do not roll wealth forward.'),
             ('RISK_AND_POLICY_CLASS','Exposure and concentration may differ across controls. Point differences do not isolate causal alpha or risk-matched utility.'),
             ('NO_INFERENTIAL_ADOPTION','No calibrated significance, general alpha, prospective profit, original-hypothesis validation or adoption claim.')]
+    limits += config.get('additional_limitations', [])
     record={'schema_version':'polar.research-result/1','question':{'id':config['protocol_id']+'.'+phase,
         'label':config['question_label']+' — '+phase,'summary':config['question_summary']},
         'bindings':config['bindings'],'basis':{'currency':'USD','frequency':'DAILY','timezone':'UTC',
@@ -67,4 +68,6 @@ def public_reference(config, simulation, evaluation, *, semantic_id, semantic_ha
         'provenance':config['provenance']+[{'role':'semantic_manifest','id':semantic_id,'sha256':semantic_hash}],
         'evidence_level':config['evidence_level'],'financial_claim':'Limited synthetic adjusted-reference-unit comparison after modeled costs; no raw-share, investor-total-return or adoption claim.',
         'criteria':evaluation['criteria'],'point_interpretation':evaluation['point_interpretation']}
+    if 'source_coverage' in config:
+        record['source_coverage'] = config['source_coverage']
     return validate_result(record)

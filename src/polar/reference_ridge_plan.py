@@ -18,7 +18,9 @@ def weights_instruction(symbols, winner=None, equal=False, signal=None):
             'signal':signal}
 
 
-def ridge_phase_plan(market, fitted, grid_contract, tz):
+def ridge_phase_plan(market, fitted, grid_contract, tz, *, legs=None):
+    legs = LEGS if legs is None else legs
+    require(len(legs) == 4 and len(set(legs)) == 4, 'RIDGE_LEG_IDENTITIES')
     days=market['dates']; symbols=market['symbols']; schedules={r['date']:r for r in market['schedule']}
     initial,terminal=grid_contract['initial'],grid_contract['terminal']
     require(initial in days and terminal in days and initial<terminal,'RIDGE_PHASE_BOUNDARIES')
@@ -39,9 +41,9 @@ def ridge_phase_plan(market, fitted, grid_contract, tz):
                                             market['prices_micro'][days[index-252]][s])-1 for s in symbols}
         winner=min(symbols,key=lambda s:(-mom[s],symbols.index(s)))
         winner=winner if mom[winner]>0 else None
-        instructions={LEGS[0]:weights_instruction(symbols,forecast['selected_symbol'],signal=forecast),
-            LEGS[1]:weights_instruction(symbols,winner,signal={'momentum':{s:[v.numerator,v.denominator] for s,v in mom.items()}}),
-            LEGS[2]:weights_instruction(symbols,equal=True),LEGS[3]:{'kind':'HOLD'}}
+        instructions={legs[0]:weights_instruction(symbols,forecast['selected_symbol'],signal=forecast),
+            legs[1]:weights_instruction(symbols,winner,signal={'momentum':{s:[v.numerator,v.denominator] for s,v in mom.items()}}),
+            legs[2]:weights_instruction(symbols,equal=True),legs[3]:{'kind':'HOLD'}}
         decisions.append({'day':entry,'formation':day,'known_ns':nanoseconds(known),
             'decision_ns':nanoseconds(decision),'open_ns':close(entry),'kind':'REFERENCE','instructions':instructions})
     require(len(decisions)==grid_contract['monthly_decisions'],'RIDGE_DECISION_GRID')
@@ -49,8 +51,8 @@ def ridge_phase_plan(market, fitted, grid_contract, tz):
     require(nanoseconds(known)+60*10**9<close(terminal),'RIDGE_TERMINAL_CLOCK')
     decisions.append({'day':terminal,'formation':previous,'known_ns':nanoseconds(known),
         'decision_ns':nanoseconds(known)+60*10**9,'open_ns':close(terminal),'kind':'REFERENCE',
-        'instructions':{leg:{'kind':'EXIT'} for leg in LEGS}})
-    return {'profile':{'kind':'REFERENCE_TARGETS','legs':LEGS,'end':terminal},'symbols':symbols,
+        'instructions':{leg:{'kind':'EXIT'} for leg in legs}})
+    return {'profile':{'kind':'REFERENCE_TARGETS','legs':legs,'end':terminal},'symbols':symbols,
             'prices':{d:{s:{'close_micro':market['prices_micro'][d][s]} for s in symbols} for d in days},
             'grid':grid,'decisions':decisions,'forecasts':forecasts,
             'quote_basis':'SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT','clock_policy':'PINNED_REFERENCE_EARLY_CLOSE'}
