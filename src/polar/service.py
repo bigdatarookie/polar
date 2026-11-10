@@ -186,6 +186,25 @@ class Service:
     def gym_report(self, experiment_id):
         return self._gym().report(experiment_id)
 
+    def _hyp007_capability(self):
+        from .capability_service import CapabilityService
+        return CapabilityService(self.artifacts.root, self.artifacts.limit)
+
+    def hyp007_capability_prepare(self, config):
+        return self._hyp007_capability().prepare(config)
+
+    def hyp007_capability_run(self, sealed_config):
+        return self._hyp007_capability().run(sealed_config)
+
+    def hyp007_capability_replay(self, sealed_config, packet_id):
+        return self._hyp007_capability().replay(sealed_config, packet_id)
+
+    def hyp007_capability_attempt(self, attempt_id):
+        return self._hyp007_capability().attempt(attempt_id)
+
+    def hyp007_capability_report(self, packet_id):
+        return self._hyp007_capability().report(packet_id)
+
     def ready(self):
         self.registry.check()
         self.artifacts.check()
