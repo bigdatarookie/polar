@@ -19,6 +19,18 @@ def test_actual_ppo_rollout_true_terminals_and_final_native_trace():
     assert audit['represented_runtime']['rollout_buffer']['rewards']=='float32'
     assert audit['represented_runtime']['rollout_buffer']['advantages']=='float32'
     assert audit['represented_runtime']['policy_parameter_dtypes']==['torch.float32']
+    # Public algorithm metadata only: no fixture quotes, observations or ledgers.
+    from pathlib import Path
+    import json,subprocess
+    reports=Path('/reports')
+    if reports.is_dir():
+        report={'schema':'polar.reference-ppo-constructor-observation/1',
+            'candidate':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+            'scope':'INVENTED_256_TRANSITIONS_ONLY','defaults':audit['defaults'],
+            'represented_runtime':audit['represented_runtime'],'actual_optimizer_steps':audit['actual_optimizer_steps'],
+            'intraop_threads':audit['intraop_threads'],'interop_threads':audit['interop_threads'],
+            'deterministic_algorithms':audit['deterministic_algorithms']}
+        (reports/'ppo-constructor-observation.json').write_text(json.dumps(report,sort_keys=True,indent=2)+'\n')
     terminal=[r for r in audit['transitions'] if r['terminated']]
     assert len(terminal)==25
     assert all(r['next_observation'][-1]==0 and r['info']['terminal_action_ignored'] for r in terminal)
