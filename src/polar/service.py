@@ -23,6 +23,53 @@ class Service:
         self.history_cursor_key_file = settings.history_cursor_key_file
         self.history_calendar_dir = settings.history_calendar_dir or settings.artifacts/"history-calendar"
 
+    def _research(self):
+        from .research_results import ResearchResults
+        return ResearchResults(self.artifacts.root, self.artifacts.limit)
+
+    def _research_engine(self):
+        from .ci_research_service import ResearchService
+        return ResearchService(self.artifacts.root, self.artifacts.limit)
+
+    def research_preflight(self, config):
+        from .ci_research_service import operation_binding
+        from .gym_contract import canonical, sha
+        plan, pins = self._research_engine().prepare(config)
+        return {"schema": "polar.ci-research-preflight/1", "status": "READY_FOR_BOUND_OPERATION",
+                "profile_id": config["profile_id"], "pins": pins, "nav_points": len(plan["grid"]),
+                "decisions": len(plan["decisions"]), "strategy_execution": "NOT_RUN",
+                "operation_binding_sha256": sha(canonical(operation_binding(config, pins)))}
+
+    def research_config(self, seed):
+        from .ci_research_service import config_from_seed
+        return config_from_seed(seed)
+
+    def research_run(self, config):
+        return self._research_engine().run(config)
+
+    def research_recompute(self, semantic_id):
+        return self._research_engine().recompute(semantic_id)
+
+    def research_publish(self, result):
+        return self._research_call("publish", result)
+
+    def research_review(self, review):
+        return self._research_call("review", review)
+
+    def research_catalog(self, limit=10, offset=0):
+        return self._research_call("catalog", limit, offset)
+
+    def research_result(self, result_id):
+        return self._research_call("read", result_id)
+
+    def _research_call(self, operation, *args):
+        from .history_bundle import HistoryError
+        from .research_results import ResearchError
+        try:
+            return getattr(self._research(), operation)(*args)
+        except HistoryError:
+            raise ResearchError("RESEARCH_INTEGRITY_ERROR") from None
+
     def history_read(self, operation, **kwargs):
         import psycopg
         from .history_bundle import HistoryError
@@ -59,12 +106,16 @@ class Service:
                                         raw_sip=raw_sip,raw_profile=raw_profile))
 
     def _import_plan_service(self,plan_id):
+        if plan_id.startswith(('adjustedsip100-','adjustedsip100fixture-')):
+            return self._imports(plan_id.startswith('adjustedsip100fixture-'),True,'all-adjusted100')
         if plan_id.startswith(('rawsipaggregate-','rawsipaggregatefixture-')):
             return self._imports(plan_id.startswith('rawsipaggregatefixture-'),True,'remaining3490')
         return self._imports(plan_id.startswith(("fixture-","rawsipfixture-")),
                              plan_id.startswith(("rawsip-","rawsipfixture-")))
 
     def import_plan(self, config):
+        if config.get('adapter')=='alpaca-all-adjusted-sip-broad100/1':
+            return self._imports(config.get('mode')=='fixture',True,'all-adjusted100').plan(config)
         if config.get('adapter')=='alpaca-raw-sip-remaining/1':
             return self._imports(config.get('mode')=='fixture',True,'remaining3490').plan(config)
         return self._imports(config.get("mode")=="fixture",config.get("adapter")=="alpaca-raw-sip-first-unit/1").plan(config)
@@ -138,6 +189,25 @@ class Service:
 
     def gym_report(self, experiment_id):
         return self._gym().report(experiment_id)
+
+    def _hyp007_capability(self):
+        from .capability_service import CapabilityService
+        return CapabilityService(self.artifacts.root, self.artifacts.limit)
+
+    def hyp007_capability_prepare(self, config):
+        return self._hyp007_capability().prepare(config)
+
+    def hyp007_capability_run(self, sealed_config):
+        return self._hyp007_capability().run(sealed_config)
+
+    def hyp007_capability_replay(self, sealed_config, packet_id):
+        return self._hyp007_capability().replay(sealed_config, packet_id)
+
+    def hyp007_capability_attempt(self, attempt_id):
+        return self._hyp007_capability().attempt(attempt_id)
+
+    def hyp007_capability_report(self, packet_id):
+        return self._hyp007_capability().report(packet_id)
 
     def ready(self):
         self.registry.check()

@@ -183,3 +183,30 @@ Independent qualification should use invented files and a stdlib writer across
 two physical launches to observe RO inputs, UID/readability, persistent writes,
 automatic binding and exact cleanup. No retained data or native engine is needed
 to qualify this mount seam. Source tests are not that actual Docker proof.
+
+
+## Optional whole-container memory containment
+
+Config1/2/3 may include this closed optional field:
+
+```json
+"resources": {"memory_bytes": 2147483648, "memory_swap_total_bytes": 2147483648}
+```
+
+Both values are integer bytes. Memory must be 64 MiB through 64 GiB; total
+memory/swap must be at least memory and at most 64 GiB. Unlimited, fractional,
+missing or extra values fail before engine work. Equal totals allow no additional
+swap. The launcher sets Docker memory/memory-swap and keeps the OOM killer enabled.
+It reads exact HostConfig values from the same owned stopped container after
+create and immediately before start; mismatch prevents start and uses the existing
+exact-owned cleanup. Preparation and execution receipts retain those observations.
+Configurations without resources keep their existing behavior and send no such flags.
+
+This is a containment ceiling, not a measured peak, success guarantee or resource
+allocation. Actual current headroom/recovery and independent task review still
+belong to the operation owner. OOM/partial failure is preserved with no implicit
+retry. This change adds no sampling daemon, candidate operation or new launcher.
+Independent static review precedes create; the same stopped CID is then observed
+before start, and actual process UID/native checks happen inside it before the
+reviewed harness can admit its family event. No same-container observation can
+exist before that container is created.

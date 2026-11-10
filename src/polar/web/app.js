@@ -10,9 +10,11 @@ const shortDate = t => fmtDate(t).slice(0, 11);
 const themeKey = 'polar-retained-theme-v1', sessionKey = 'polar-retained-workspace-v1';
 let state = {...restoredControls(null, 0), dataMode:'real',assetId:null, strategyId:null, cursor:0, inspect:0, measurement:null, infoId:null};
 let dataset = null, detail = null, view = emptyView(), catalog = [], runRows = [], datasetOffset = 0, runOffset = 0;
+let researchWorkspace=null;
 let chart, loading = false, loadError = null, flow = 0, assetQuery = '', assetOptionIndex = 0, rendering = false, restoreFrame = 0;
 let pendingSelection=null, failedSelection=null;
 let historyContext=null,historyCatalogCursor=null,pendingHistoryRequest=null,pendingPlotRange=null;
+let viewportVersion=0,historyViewportTimer=null,pendingSeriesBuffer=null;
 const historyClient=createHistoryClient((...args)=>fetch(...args));
 const historyDisplayed=()=>dataset?.kind==='history'||(!dataset&&state.dataMode==='real');
 const loader = createLatestLoader((...args) => fetch(...args));
@@ -75,11 +77,11 @@ function canReuseHistoryContext(){return !!historyContext?.revision&&(!pendingHi
 function currentHistoryRequest(){return pendingHistoryRequest||{datasetId:historyContext?.revision?.dataset_id,revision:historyContext?.revision?.dataset_revision,instrumentId:historyContext?.instrument?.instrument_id};}
 function refreshHistoryOverlays(){
   saveWorkspace();if(state.dataMode!=='real'){keepScroll(renderAll);return;}
-  const request={...currentHistoryRequest(),seriesOnly:canReuseHistoryContext()};
+  const request={...currentHistoryRequest(),seriesOnly:canReuseHistoryContext(),rangeId:state.rangeId,window:null};
   keepScroll(renderRail);loadHistorySelection(request);
 }
 async function loadHistorySelection(request={}) {
-  const token=++flow;loader.cancel();historyClient.cancel();loading=true;loadError=null;failedSelection=null;pendingHistoryRequest=request;
+  const token=++flow;loader.cancel();if(!request.seriesOnly)historyClient.cancel();clearTimeout(historyViewportTimer);pendingSeriesBuffer=null;const requestedViewportVersion=viewportVersion;loading=true;loadError=null;failedSelection=null;pendingHistoryRequest=request;
   const controls=historyControls(state),requestedRange=request.rangeId||state.rangeId;
   state.dataMode='real';pendingSelection={label:request.seriesOnly?'series / '+requestedRange:[request.datasetId,request.instrumentId].filter(Boolean).join(' · ')||'registered history catalog'};renderPending();
   const current=()=>token===flow;
@@ -92,15 +94,18 @@ async function loadHistorySelection(request={}) {
     const previousWindow={first:view.bars[state.lo]?.time,last:view.bars[state.hi]?.endTime};
     const window=historyWindow(next,requestedRange,previousWindow,request.window);
     if(window&&historyNeedsSeries(controls)&&HISTORY_SERIES_RUNTIME.enabled){
-      try{next.series=await historyClient.series(next,controls,window);}
-      catch(error){if(error.message!=='HISTORY_INVALID_CURSOR'||!current())throw error;next.series=await historyClient.series(next,controls,window);}
+      const buffer=historyBufferedWindow(next,window);pendingSeriesBuffer={key:historySeriesCacheKey(next,controls),window:buffer};renderSeriesState();
+      try{next.series=await historyClient.series(next,controls,buffer);}
+      catch(error){if(error.message!=='HISTORY_INVALID_CURSOR'||!current())throw error;next.series=await historyClient.series(next,controls,buffer);}
       if(!current())return;
     }else next.series=null;
     next.seriesControls=next.series?controls:{...controls,sma:false,ema:false,bollinger:false,rsi:false,benchmark:false};
     next.seriesUnavailable=historyNeedsSeries(controls)&&!HISTORY_SERIES_RUNTIME.enabled?'C_RUNTIME_NOT_QUALIFIED':null;
     const nextView=buildHistoryView(next),same=dataset?.kind==='history'&&dataset.dataset_id===next.revision?.dataset_id&&dataset.dataset_revision===next.revision?.dataset_revision&&dataset.instrument.instrument_id===next.instrument?.instrument_id;
-    const nextState={...state,dataMode:'real',rangeId:requestedRange,granularity:'1D',assetId:next.instrument?.instrument_id||null,strategyId:null};
-    if(window&&nextView.bars.length){const first=nextView.bars.findIndex(b=>b.time>=window.start),indices=nextView.bars.map((b,i)=>b.time<window.end_exclusive?i:-1);nextState.lo=Math.max(0,first);nextState.hi=Math.max(nextState.lo,...indices);}
+    const preserveViewport=same&&(request.seriesOnly||viewportVersion!==requestedViewportVersion),latestWindow={start:view.bars[state.lo]?.time,end_exclusive:view.bars[state.hi]?historyDayAfter(view.bars[state.hi].time):null};
+    const displayWindow=preserveViewport&&latestWindow.start&&latestWindow.end_exclusive?latestWindow:window;
+    const nextState={...state,dataMode:'real',rangeId:preserveViewport?state.rangeId:requestedRange,granularity:'1D',assetId:next.instrument?.instrument_id||null,strategyId:null};
+    if(displayWindow&&nextView.bars.length){const first=nextView.bars.findIndex(b=>b.time>=displayWindow.start),indices=nextView.bars.map((b,i)=>b.time<displayWindow.end_exclusive?i:-1);nextState.lo=Math.max(0,first);nextState.hi=Math.max(nextState.lo,...indices);}
     else Object.assign(nextState,boundsForSelection(nextView,nextState,previousWindow));
     const remap=i=>nextView.bars.findIndex(b=>b.time===view.bars[i]?.time);
     if(same){nextState.cursor=remap(state.cursor);nextState.inspect=remap(state.inspect);if(nextState.measurement){const start=remap(state.measurement.start),end=remap(state.measurement.end);nextState.measurement=start>=0&&end>=0?{...state.measurement,start,end}:null;}}
@@ -111,13 +116,13 @@ async function loadHistorySelection(request={}) {
     dataset=nextDataset;detail=null;view=nextView;runRows=[];runOffset=datasetOffset=0;
     catalog=next.assets.map(a=>({kind:'history',dataset_id:a.instrument_id,name:a.display_symbol||a.source_symbol||a.instrument_id,instrument:{...a,ticker_history:[{ticker:a.display_symbol||a.source_symbol||a.instrument_id}]}}));state=nextState;
     state.cursorSource='assetClose';clampCursor();invalidateRange();if(!same)cancelGesture();
-    loading=false;pendingSelection=pendingHistoryRequest=pendingPlotRange=null;closeAssets();keepScroll(renderAll);writeURL(!!request.push);
+    loading=false;pendingSelection=pendingHistoryRequest=pendingPlotRange=pendingSeriesBuffer=null;closeAssets();keepScroll(renderAll);writeURL(!!request.push);scheduleViewportSeries();
     tell(next.revision?'Stored immutable history · '+(next.bars?.data_status||'EMPTY_WINDOW')+' · no strategy result.':'No registered chart-ready history. Nothing was substituted.');
-  }catch(error){if(!current())return;loading=false;loadError=/^[A-Z0-9_]+$/.test(error.message)?error.message:'HISTORY_UNAVAILABLE';failedSelection={history:true,request};pendingSelection=pendingHistoryRequest=pendingPlotRange=null;renderPending();syncToolbar();keepScroll(renderRail);if(!view.bars.length)renderChart();tell('History update failed · '+loadError+'. '+(dataset?'Last valid displayed context retained.':'No valid history display available.')+' Retry is available.');}
+  }catch(error){if(!current())return;loading=false;loadError=/^[A-Z0-9_]+$/.test(error.message)?error.message:'HISTORY_UNAVAILABLE';failedSelection={history:true,request};pendingSelection=pendingHistoryRequest=pendingPlotRange=pendingSeriesBuffer=null;renderPending();syncToolbar();keepScroll(renderRail);renderSeriesState();if(!view.bars.length)renderChart();tell('History update failed · '+loadError+'. '+(dataset?'Last valid displayed context retained.':'No valid history display available.')+' Retry is available.');}
 }
 async function loadSelection(datasetId, runId, {push=false, catalogPage=null, runsPage=0, restore=null}={}) {
   if(state.dataMode!=='retained-test')return loadHistorySelection({datasetId:datasetId||historyContext?.revision?.dataset_id,revision:historyContext?.revision?.dataset_revision,instrumentId:historyContext?.instrument?.instrument_id,push});
-  const token=++flow;loader.cancel();historyClient.cancel();pendingHistoryRequest=pendingPlotRange=null;loading=true;loadError=null;failedSelection=null;
+  const token=++flow;loader.cancel();historyClient.cancel();clearTimeout(historyViewportTimer);pendingSeriesBuffer=null;pendingHistoryRequest=pendingPlotRange=null;loading=true;loadError=null;failedSelection=null;
   const intent={datasetId,runId,options:{push,catalogPage,runsPage,restore}};
   pendingSelection={datasetId,runId};renderPending();
   const current=()=>token===flow;
@@ -185,12 +190,37 @@ function setGranularity(interval) {
   if(!dataset||!GRANULARITIES.includes(interval)||(historyDisplayed()&&interval!=='1D'))return;
   state.granularity=interval;state.measurement=null;state.infoId=null;view=buildView(dataset,detail?.report,interval);state.lo=0;state.hi=Math.max(0,view.bars.length-1);state.cursor=state.inspect=0;state.rangeId='All';cancelGesture();renderAll();saveWorkspace();tell(interval+' · supplied daily rows only; incomplete buckets stay unavailable.');
 }
+function visibleHistoryWindow(){return view.bars[state.lo]&&view.bars[state.hi]?{start:view.bars[state.lo].time,end_exclusive:historyDayAfter(view.bars[state.hi].time)}:null;}
+function renderSeriesState(){
+  const label=$('#series-state');if(!label)return;
+  const needed=historyDisplayed()&&historyNeedsSeries(state),window=visibleHistoryWindow();
+  const requested=needed&&historyContext?historySeriesCacheKey(historyContext,historyControls(state)):null;
+  const displayed=historyContext?.series?historySeriesCacheKey(historyContext,historyContext.series.controls):null;
+  const covered=needed&&!!historyContext?.series&&requested===displayed&&historyWindowContains(historyContext.series.window,window);
+  const failed=needed&&loadError&&failedSelection?.request?.seriesOnly;
+  label.hidden=!needed||covered&&!loading;
+  label.textContent=failed?'Indicator update unavailable · candles remain interactive':pendingSeriesBuffer?'Indicators loading · candles remain interactive':covered?'Requested indicators updating · candles remain interactive':'Indicator data not loaded here · candles remain interactive';
+}
+function scheduleViewportSeries(){
+  clearTimeout(historyViewportTimer);renderSeriesState();
+  if(!historyDisplayed()||!historyContext?.revision||!historyNeedsSeries(state)||!HISTORY_SERIES_RUNTIME.enabled||loading&&!pendingHistoryRequest?.seriesOnly)return;
+  const window=visibleHistoryWindow();if(!window)return;
+  const key=historySeriesCacheKey(historyContext,historyControls(state));
+  if(historyContext.series&&key===historySeriesCacheKey(historyContext,historyContext.series.controls)&&!historyBufferNeedsPrefetch(historyContext,historyContext.series.window,window))return;
+  if(pendingSeriesBuffer?.key===key&&historyWindowContains(pendingSeriesBuffer.window,window))return;
+  // Coalesce a burst before requesting a new backend buffer. Panning never waits.
+  const intent=flow;historyViewportTimer=setTimeout(()=>{if(intent!==flow||!historyDisplayed())return;loadHistorySelection({...currentHistoryRequest(),seriesOnly:true,rangeId:state.rangeId,window:visibleHistoryWindow()});},80);
+}
+function commitViewport(lo,hi,rangeId='Custom',dispatch=false){
+  viewportVersion++;state.lo=lo;state.hi=hi;state.rangeId=rangeId;pendingPlotRange=null;
+  if(dispatch&&chart){rendering=true;chart.dispatchAction({type:'dataZoom',startValue:lo,endValue:hi});rendering=false;}
+  clampCursor();invalidateRange();syncToolbar();drawMeasurement();showRaw(state.inspect);saveWorkspace();scheduleViewportSeries();
+}
 function setPreset(id) {
   if(!view.bars.length)return;
-  if(historyDisplayed()&&historyNeedsSeries(state)&&HISTORY_SERIES_RUNTIME.enabled){loadHistorySelection({...currentHistoryRequest(),seriesOnly:canReuseHistoryContext(),rangeId:id,window:null});return;}
   const last=new Date(view.bars.at(-1).endTime), lower=new Date(last); lower.setUTCHours(0,0,0,0);
   if(id==='1W')lower.setUTCDate(lower.getUTCDate()-7);else if(id==='All')lower.setTime(Date.parse(view.bars[0].time));else lower.setUTCMonth(lower.getUTCMonth()-({'1M':1,'3M':3,'6M':6,'12M':12}[id]||1));
-  state.rangeId=id;state.lo=Math.max(0,view.bars.findIndex(b=>Date.parse(b.endTime)>=lower));state.hi=view.bars.length-1;clampCursor();invalidateRange();renderChart();syncToolbar();drawMeasurement();showRaw(state.inspect);saveWorkspace();tell('Showing available observations; requested range is not additional history.');
+  commitViewport(Math.max(0,view.bars.findIndex(b=>Date.parse(b.endTime)>=lower)),view.bars.length-1,id,true);tell('Showing available observations; requested range is not additional history.');
 }
 function clampCursor() {state.cursor=Math.max(state.lo,Math.min(state.hi,state.cursor));state.inspect=Math.max(state.lo,Math.min(state.hi,state.inspect));}
 function setTheme(theme) {state.theme=theme;try{localStorage.setItem(themeKey,theme);}catch{}keepScroll(renderAll);document.getElementById('theme-'+theme)?.focus({preventScroll:true});saveWorkspace();tell('Theme changed; compatible measurement retained.');}
@@ -216,6 +246,24 @@ function historyReferenceNote(){
   if(!ref||!displayedHistoryControls().benchmark)return historyContext?.seriesUnavailable||'Backend reference unavailable; no client normalization is substituted.';
   return ref.status+' · '+ref.family+' · fixed full-revision anchor '+(ref.anchor_session||'none')+' · '+ref.common_valid_sessions+' common valid sessions. '+(ref.family==='RAW_PRICE_RELATIVE'?'Raw price-only; no action-correct wealth.':'Provider-adjusted close proxy; not independently reconstructed total return.')+' No funded NAV or Sharpe.';
 }
+function diagnosticPanel(parent,key,label,text){
+  const box=element('details',undefined,'diagnostic-disclosure');box.id='diagnostics-'+key;box.open=state.diagnostics?.[key]===true;
+  box.append(element('summary',label));panelNote(box,text);box.ontoggle=()=>{state.diagnostics[key]=box.open;saveWorkspace();};parent.append(box);
+}
+function overlaySamples(parent,keys){
+  const group=element('div',undefined,'overlay-samples');
+  for(const [key,label] of keys){const style=overlayStroke(key,palette()),item=element('span',undefined,'overlay-sample'),line=element('i');
+    line.setAttribute('aria-hidden','true');line.style.height=style.width+'px';line.style.background=strokeBackground(style);
+    item.dataset.series=key;item.append(line,document.createTextNode(label));group.append(item);}
+  parent.append(group);
+}
+function compactOverlayStatus(key){
+  if(!state[key])return 'Off';if(loading)return 'Updating · previous display retained';
+  if(!historyDisplayed())return key==='sma'&&legacySmaAvailable()?'Retained test only':'Unavailable';
+  if(historyContext?.seriesUnavailable)return 'Unavailable · see calculation details';
+  const name=key==='bollinger'?'bb_middle':key;
+  return historyContext?.series?.metadata.series_metadata[name]?.status||'Unavailable';
+}
 function indicatorCard(parent,key,title,shortName,period){
   const card=element('section',undefined,'indicator-card');
   const usable=key==='sma'&&legacySmaAvailable();
@@ -229,10 +277,11 @@ function indicatorCard(parent,key,title,shortName,period){
     input.onchange=()=>{const raw=input.value.trim().replace(',','.').replace(/^0+(?=\d)/,'');const cap=decimalDelta(raw,'10');if(raw.length>40||!/^\d+(?:\.\d{1,18})?$/.test(raw)||!/[1-9]/.test(raw)||cap===null||(cap[0]!=='-'&&/[1-9]/.test(cap))){input.setAttribute('aria-invalid','true');error.textContent='Enter a positive multiplier up to 10, with at most18 decimal places. Input retained.';return;}state.indicators.bollinger.deviation=raw;input.setAttribute('aria-invalid','false');error.textContent='Requested multiplier '+raw;refreshHistoryOverlays();};
   }
   const note=historyDisplayed()?historyIndicatorNote(key):usable?'Legacy test-only SMA20 display transform. Not a qualified real-history indicator.':key==='sma'&&state.dataMode==='retained-test'&&period===20?'Insufficient gap-free retained test observations for SMA20.':'Not rendered: accepted backend calculation/warmup result unavailable.';
-  panelNote(settings,note);card.append(settings);parent.append(card);
+  overlaySamples(settings,key==='bollinger'?[['bb_upper','Upper'],['bb_middle','Middle'],['bb_lower','Lower']]:[[key,shortName]]);
+  panelNote(settings,compactOverlayStatus(key));diagnosticPanel(settings,key,'Calculation details',note);card.append(settings);parent.append(card);
 }
 function setDataMode(mode){
-  if(mode===state.dataMode)return;
+  if(mode===state.dataMode)return;clearTimeout(historyViewportTimer);pendingSeriesBuffer=null;
   state.dataMode=mode;loadError=null;
   if(mode==='retained-test'){keepScroll(renderRail);const [asset,run]=urlSelection();loadSelection(run?asset:null,run||null,{catalogPage:0});}
   else loadHistorySelection({});
@@ -259,13 +308,13 @@ function renderRail() {
     const benchmark=element('div',undefined,'indicator-card');checkbox(benchmark,'benchmark-toggle','Buy-and-hold · price reference','Requested raw price-relative context only; not funded NAV or certified total return.','benchmark',false);if(historyDisplayed()){
       const label=element('label','Reference basis','indicator-deviation'),select=element('select');select.id='reference-family';
       for(const [value,text] of [['RAW_PRICE_RELATIVE','Raw price relative'],['PROVIDER_ADJUSTED_CLOSE_INDEX','Provider-adjusted close proxy']]){const option=element('option',text);option.value=value;select.append(option);}select.value=state.referenceFamily||'RAW_PRICE_RELATIVE';select.onchange=()=>{state.referenceFamily=select.value;refreshHistoryOverlays();};label.append(select);benchmark.append(label);
-    }panelNote(benchmark,historyDisplayed()?historyReferenceNote():'Not rendered: accepted backend reference values/basis are unavailable. No client replacement is calculated.');body.append(benchmark);
+    }overlaySamples(benchmark,[['asset_reference','Asset'],['benchmark_reference','VTI']]);diagnosticPanel(benchmark,'reference','Reference details',historyDisplayed()?historyReferenceNote():'Not rendered: accepted backend reference values/basis are unavailable. No client replacement is calculated.');body.append(benchmark);
     const context=element('div',undefined,'context-note');context.append(element('b','Settings are retained'),element('p','Periods change requested backend parameters, not the active asset or range. All pages/values/statuses commit together; previous coherent display is retained while updating.'));body.append(context);return;
   }
   if(historyDisplayed()) {
     panelNote(body,historyContext?.instrument?(getAsset().symbol+' · stored history'):'Choose registered stored history.');
     panelNote(body,'NO_STRATEGY_RESULT · this history has no attributed orders, NAV or Sharpe. Nothing is inferred from price movement.');
-    if(historyContext?.revision){const info=element('div',undefined,'context-note');info.append(element('b','Pinned source'),element('p',historyContext.revision.dataset_revision),element('p','Calendar '+(historyContext.bars?.coverage.calendar_status||historyContext.revision.calendar_status||'UNVERIFIED')+' · PIT '+(historyContext.revision.fitness?.causal_PIT_fitness||'INSUFFICIENT_EVIDENCE')));body.append(info);}return;
+    if(historyContext?.revision)diagnosticPanel(body,'source','Pinned source details',historyContext.revision.dataset_revision+' · Calendar '+(historyContext.bars?.coverage.calendar_status||historyContext.revision.calendar_status||'UNVERIFIED')+' · PIT '+(historyContext.revision.fitness?.causal_PIT_fitness||'INSUFFICIENT_EVIDENCE'));return;
   }
   panelNote(body,dataset?getAsset().symbol+' · '+getStrategy().name:'Choose an available retained dataset and run.');
   if(!detail?.report) {panelNote(body,detail?'Report unavailable · '+detail.run.state:loading?'Loading retained records…':loadError?'Unavailable · '+loadError:'No retained run selected.');return;}
@@ -336,29 +385,28 @@ function syncToolbar() {
   setLineLegend('asset-ref-legend',historyDisplayed()&&controls.benchmark&&!!series,getAsset().symbol+' · index100','equity-key');
   const benchmark=historyContext?.assets.find(a=>a.instrument_id===reference?.benchmark_instrument_id);
   setLineLegend('benchmark-legend',historyDisplayed()&&controls.benchmark&&!!series,(benchmark?.display_symbol||'Benchmark')+' · index100','benchmark-key');
+  $('#volume-toggle').setAttribute('aria-pressed',String(state.volume));$('#data-diagnostics').open=state.diagnostics?.raw===true;
   $('.volume-title').textContent=historyDisplayed()?'Volume · '+(historyContext?.revision?.basis.volume_unit||'split-adjusted shares'):'Volume unavailable · not supplied';
   $('#footer-context').textContent=historyDisplayed()?(dataset?getAsset().symbol+' · '+dataset.dataset_revision.slice(0,20)+'… · '+(historyContext?.instrument?.chart_fitness||historyContext?.revision?.fitness.chart_fitness||'NOT_READY'):'Stored history workspace'):dataset?getAsset().symbol+' · '+dataset.dataset_id.slice(0,15)+'… · '+(detail?.run.state||'No run')+' / '+(detail?.report?.status||'No report'):'Retained test workspace';
   $('#datasets-page').textContent=historyDisplayed()?(catalog.length+' mapped assets · pinned revision'):(catalog.length?'Datasets '+(datasetOffset+1)+'–'+(datasetOffset+catalog.length):'No datasets on page');
   $('#datasets-prev').disabled=loading||historyDisplayed()||datasetOffset===0;$('#datasets-next').disabled=loading||historyDisplayed()||catalog.length<10;
 
 }
-function renderAll() {document.documentElement.dataset.theme=resolvedTheme();renderPending();syncModes();renderRail();renderRows();renderRecord();syncToolbar();renderChart();drawMeasurement();showRaw(state.inspect);}
+function renderAll() {document.documentElement.dataset.theme=resolvedTheme();renderPending();syncModes();renderRail();renderRows();renderRecord();syncToolbar();renderChart();drawMeasurement();showRaw(state.inspect);renderSeriesState();}
 function chartLayout(){
-  const h=$('#chart').clientHeight,w=$('#chart').clientWidth,narrow=innerWidth<701,control=displayedHistoryControls();
-  const rsi=historyDisplayed()&&!!historyContext?.series&&control.rsi,reference=historyDisplayed()&&!!historyContext?.series&&control.benchmark;
-  const left=narrow?43:57,right=reference?(narrow?43:60):(narrow?15:22),grid=[];
-  if(rsi){const gap=24,usable=Math.max(70,h-130),price=Math.floor(usable*.58),volume=Math.floor(usable*.18);grid.push({left,right,top:24,height:price},{left,right,top:24+price+gap,height:volume},{left,right,top:24+price+volume+2*gap,height:usable-price-volume});}
-  else grid.push({left,right,top:24,height:Math.max(1,h-147)},{left,right,top:h-87,height:43});
-  return {grid,left,right,rsi,reference,priceBox:{x:left,y:24,width:w-left-right,height:grid[0].height}};
+  const control=displayedHistoryControls();
+  return chartGeometry({height:$('#chart').clientHeight,width:$('#chart').clientWidth,narrow:innerWidth<701,
+    rsi:historyDisplayed()&&!!historyContext?.series&&control.rsi,
+    reference:historyDisplayed()&&!!historyContext?.series&&control.benchmark,volume:state.volume});
 }
 function renderChart() {
-  if(!chart)return;hideCandleBoundary();const c=palette(),bars=view.bars,narrow=innerWidth<701,layout=chartLayout(),control=displayedHistoryControls(),real=historyDisplayed();
+  if(!chart||$('#workspace').hidden)return;hideCandleBoundary();const c=palette(),bars=view.bars,narrow=innerWidth<701,layout=chartLayout(),control=displayedHistoryControls(),real=historyDisplayed();
   const available=anySource('assetClose')||anySource('strategyEquity'),message=$('#view-message');message.hidden=available;
   message.textContent=real?(loading?'Loading registered history…':loadError?'History unavailable · '+loadError:dataset?'No observed OHLCV in the selected window. No values were padded.':'No registered chart-ready stored history. No synthetic data was substituted.'):loading?'Loading retained records…':loadError?'Backend unavailable · '+loadError:!dataset?'No retained datasets':['NO_DATA','INVALID'].includes(detail?.report?.status)?'Retained report: '+detail.report.status+(detail.report.diagnostic?' · '+detail.report.diagnostic:''):detail&&!detail.report?'Report unavailable · '+detail.run.state:'No plottable observations; source values are unavailable.';
   const series=[{id:'asset',name:real?'Raw vendor OHLC':'Retained asset OHLC',type:'candlestick',data:bars.map(b=>['open','close','low','high'].map(k=>real?(b.price_status==='OBSERVED'?numberOrNull(b[k]):null):indexValue(b[k],view.baseClose))),itemStyle:{color:c.up,color0:c.down,borderColor:c.up,borderColor0:c.down},emphasis:{disabled:true},barMaxWidth:15,z:2}];
   if(real){
-    series.push({id:'volume',name:'Split-adjusted volume',type:'bar',xAxisIndex:1,yAxisIndex:1,data:bars.map(b=>b.volume_status==='OBSERVED'?numberOrNull(b.volume):null),itemStyle:{color:c.muted,opacity:.55},barMaxWidth:15,z:1});
-    const add=(key,name,color,width=1.7,type='solid',xAxisIndex=0,yAxisIndex=0)=>series.push({id:key,name,type:'line',xAxisIndex,yAxisIndex,data:(view.cPoints||[]).map(point=>numberOrNull(historySeriesValue(point,key))),connectNulls:false,showSymbol:false,smooth:false,lineStyle:{color,width,type},emphasis:{disabled:true},z:4});
+    if(state.volume)series.push({id:'volume',name:'Split-adjusted volume',type:'bar',xAxisIndex:1,yAxisIndex:1,data:bars.map(b=>b.volume_status==='OBSERVED'?numberOrNull(b.volume):null),itemStyle:{color:c.muted,opacity:.55},barMaxWidth:15,z:1});
+    const add=(key,name,color,width=1.7,type='solid',xAxisIndex=0,yAxisIndex=0)=>series.push({id:key,name,type:'line',xAxisIndex,yAxisIndex,data:(view.cPoints||[]).map(point=>numberOrNull(historySeriesValue(point,key))),connectNulls:false,showSymbol:false,smooth:false,lineStyle:overlayStroke(key,c),emphasis:{disabled:true},z:4});
     const params=historyContext?.series?.metadata.parameters;
     if(control.sma&&params)add('sma','SMA'+params.sma_period,c.sma,1.8,'dotted');
     if(control.ema&&params)add('ema','EMA'+params.ema_period,c.action,1.8,'dashed');
@@ -371,12 +419,12 @@ function renderChart() {
     if(state.markers&&numberOrNull(view.baseClose)>0)series.push({id:'fills',name:'Actual signed fills',type:'scatter',symbol:'triangle',symbolSize:7,data:view.markers.filter(f=>f.plotIndex>=0).map(f=>({value:[bars[f.plotIndex].time,indexValue(f.price,view.baseClose)],fill:f})),itemStyle:{color:c.equity},z:6});
   }
   const x={type:'category',data:bars.map(b=>b.time),boundaryGap:true,axisTick:{show:false},axisLine:{lineStyle:{color:c.rule}},axisLabel:{color:c.muted,fontSize:narrow?9:10,formatter:shortDate}};
-  const xAxis=[{...x,gridIndex:0,axisLabel:{show:false}},{...x,gridIndex:1,axisLabel:layout.rsi?{show:false}:x.axisLabel}];if(layout.rsi)xAxis.push({...x,gridIndex:2});
-  const yAxis=[{type:'value',gridIndex:0,scale:true,splitNumber:narrow?3:5,axisLabel:{color:c.muted,fontSize:narrow?8:10},splitLine:{lineStyle:{color:c.rule,opacity:.55}}},{type:'value',gridIndex:1,show:real,splitNumber:2,axisLabel:{hideOverlap:true,color:c.muted,fontSize:8,formatter:n=>n>=1e6?(n/1e6).toFixed(1)+'m':n>=1e3?(n/1e3).toFixed(0)+'k':String(n)},splitLine:{show:false}},{type:'value',gridIndex:0,position:'right',scale:true,show:layout.reference,splitNumber:3,axisLabel:{color:c.benchmark,fontSize:8,formatter:n=>Math.abs(n)>=1000?(n/1000).toFixed(1)+'k':String(Number(n.toFixed(1)))},splitLine:{show:false}}];
+  const xAxis=[{...x,gridIndex:0,axisLabel:!layout.rsi&&!layout.volume?x.axisLabel:{show:false}},{...x,gridIndex:1,show:layout.volume,axisLabel:layout.rsi||!layout.volume?{show:false}:x.axisLabel}];if(layout.rsi)xAxis.push({...x,gridIndex:2});
+  const yAxis=[{type:'value',gridIndex:0,scale:true,splitNumber:narrow?3:5,axisLabel:{color:c.muted,fontSize:narrow?8:10},splitLine:{lineStyle:{color:c.rule,opacity:.55}}},{type:'value',gridIndex:1,show:real&&layout.volume,splitNumber:2,axisLabel:{hideOverlap:true,color:c.muted,fontSize:8,formatter:n=>n>=1e6?(n/1e6).toFixed(1)+'m':n>=1e3?(n/1e3).toFixed(0)+'k':String(n)},splitLine:{show:false}},{type:'value',gridIndex:0,position:'right',scale:true,show:layout.reference,splitNumber:3,axisLabel:{color:c.benchmark,fontSize:8,formatter:n=>Math.abs(n)>=1000?(n/1000).toFixed(1)+'k':String(Number(n.toFixed(1)))},splitLine:{show:false}}];
   if(layout.rsi)yAxis.push({type:'value',gridIndex:2,min:0,max:100,interval:50,axisLabel:{color:c.muted,fontSize:8},splitLine:{lineStyle:{color:c.rule,opacity:.55}}});
   const axes=layout.rsi?[0,1,2]:[0,1];
   rendering=true;chart.setOption({animation:false,backgroundColor:c.surface,textStyle:{fontFamily:'Golos Text',color:c.ink},grid:layout.grid,xAxis,yAxis,dataZoom:[{id:'inside',type:'inside',xAxisIndex:axes,startValue:state.lo,endValue:state.hi,filterMode:real?'filter':'none',rangeMode:['value','value'],zoomOnMouseWheel:false,moveOnMouseWheel:false,moveOnMouseMove:true,disabled:!available},{id:'slider',type:'slider',xAxisIndex:axes,startValue:state.lo,endValue:state.hi,filterMode:real?'filter':'none',rangeMode:['value','value'],left:layout.left,right:layout.right,bottom:4,height:15,moveHandleSize:0,showDataShadow:false,showDetail:false,borderColor:c.rule,backgroundColor:c.surface,fillerColor:resolvedTheme()==='dark'?'#bb9ae720':'#7145a315',handleStyle:{color:c.surface,borderColor:c.action},brushSelect:false,disabled:!available}],tooltip:{show:true,trigger:'item',confine:true,backgroundColor:c.surface,borderColor:c.rule,textStyle:{color:c.ink,fontSize:10,fontFamily:'Golos Text'},formatter:p=>{if(state.measurement||!p.data?.fill)return '';const f=p.data.fill;return element('div',(Number(f.quantity)<0?'SELL ':'BUY ')+f.quantity+' shares · '+usd(f.price)+' · fee '+f.fee+' · '+fmtDate(f.fill_at)+' · receipt '+fmtDate(f.receipt_at));}},series},{notMerge:true});rendering=false;
-  const volume=$('.volume-title');Object.assign(volume.style,{left:(layout.left+2)+'px',top:(layout.grid[1].top-18)+'px',bottom:'auto'});
+  const volume=$('.volume-title');volume.hidden=!layout.volume;Object.assign(volume.style,{left:(layout.left+2)+'px',top:(layout.grid[1].top-18)+'px',bottom:'auto'});
   const caption=$('#rsi-caption');if(caption){caption.hidden=!layout.rsi;caption.textContent='RSI'+(historyContext?.series?.metadata.parameters.rsi_period||'')+' · 0–100';if(layout.rsi)Object.assign(caption.style,{left:(layout.left+2)+'px',top:(layout.grid[2].top-14)+'px'});}
   requestAnimationFrame(drawMeasurement);
 }
@@ -386,12 +434,15 @@ function derivedReadout(i){
   const fields=[];for(const [flag,keys] of [['sma',['sma']],['ema',['ema']],['bollinger',['bb_lower','bb_middle','bb_upper']],['rsi',['rsi']],['benchmark',['asset_reference','benchmark_reference']]])if(control[flag])for(const key of keys){const item=point?.statuses?.[key],value=historySeriesValue(point,key);fields.push(key+(key==='sma'||key==='ema'||key==='rsi'?'('+params[key+'_period']+')':'')+' '+(value!==null?value:'Unavailable · '+(item?.reason||item?.status||'NO_POINT')));}
   return fields.length?'\nBackend · '+fields.join(' · '):'';
 }
+function setRawReadout(text){$('#raw-readout').textContent=text;$('#diagnostic-summary').textContent=text.split('\n')[0];}
 function showRaw(i) {
-  const b=view.bars[i], n=view.equity[i];if(b?.missingBar){$('#raw-readout').textContent='Reference date '+b.session_date+' · no source OHLCV row. No candle/volume was fabricated.'+derivedReadout(i);state.inspect=i;return;}if(b&&historyDisplayed()){$('#raw-readout').textContent='Session '+b.session_date+' · '+getAsset().symbol+' · '+b.price_status+' · calendar '+(historyContext?.bars?.coverage.calendar_status||'UNVERIFIED')+'\nO '+usd(b.open)+' · H '+usd(b.high)+' · L '+usd(b.low)+' · C '+usd(b.close)+'\nAdjusted close '+usd(b.adjusted_close)+' · volume '+(b.volume??'Unavailable')+' '+(historyContext?.revision?.basis.volume_unit||'split-adjusted shares')+'\nEvent clock '+(b.event_at?fmtDate(b.event_at):'not supplied')+' · no strategy result'+derivedReadout(i);state.inspect=i;return;}if(!b){$('#raw-readout').textContent=loading?'Loading…':loadError?'Values unavailable · '+loadError:'No retained source observations.';return;}state.inspect=i;
-  $('#raw-readout').textContent=fmtDate(b.time)+' – '+fmtDate(b.endTime)+' · '+getAsset().symbol+' · '+b.price_status+' ['+b.originalStatuses.join(', ')+'] · '+b.coverage.observed+'/'+b.coverage.supplied+' supplied sessions; calendar completeness not asserted\nO '+usd(b.open)+' · H '+usd(b.high)+' · L '+usd(b.low)+' · C '+usd(b.close)+' · volume unavailable\nNAV '+usd(n.value)+' at '+fmtDate(n.at)+' · cash '+usd(n.cash)+' · shares '+(n.shares??'Unavailable')+' · '+n.status;
+  const b=view.bars[i], n=view.equity[i];if(b?.missingBar){setRawReadout('Reference date '+b.session_date+' · no source OHLCV row. No candle/volume was fabricated.'+derivedReadout(i));state.inspect=i;return;}if(b&&historyDisplayed()){setRawReadout('Session '+b.session_date+' · '+getAsset().symbol+' · '+b.price_status+' · calendar '+(historyContext?.bars?.coverage.calendar_status||'UNVERIFIED')+'\nO '+usd(b.open)+' · H '+usd(b.high)+' · L '+usd(b.low)+' · C '+usd(b.close)+'\nAdjusted close '+usd(b.adjusted_close)+' · volume '+(b.volume??'Unavailable')+' '+(historyContext?.revision?.basis.volume_unit||'split-adjusted shares')+'\nEvent clock '+(b.event_at?fmtDate(b.event_at):'not supplied')+' · no strategy result'+derivedReadout(i));state.inspect=i;return;}if(!b){setRawReadout(loading?'Loading…':loadError?'Values unavailable · '+loadError:'No retained source observations.');return;}state.inspect=i;
+  setRawReadout(fmtDate(b.time)+' – '+fmtDate(b.endTime)+' · '+getAsset().symbol+' · '+b.price_status+' ['+b.originalStatuses.join(', ')+'] · '+b.coverage.observed+'/'+b.coverage.supplied+' supplied sessions; calendar completeness not asserted\nO '+usd(b.open)+' · H '+usd(b.high)+' · L '+usd(b.low)+' · C '+usd(b.close)+' · volume unavailable\nNAV '+usd(n.value)+' at '+fmtDate(n.at)+' · cash '+usd(n.cash)+' · shares '+(n.shares??'Unavailable')+' · '+n.status);
 }
 function windowGeometry() {const box=plotBox(),r=$('#chart').getBoundingClientRect();return {lo:state.lo,hi:state.hi,count:view.bars.length?state.hi-state.lo+1:0,first:view.bars[state.lo]?.time,last:view.bars[state.hi]?.time,canvas:{left:r.left,top:r.top,width:r.width,height:r.height},grid:box};}
 function initUI() {
+  $('#data-diagnostics').ontoggle=()=>{state.diagnostics.raw=$('#data-diagnostics').open;saveWorkspace();};
+  $('#volume-toggle').onclick=()=>{state.volume=!state.volume;keepScroll(()=>{syncToolbar();renderChart();drawMeasurement();});saveWorkspace();tell(state.volume?'Volume shown':'Volume hidden · space returned to candles');};
   const rsiCaption=element('span','','rsi-title');rsiCaption.id='rsi-caption';rsiCaption.hidden=true;$('#chart-stage').append(rsiCaption);$('#raw-readout').tabIndex=0;$('#raw-readout').setAttribute('aria-label','Raw source and calculated indicator values');
   $$('[data-mode]').forEach(b=>b.onclick=()=>{state.mode=b.dataset.mode;renderRail();syncModes();if(innerWidth<701)openTools();saveWorkspace();});
   $$('[data-sort]').forEach(b=>b.onclick=()=>{if(state.sortBy===b.dataset.sort)state.sortDir=state.sortDir==='desc'?'asc':'desc';else{state.sortBy=b.dataset.sort;state.sortDir='desc';}keepScroll(renderRows);saveWorkspace();});
@@ -401,19 +452,15 @@ function initUI() {
   $('#tools-button').onclick=openTools;$('#close-tools').onclick=()=>{$('#rail-inner').classList.remove('mobile-open');$('#tools-button').focus({preventScroll:true});};
   $('#retry-selection').onclick=()=>{if(failedSelection){const f=failedSelection;f.history?loadHistorySelection(f.request):loadSelection(f.datasetId,f.runId,f.options)}};
   $('#open-test-mode').onclick=()=>setDataMode('retained-test');
-  $('#refresh').onclick=()=>state.dataMode==='real'?loadHistorySelection({datasetId:historyContext?.revision?.dataset_id,revision:historyContext?.revision?.dataset_revision,instrumentId:historyContext?.instrument?.instrument_id}):loadSelection(dataset?.dataset_id||urlSelection()[0],detail?.run.id||urlSelection()[1],{catalogPage:datasetOffset,runsPage:runOffset});
-  $('#reset').onclick=()=>{state={...restoredControls(null,0),dataMode:state.dataMode,assetId:null,strategyId:null,cursor:0,inspect:0,measurement:null,infoId:null};try{localStorage.removeItem(themeKey);sessionStorage.removeItem(sessionKey);}catch{}$('#rail-inner').classList.remove('mobile-open');state.dataMode==='real'?loadHistorySelection({}):loadSelection(null,null,{catalogPage:0});};
+  $('#refresh').onclick=()=>researchWorkspace?.isActive()?researchWorkspace.refresh():state.dataMode==='real'?loadHistorySelection({datasetId:historyContext?.revision?.dataset_id,revision:historyContext?.revision?.dataset_revision,instrumentId:historyContext?.instrument?.instrument_id}):loadSelection(dataset?.dataset_id||urlSelection()[0],detail?.run.id||urlSelection()[1],{catalogPage:datasetOffset,runsPage:runOffset});
+  $('#reset').onclick=()=>{researchWorkspace?.reset();state={...restoredControls(null,0),dataMode:state.dataMode,assetId:null,strategyId:null,cursor:0,inspect:0,measurement:null,infoId:null};try{localStorage.removeItem(themeKey);sessionStorage.removeItem(sessionKey);}catch{}$('#rail-inner').classList.remove('mobile-open');state.dataMode==='real'?loadHistorySelection({}):loadSelection(null,null,{catalogPage:0});};
   $('#datasets-prev').onclick=()=>loadSelection(null,null,{push:true,catalogPage:Math.max(0,datasetOffset-10)});$('#datasets-next').onclick=()=>loadSelection(null,null,{push:true,catalogPage:datasetOffset+10});
   $('#runs-prev').onclick=()=>loadSelection(dataset?.dataset_id,null,{push:true,runsPage:Math.max(0,runOffset-10)});$('#runs-next').onclick=()=>loadSelection(dataset?.dataset_id,null,{push:true,runsPage:runOffset+10});
   const input=$('#asset-search');input.onfocus=()=>{assetQuery='';assetOptionIndex=0;renderAssets();input.select();};input.oninput=()=>{assetQuery=input.value.toLowerCase();assetOptionIndex=0;renderAssets();};input.onkeydown=e=>{const list=filteredAssets();if(['ArrowDown','ArrowUp'].includes(e.key)){e.preventDefault();assetOptionIndex=Math.max(0,Math.min(list.length-1,assetOptionIndex+(e.key==='ArrowDown'?1:-1)));renderAssets();}else if(e.key==='Enter'&&!$('#asset-options').hidden&&list[assetOptionIndex]){e.preventDefault();selectAsset(list[assetOptionIndex].dataset_id);}else if(e.key==='Escape')closeAssets();};input.onblur=()=>setTimeout(closeAssets,100);
   chart=echarts.init($('#chart'),null,{renderer:'canvas'});chart.on('datazoom',()=>{
     if(rendering||!view.bars.length)return;const d=chart.getOption().dataZoom[0],n=view.bars.length,index=v=>typeof v==='string'?view.bars.findIndex(b=>b.time===v):Number(v);
     const lo=Math.max(0,Math.min(n-1,Number.isFinite(index(d.startValue))?index(d.startValue):Math.ceil(d.start/100*(n-1)))),hi=Math.max(lo,Math.min(n-1,Number.isFinite(index(d.endValue))?index(d.endValue):Math.floor(d.end/100*(n-1))));
-    if(historyDisplayed()&&historyNeedsSeries(state)&&HISTORY_SERIES_RUNTIME.enabled){
-      rendering=true;chart.dispatchAction({type:'dataZoom',startValue:state.lo,endValue:state.hi});rendering=false;pendingPlotRange={lo,hi};
-      loadHistorySelection({...currentHistoryRequest(),seriesOnly:canReuseHistoryContext(),rangeId:'Custom',window:{start:view.bars[lo].time,end_exclusive:historyDayAfter(view.bars[hi].time)}});return;
-    }
-    state.lo=lo;state.hi=hi;state.rangeId='Custom';clampCursor();invalidateRange();syncToolbar();drawMeasurement();showRaw(state.inspect);saveWorkspace();
+    commitViewport(lo,hi);
   });
   let lastSize='';new ResizeObserver(()=>{const w=$('#chart').clientWidth,h=$('#chart').clientHeight;if(document.hidden||w<40||h<40)return;const size=w+'x'+h;if(size===lastSize)return;lastSize=size;chart.resize();renderChart();positionInfo();requestAnimationFrame(drawMeasurement);}).observe($('#chart'));
   initGestures();$('#strategy-list').addEventListener('scroll',positionInfo,{passive:true});
@@ -424,11 +471,20 @@ function initUI() {
   matchMedia('(prefers-color-scheme: light)').addEventListener('change',()=>{if(state.theme==='auto')renderAll();});
   document.fonts?.ready?.then(()=>{chart.resize();renderChart();drawMeasurement();});
 }
+function initResearchWorkspace(){
+  const root=element('main');root.id='research-workspace';$('#workspace').after(root);
+  const foot=element('span');foot.id='research-footer';$('footer').prepend(foot);
+  researchWorkspace=createResearchWorkspace({root,historyWorkspace:$('#workspace'),fetcher:fetch,
+    theme:()=>state.theme,setTheme,
+    onToggle:active=>{document.body.dataset.workspace=active?'research':'price';foot.hidden=!active;if(!active)requestAnimationFrame(()=>{chart.resize();renderChart();drawMeasurement();});},
+    onContext:text=>{foot.textContent=text;foot.title=text;}});
+  $('.topbar').insertBefore(researchWorkspace.navigation,$('.top-actions'));
+}
 function boot() {
   let restored=null;
   try {restored=JSON.parse(sessionStorage.getItem(sessionKey)||'null');Object.assign(state,restoredControls(restored?.controls,0));const theme=localStorage.getItem(themeKey);if(['auto','light','dark'].includes(theme))state.theme=theme;} catch {}
   state.dataMode=new URL(location.href).searchParams.get('mode')==='retained-test'?'retained-test':'real';
-  initUI();const initial=urlSelection(),explicitURL=initial.some(Boolean);
+  initUI();if(typeof createResearchWorkspace==='function')initResearchWorkspace();const initial=urlSelection(),explicitURL=initial.some(Boolean);
   if(state.dataMode==='retained-test')loadSelection(explicitURL?initial[0]:restored?.dataset_id,explicitURL?initial[1]:restored?.run_id,{restore:explicitURL?null:restored});else{const p=new URL(location.href).searchParams;if(p.get('run')){renderAll();tell('Retained run link preserved. Open explicit retained test mode to use its synthetic report.');}else loadHistorySelection({datasetId:p.get('dataset'),revision:p.get('revision'),instrumentId:p.get('instrument')});}
 }
 if(typeof module==='undefined')boot();
