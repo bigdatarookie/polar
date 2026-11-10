@@ -266,9 +266,11 @@ def main(argv=None):
             print(json.dumps(result,sort_keys=True,allow_nan=False))
             if result.get("status") in ("FAILED","UNFINALIZED"):raise SystemExit(1)
         except Exception as exc:
-            print(json.dumps({"schema":"polar.obs158-error/1","status":"ERROR",
-                  "code":str(exc) if isinstance(exc,Obs158Error) else "OBS158_DEPENDENCY_OR_RECORD_INVALID"}),
-                  file=sys.stderr)
+            failure={"schema":"polar.obs158-error/1","status":"ERROR",
+                     "code":str(exc) if isinstance(exc,Obs158Error) else "OBS158_DEPENDENCY_OR_RECORD_INVALID"}
+            if isinstance(exc,Obs158Error) and hasattr(exc,'preflight_diagnostic'):
+                failure['preflight_diagnostic']=exc.preflight_diagnostic
+            print(json.dumps(failure),file=sys.stderr)
             raise SystemExit(1)
         return
     if args.command.startswith("gym-"):

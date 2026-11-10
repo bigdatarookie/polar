@@ -20,6 +20,23 @@ from .obs158_math import require,Obs158Error
 from .obs158_evaluation import evaluate_obs158
 
 
+def preflight_diagnostic(report):
+    """Bounded check metadata only: never echo private inputs or physical bindings."""
+    checks = report.get('checks')
+    fields = {'code', 'status', 'reason', 'required', 'basis'}
+    token = lambda value: type(value) is str and re.fullmatch(r'[A-Z0-9_]{1,128}', value)
+    valid = (type(checks) is list and len(checks) <= 64 and all(
+        type(c) is dict and set(c) == fields and token(c['code']) and
+        c['status'] in ('PASS', 'FAIL', 'NOT_RUN') and type(c['required']) is bool and
+        token(c['basis']) and (c['reason'] is None or token(c['reason'])) for c in checks))
+    # A malformed diagnostic must not replace the original admission failure or
+    # publish arbitrary source strings. The known checker has a fixed small shape.
+    return ({'schema':'polar.obs158-preflight-diagnostic/1','checks':decode(canonical(checks)),
+             'runner_execution_allowed':False,'scope':'CHECK_METADATA_ONLY'} if valid else
+            {'schema':'polar.obs158-preflight-diagnostic/1','status':'UNAVAILABLE',
+             'reason':'INVALID_CHECK_METADATA','runner_execution_allowed':False})
+
+
 def _worker(converted,aliases,code,directory):
     """Child writes a bounded result, not a large potentially blocking IPC message."""
     target=Path(directory)/'native.json'
@@ -194,8 +211,13 @@ class Obs158Service:
         inputs=self.inputs(config);converted=convert_obs158(inputs)
         report=preflight_obs158(inputs,converted)
         data_checks=[c for c in report['checks'] if c['code'] not in ENGINEERING_CHECKS]
-        require(all(c['status']=='PASS' for c in data_checks if c['required']),
-                'OBS158_DATA_PREFLIGHT_DISALLOWED')
+        diagnostic=preflight_diagnostic(report)
+        try:
+            require(all(c['status']=='PASS' for c in data_checks if c['required']),
+                    'OBS158_DATA_PREFLIGHT_DISALLOWED')
+        except Obs158Error as exc:
+            exc.preflight_diagnostic=diagnostic
+            raise
         aliases=decode(inputs.profile)['members']['cohort-order-v1.json']['symbols_in_route_order']
         semantic_preflight={'schema':'polar.obs158-runner-preflight/1','data_checks':data_checks,
              'engineering_evidence_identity_bound':True,'runtime_source_identity_matched':True,
@@ -254,11 +276,14 @@ class Obs158Service:
                 'engine_runs':2,'financial_status':'INSUFFICIENT_EVIDENCE'})
             return self.store.packet(aid)
         except BaseException as exc:
-            self.store.finish_packet(aid,{'schema':'polar.obs158-attempt-finish/1','status':'FAILED',
+            failure={'schema':'polar.obs158-attempt-finish/1','status':'FAILED',
                 'code':str(exc) if isinstance(exc,Obs158Error) else type(exc).__name__,
                 'finished_ns':time.time_ns(),'wall_seconds':str(time.monotonic()-began),
                 'native_output_directory':str(directory) if 'directory' in locals() else None,
-                'financial_status':'INSUFFICIENT_EVIDENCE'})
+                'financial_status':'INSUFFICIENT_EVIDENCE'}
+            if hasattr(exc,'preflight_diagnostic'):
+                failure['preflight_diagnostic']=exc.preflight_diagnostic
+            self.store.finish_packet(aid,failure)
             raise
     def replay(self,config,identity):return self.run(config,replay_of=identity)
     def attempt(self,aid):return self.store.packet(aid)
