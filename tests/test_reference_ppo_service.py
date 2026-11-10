@@ -35,7 +35,7 @@ def test_three_seed_service_one_selected_test_and_stored_only(tmp_path,monkeypat
     cfg['protocol_ref']=write(pp,protocol);cfg['profile_id']=INVENTED_B
     service=ReferenceResearchService(root,128*1024**2);assert service.preflight(cfg)['scientific_starts']==0
     out=service.run(cfg);assert out['fit_calls']==3 and out['development_runs']==3
-    assert out['status'] in ('SUCCESS','INDETERMINATE')
+    assert out['status']=='SUCCESS' # This invented fixture exercises actual saved FINAL publication.
     if out['status']=='SUCCESS':assert out['native_accounts']==5 and len(out['results'])==1
     import polar.reference_ppo as ppo
     def forbidden(*a,**k):raise AssertionError('RECOMPUTE_EXECUTED_FIT_OR_POLICY')

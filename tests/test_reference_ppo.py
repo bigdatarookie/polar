@@ -15,7 +15,10 @@ def test_actual_ppo_rollout_true_terminals_and_final_native_trace():
     assert audit['actual_timesteps']==256 and audit['actual_rollouts']==1
     assert audit['actual_epoch_updates']==10 and audit['actual_optimizer_steps']==40
     assert len(audit['resets'])==26 and not audit['budget_stop_is_episode_terminal']
-    assert audit['rows'] if 'rows' in audit else audit['transitions']
+    assert len(audit['transitions'])==256
+    assert audit['represented_runtime']['rollout_buffer']['rewards']=='float32'
+    assert audit['represented_runtime']['rollout_buffer']['advantages']=='float32'
+    assert audit['represented_runtime']['policy_parameter_dtypes']==['torch.float32']
     terminal=[r for r in audit['transitions'] if r['terminated']]
     assert len(terminal)==25
     assert all(r['next_observation'][-1]==0 and r['info']['terminal_action_ignored'] for r in terminal)
@@ -29,3 +32,19 @@ def test_actual_ppo_rollout_true_terminals_and_final_native_trace():
     assert reconcile_selected(episode,native)['status']=='MATCHED'
     assert len(native['legs'])==5
     assert all(not any(leg['nav'][-1]['positions'].values()) for leg in native['legs'])
+
+
+def test_long_nominal_grid_exact_moments_do_not_serialize_giant_integer_strings():
+    from polar.ci_research_evaluation import evaluate_legs
+    from polar.ci_research import instant
+    from polar.gym_contract import canonical,decode
+    nav=[]
+    for i in range(967):
+        d=(date(2020,1,1)+timedelta(days=i)).isoformat();value=10000000+i*397+(i%17)*103
+        nav.append({'date':d,'nominal_ns':instant(d,16,0,timezone.utc),'nav_cents':value,
+            'cash_cents':value,'positions':{'AAPL':0},'position_cents':{'AAPL':0},
+            'exposure_cents':0,'flat_cents':0,'bps_cents':0})
+    legs,_=evaluate_legs({'legs':[{'id':'INVENTED_LONG_GRID','nav':nav,'fills':[]}]})
+    assert len(legs[0]['returns'])==966
+    assert legs[0]['metrics']['sharpe_252_rf0']['status']=='OK'
+    assert decode(canonical(legs))==legs

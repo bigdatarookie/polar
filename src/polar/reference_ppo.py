@@ -42,10 +42,15 @@ def runtime_manifest():
         if isinstance(x,dict):return {k:plain(v) for k,v in x.items()}
         if isinstance(x,(list,tuple)):return [plain(v) for v in x]
         return x
-    return {'schema':'polar.reference-ppo-defaults/1','versions':versions,
+    manifest={'schema':'polar.reference-ppo-defaults/1','versions':versions,
         'ppo':plain(PPO_ARGUMENTS),'policy':plain(POLICY_ARGUMENTS),'policy_name':'MlpPolicy',
         'vector_wrapper':'DummyVecEnv','n_envs':1,'learn':{'total_timesteps':20480,'callback':None,
-        'reset_num_timesteps':True,'progress_bar':False},'retained_seeds':[0,1,2]}
+        'reset_num_timesteps':True,'progress_bar':False},'retained_seeds':[0,1,2],
+        'protocol_sha256':'9abfb523089c37d4f67c3b1f490273948a70c3b57aff1b1103c1bcb9b0a75b15',
+        'method_sha256':'4f1312f36b88f9315ff26030bf3ee8025b8dad00b1150db76af7a84d9fb1d019'}
+    from .gym_contract import canonical,sha
+    manifest['default_manifest_sha256']=sha(canonical(manifest))
+    return manifest
 
 
 class TransitionAudit(gym.Wrapper):

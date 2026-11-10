@@ -61,3 +61,25 @@ explicit invented public rights and deterministic-fixture provenance. Its closed
 control protocol pins the exact invented input, calendar and timezone; it cannot
 use the frozen A scientific profile. Retained A always requires its original
 frozen protocol/calendar/timezone/input identities and bound original authority.
+
+The selected B profile `V033-B-PPO-LONG4-ADJREF-V1` now uses the same commands
+and immutable operation boundary. It fixes three seeds, each 20,480 TRAIN
+transitions (80 complete rollouts), three deterministic DEV evaluations and only
+the selected seed's final TEST. Its calendar ref is the DE date-only B source
+applicability contract; no data projection is copied or reselected. A distinct
+`INVENTED-REFERENCE-PPO-CONTROL-V1` permits bounded public fixtures only.
+
+Each fit intent, actual model archive, rollout trace, represented library dtypes
+and optimizer defaults is checkpointed immutably. A failure preserves all prior
+checkpoints and never retries a seed. A rollout stop does not add a terminal
+trade or transition. Canonical DEV Sharpe comparison is exact, with lower-seed
+ties; if every seed is ineligible, the family is INDETERMINATE without a TEST.
+Selected TEST actions and fixed controls replay through the common next-close
+native adapter and reconcile exact cents/fills. B models 16:00 New York on all
+sessions, separately from A's actual early-close clock. Stored-only reproduction
+uses saved DEV and final ledgers/selection and immutable member hashes, with zero
+policy/fit/native calls or writes. Model archives are hash-checked, not loaded.
+
+These implementation facts require applicable independent review and exact
+source/runtime/authority binding before retained execution; invented author PASS
+is not technical or financial acceptance.
