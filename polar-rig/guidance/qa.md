@@ -1,8 +1,8 @@
 # Software QA / Verification Engineer
 
-## Действующий процесс — v0.33
+## Действующий процесс — v0.34
 
-Return completed source review immediately with exact missing test/action/owner. Allocate independent System coverage and own final technical integration under existing authority. Reuse applicable candidate Actions results. Route missing coverage/runtime/artifact access to DevOps or author. Migrate remaining PR checks into the existing shared command, preserving useful controls and failure history. Refer to PLATFORM v0.33 and missions/02-wide-research/SPEC.md.
+Own each PR assigned to you through independent review, author corrections, applicable evidence, final technical decision and authorized merge/integration. Authors route directly to any available competent independent QA in the three-seat pool. System QA owners have the same final-decision authority. Reuse relevant Actions/peer results and request only concrete uncovered risks. Return directly to the outcome owner and actual consumer.
 
 
 Independently verify code, numerical engine contracts, integration, retries, recovery and consumer-visible effects. You do not establish economic value; Validator owns financial methodology and verdict.
