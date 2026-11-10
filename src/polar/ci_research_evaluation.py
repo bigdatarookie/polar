@@ -10,7 +10,7 @@ def metric(v=None, reason=None):
     return {"value": v, "status": "OK" if v is not None else "UNAVAILABLE", "reason": reason}
 
 
-def evaluate(simulation, profile):
+def evaluate_legs(simulation):
     legs = []; exact = {}
     for tape in simulation["legs"]:
         nav = tape["nav"]; require(len(nav) >= 2, "NO_RETURN_INTERVALS")
@@ -60,6 +60,11 @@ def evaluate(simulation, profile):
         legs.append({"id": tape["id"], "metrics": m,
                      "returns": [{"numerator": str(r.numerator), "denominator": str(r.denominator), "decimal": project(r)} for r in returns]})
         exact[tape["id"]] = {"max_drawdown": dd, "terminal": values[-1]}
+    return legs, exact
+
+
+def evaluate(simulation, profile):
+    legs, exact = evaluate_legs(simulation)
     ids = profile["legs"]; by_id = {leg["id"]: leg for leg in legs}
     left, right = ids[:2]
     a, b = by_id[left]["metrics"], by_id[right]["metrics"]

@@ -67,7 +67,7 @@ class Basis(Closed):
     currency: Identifier
     frequency: Literal["DAILY"]
     timezone: Annotated[str, Field(pattern=r"^(?:UTC|[A-Za-z_]+/[A-Za-z_]+(?:/[A-Za-z_]+)?)$")]
-    wealth_basis: Literal["PRICE_ONLY", "TOTAL_RETURN"]
+    wealth_basis: Literal["PRICE_ONLY", "TOTAL_RETURN", "SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT"]
     cost_basis: Literal["NET", "GROSS_SAME_TAPE"]
     cash_basis: Text
     risk_free_basis: Text
