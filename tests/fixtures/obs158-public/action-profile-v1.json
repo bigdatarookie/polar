@@ -1,0 +1,25 @@
+{
+  "dividends": "ALL ordinary cash dividends intentionally excluded from account cash/claims in this PRICE_ONLY estimand, including four known AAPL records. Retain all source events and omission reasons. Not total-return or earned wealth. No fabricated pay dates or cash credits.",
+  "input_qualification_sha256": "b6a17bd778fd54407bb015433d7141c27db2e7c91f4a0a4bf9acd771f12bce98",
+  "other_actions": "Share-unit factor1 for unprovided events is an explicit UNVERIFIED_MODEL_ASSUMPTION, not observed absence.154other complete symbols have no qualified full coverage. Known conflicting split/noncash/terminal event invalidates affected profile before claim; do not hide, delete asset/date or synthesize payoff.",
+  "schema": "polar.price-ledger-actions/1",
+  "split_events": [
+    {
+      "first_trading_date": "2020-08-31",
+      "modeled_event": "08:00 America/New_York, before open; event-knowledge modeled, historical observed clocks null",
+      "new_per_old": "4/1",
+      "source_id": "d209b6c2-9231-474c-a80e-1a79dacadbb2",
+      "source_line_sha256": "fbf1c447ca0912e34a49c3b3f7b4436b0d66cad3496fa96f9841dd7d9f56bad3",
+      "symbol": "AAPL"
+    },
+    {
+      "first_trading_date": "2020-08-31",
+      "modeled_event": "08:00 America/New_York, before open; event-knowledge modeled, historical observed clocks null",
+      "new_per_old": "5/1",
+      "source_id": "1dbc7685-9517-4a77-a236-8527d49cefdc",
+      "source_line_sha256": "2b2d947a430596feac763843d05a84039ed7cacadeb796e16980566ac16849f5",
+      "symbol": "TSLA"
+    }
+  ],
+  "split_representation": "Canonical physical shares multiply by known new/old factor at modeled event; raw source prices untouched. An equivalent forward-only native initial-share-unit representation may value native units at U(t)*rawprice and report physicalshares=U(t)*nativeunits. It is allowed ONLY with exact independent unit/value controls and no post-split trades in this funded window, certified from frozen schedule. No backward-adjusted source overwrite or future factor in earlier decisions."
+}

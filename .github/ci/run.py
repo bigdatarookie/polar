@@ -49,6 +49,7 @@ try:
     for scenario in a.scenario:
         entry=pathlib.Path('/workspace/tests/scenarios')/(scenario.replace('-','_')+'.py')
         if not entry.is_file():raise RuntimeError('SCENARIO_ENTRY_MISSING:'+scenario)
+        os.environ['POLAR_CI_SCENARIO']=scenario
         code=max(code,run('scenario-'+scenario,[sys.executable,str(entry),str(reports/('scenario-'+scenario+'.json'))],900))
         result_path=reports/('scenario-'+scenario+'.json')
         if not result_path.is_file() or json.loads(result_path.read_text()).get('status')!='PASS':code=1

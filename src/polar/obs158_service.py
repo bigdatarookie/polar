@@ -67,7 +67,8 @@ class Obs158Service:
                 'authorization_ref','preparation_path'} and config['schema']=='polar.obs158-run-config/1',
                 'OBS158_CONFIG_SCHEMA')
         require(config['source_class'] in ('RETAINED','INVENTED')
-                and config['preparation_path']=='/polar-launch/preparation.json','OBS158_CONFIG_DOMAIN')
+                and (config['preparation_path']=='/polar-launch/preparation.json' or
+                     config['source_class']=='INVENTED' and config['preparation_path']=='CI_MANAGED'),'OBS158_CONFIG_DOMAIN')
         code=source_code();require(config['source_code']==code,'OBS158_APPLICATION_CODE_MISMATCH')
         require(type(config['candidate']) is dict and set(config['candidate'])=={'commit','tree'}
                 and all(type(v) is str and re.fullmatch(r'[a-f0-9]{40}',v)
@@ -116,6 +117,9 @@ class Obs158Service:
                 'OBS158_FINITE_JOB_LIMITS')
         return auth
     def runtime(self,config,code):
+        if config['preparation_path']=='CI_MANAGED':
+            from .obs158_ci import runtime
+            return runtime(config,code)
         # Observed launcher creates this immutable receipt before the command.
         path=Path(config['preparation_path']);raw=path.read_bytes()
         require(len(raw)<=1024**2,'OBS158_RUNTIME_RECEIPT_BOUND');prep=decode(raw)
@@ -157,6 +161,9 @@ class Obs158Service:
         # or grant a financial verdict. Independent admission belongs to OpenRig.
         return value
     def inputs(self,config):
+        if config['preparation_path']=='CI_MANAGED':
+            from .obs158_ci import inputs
+            return inputs(config)
         c=config['input_config']
         if config['source_class']=='RETAINED':return load_obs158_inputs(c)
         require(type(c) is dict and set(c)=={'schema','public_ref','metric_ref','fixture_ref',

@@ -60,6 +60,7 @@ GIT_COMMON=$(git -C "$SOURCE_ROOT" rev-parse --path-format=absolute --git-common
 case "$GIT_COMMON" in "$SOURCE_ROOT"/*) ;; *) GIT_MOUNTS+=(--mount "type=bind,src=$GIT_COMMON,dst=$GIT_COMMON,readonly") ;; esac
 TEST_ID=$(docker create --network "$NETWORK_ID" ${GIT_MOUNTS[@]+"${GIT_MOUNTS[@]}"} --label polar.resource.project=polar --label "polar.resource.task=$RUN_ID" \
   --mount "type=bind,src=$SOURCE_ROOT,dst=/workspace,readonly" --mount "type=bind,src=$REPORT_DIR,dst=/reports" \
+  -e POLAR_CI_RUNTIME_IMAGE_ID="$IMAGE_ID" \
   -e POLAR_TEST_DATABASE_URL=postgresql://polar:polar_ci@ci-db:5432/polar_test_ci \
   -e POLAR_DATASET_TEST_DATABASE_URL=postgresql://polar:polar_ci@ci-db:5432/polar_test_dataset_ci \
   "$IMAGE_ID" ${TESTS[@]+"${TESTS[@]}"})
