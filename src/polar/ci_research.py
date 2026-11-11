@@ -57,19 +57,25 @@ def project(value):
         return decimal_string(decimal_fraction(Fraction(value)))
 
 
-def fee_cents(q, price_micro):
+def fee_cents(q, price_micro, *, cost_profile=None):
     require(type(q) is int and 0 <= q <= 1000000000 and type(price_micro) is int and price_micro > 0,
             "ORDER_DOMAIN")
-    return 100 + (q * price_micro + 9999999)//10000000 if q else 0
+    cost = {'flat_cents': 100, 'bps': 10} if cost_profile is None else cost_profile
+    require(type(cost) is dict and set(cost) == {'flat_cents', 'bps'} and
+            type(cost['flat_cents']) is int and type(cost['bps']) is int and
+            (cost['flat_cents'], cost['bps']) in ((100, 10), (200, 20)), 'COST_PROFILE')
+    return cost['flat_cents'] + (q * price_micro * cost['bps'] + 99999999)//100000000 if q else 0
 
 
-def maximum_buy(desired, price_micro, cash_cents, budget_cents=None):
+def maximum_buy(desired, price_micro, cash_cents, budget_cents=None, *, cost_profile=None):
     require(type(desired) is int and 0 <= desired <= 1000000000 and cash_cents >= 0, "BUY_DOMAIN")
+    if cost_profile is not None:
+        fee_cents(0, price_micro, cost_profile=cost_profile)
     budget = min(cash_cents, budget_cents if budget_cents is not None else cash_cents)
     lo, hi = 0, desired
     while lo < hi:
         q = (lo + hi + 1)//2
-        if cent_round_micro(q * price_micro) + fee_cents(q, price_micro) <= budget:
+        if cent_round_micro(q * price_micro) + fee_cents(q, price_micro, cost_profile=cost_profile) <= budget:
             lo = q
         else:
             hi = q - 1

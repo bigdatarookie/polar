@@ -1,5 +1,5 @@
 """Producer projection for modeled reference units; no UI finance or raw-price labels."""
-from .ci_research import cents_text, utc_text
+from .ci_research import cents_text, utc_text, fee_cents
 from .research_results import validate_result
 from decimal import Decimal
 from .gym_contract import decimal_string
@@ -37,11 +37,22 @@ def public_reference(config, simulation, evaluation, *, semantic_id, semantic_ha
             values[primary]={'value':token,'status':'OK' if token is not None else 'UNAVAILABLE',
                              'reason':None if token is not None else diagnostic['reason']}
             metrics.append({'id':scope+'_FORECAST_'+field.upper(),'label':scope+' '+label,'unit':unit,'values':values})
+    cost_specs = [
+        ('FLAT_ORDER_FEE','Modeled flat order fee','flat_fee_usd','Model USD1 per positive fill, charged once.'),
+        ('BPS_COMMISSION','Modeled 10bps commission','bps_cost_usd','Ceiling-cent 10bps exact notional, charged once; no additional spread or slippage debit.')]
+    if 'cost_profile' in config:
+        cost = config['cost_profile']
+        if cost is None:
+            raise ValueError('COST_PROFILE')
+        fee_cents(0, 1, cost_profile=cost)
+        if cost != {'flat_cents': 100, 'bps': 10}:
+            dollars, bps = cost['flat_cents']//100, cost['bps']
+            cost_specs = [
+                ('FLAT_ORDER_FEE','Modeled flat order fee','flat_fee_usd',f'Model USD{dollars} per positive fill, charged once.'),
+                ('BPS_COMMISSION',f'Modeled {bps}bps commission','bps_cost_usd',f'Ceiling-cent {bps}bps exact notional, charged once; no additional spread or slippage debit.')]
     costs=[{'id':name,'label':label,'kind':'CHARGED_FEES','unit':'USD',
             'values':{leg['id']:leg['metrics'][metric] for leg in evaluation['legs']},'description':description}
-           for name,label,metric,description in [
-            ('FLAT_ORDER_FEE','Modeled flat order fee','flat_fee_usd','Model USD1 per positive fill, charged once.'),
-            ('BPS_COMMISSION','Modeled 10bps commission','bps_cost_usd','Ceiling-cent 10bps exact notional, charged once; no additional spread or slippage debit.')]]
+           for name,label,metric,description in cost_specs]
     limits=[('SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT','Current-vintage vendor-adjusted close is a modeled quote per synthetic whole reference unit. This is not a raw share, observed auction fill, or certified investor total return.'),
             ('NO_DOUBLE_ACTION_CREDIT','Vendor source already incorporates adjustment. No additional split units, dividend cash, or rebasing is credited.'),
             ('COUNTERFACTUAL_TIMING','Observed source availability remains unknown. Protocol K and D are counterfactual clock assumptions.'),

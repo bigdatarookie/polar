@@ -8,7 +8,7 @@ from .ci_research import INITIAL_CENTS, require
 from .ci_research_evaluation import evaluate_legs, metric
 from .gym_contract import context, decimal_string, canonical
 from .reference_ridge_plan import nanoseconds
-from .scheduled_signals import trend_targets
+from .scheduled_signals import trend_targets, inverse_vol_targets
 
 PROFILE_SCHEMA = 'polar.scheduled-reference-profile/1'
 CONDITIONS = {
@@ -24,7 +24,9 @@ def profile_value(p):
               'primary_strategy', 'primary_benchmark', 'decision_delay_seconds', 'criteria',
               'question_label', 'question_summary', 'clock_description', 'partition_description',
               'additional_limitations', 'subperiods'}
-    require(type(p) is dict and set(p) == fields and p['schema'] == PROFILE_SCHEMA, 'SCHEDULED_PROFILE_SCHEMA')
+    version2 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/2'
+    require(type(p) is dict and set(p) == fields | ({'cost_scenarios', 'uncertainty'} if version2 else set()) and
+            p['schema'] in (PROFILE_SCHEMA, 'polar.scheduled-reference-profile/2'), 'SCHEDULED_PROFILE_SCHEMA')
     for key in ('protocol_sha256', 'input_sha256', 'calendar_sha256', 'timezone_sha256'):
         require(type(p[key]) is str and re.fullmatch('[a-f0-9]{64}', p[key]), 'SCHEDULED_PROFILE_HASH')
     require(type(p['protocol_id']) is str and re.fullmatch('[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}', p['protocol_id']), 'SCHEDULED_PROTOCOL_ID')
@@ -36,20 +38,33 @@ def profile_value(p):
     symbols = p['symbols']
     require(type(symbols) is list and 1 <= len(symbols) <= 64 and symbols == sorted(set(symbols)), 'SCHEDULED_SYMBOLS')
     policy = p['policy']
-    require(type(policy) is dict and set(policy) == {'kind', 'lookback', 'skip'} and
-            policy['kind'] == 'ABSOLUTE_MOMENTUM_SLEEVES' and
-            type(policy['lookback']) is int and type(policy['skip']) is int and
-            0 <= policy['skip'] < policy['lookback'] <= 4096, 'SCHEDULED_POLICY')
+    if version2:
+        require(type(policy) is dict and set(policy) == {'kind', 'lookback', 'annual_cap'} and
+                policy['kind'] == 'COMMON_RISK_INVERSE_VOLATILITY' and policy['lookback'] == 60 and
+                policy['annual_cap'] == '0.10', 'SCHEDULED_POLICY')
+        require(p['cost_scenarios'] == [{'id':'BASE', 'cost_profile':{'flat_cents':100,'bps':10}},
+                                      {'id':'COST_STRESS', 'cost_profile':{'flat_cents':200,'bps':20}}],
+                'SCHEDULED_COST_SCENARIOS')
+        require(p['uncertainty'] == {'kind':'PAIRED_CIRCULAR_SAVED_RETURNS', 'block':63, 'replicates':1000, 'seed':37001},
+                'SCHEDULED_UNCERTAINTY_PROFILE')
+    else:
+        require(type(policy) is dict and set(policy) == {'kind', 'lookback', 'skip'} and
+                policy['kind'] == 'ABSOLUTE_MOMENTUM_SLEEVES' and
+                type(policy['lookback']) is int and type(policy['skip']) is int and
+                0 <= policy['skip'] < policy['lookback'] <= 4096, 'SCHEDULED_POLICY')
     require(type(p['decision_delay_seconds']) is int and 1 <= p['decision_delay_seconds'] <= 3600, 'SCHEDULED_DECISION_DELAY')
     legs = p['legs']
     require(type(legs) is list and 2 <= len(legs) <= 5 and
             len({x['id'] for x in legs}) == len(legs), 'SCHEDULED_LEGS')
     ids = {x['id'] for x in legs}
+    if version2:
+        require(len(legs) == 3 and {x['rule'] for x in legs} == {'INVERSE_VOL','MOMENTUM','EQUAL_WEIGHT'} and
+                all(x['scale'] == [1,1] for x in legs), 'SCHEDULED_COMMON_RISK_LEGS')
     require(p['primary_strategy'] in ids and p['primary_benchmark'] in ids and
             p['primary_strategy'] != p['primary_benchmark'], 'SCHEDULED_PRIMARY_ROLES')
     for leg in legs:
         require(set(leg) == {'id', 'label', 'rule', 'scale'} and
-                leg['rule'] in ('SLEEVES', 'MOMENTUM', 'EQUAL_WEIGHT', 'CASH'), 'SCHEDULED_LEG')
+                leg['rule'] in (('INVERSE_VOL', 'MOMENTUM', 'EQUAL_WEIGHT') if version2 else ('SLEEVES', 'MOMENTUM', 'EQUAL_WEIGHT', 'CASH')), 'SCHEDULED_LEG')
         require(type(leg['id']) is str and re.fullmatch('[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}', leg['id']) and
                 type(leg['label']) is str and 0 < len(leg['label']) <= 128, 'SCHEDULED_LEG_ID_LABEL')
         require(type(leg['scale']) is list and len(leg['scale']) == 2 and
@@ -68,8 +83,8 @@ def profile_value(p):
         require(type(pair) is list and len(pair) == 2 and date.fromisoformat(pair[0]) <= date.fromisoformat(pair[1]), 'SCHEDULED_SUBPERIOD')
     # Reuse the current common wire's finite bounds; never spend an original on
     # a profile whose public projection cannot fit it.
-    require(29 + 4*len(p['subperiods']) <= 40 and
-            12 + len(p['additional_limitations']) + len(legs)*(1+len(p['subperiods'])) <= 30,
+    require(29 + 4*len(p['subperiods']) + (3 if version2 else 0) <= 40 and
+            12 + len(p['additional_limitations']) + len(legs)*(1+len(p['subperiods'])) + (3 if version2 else 0) <= 30,
             'SCHEDULED_PUBLIC_WIRE_BOUND')
     return p
 
@@ -111,16 +126,18 @@ def plan_phase(market, profile, grid, tz):
         known = datetime.combine(date.fromisoformat(day)+timedelta(days=1), time(), tzinfo=tz)
         decision = known+timedelta(seconds=profile['decision_delay_seconds'])
         require(nanoseconds(known) < nanoseconds(decision) < close(entry), 'SCHEDULED_CLOCK')
-        lookback = profile['policy']['lookback']; skip = profile['policy']['skip']
+        lookback = profile['policy']['lookback']
         require(index >= lookback, 'SCHEDULED_SIGNAL_HISTORY')
         prefix = [market['prices_micro'][d] for d in days[index-lookback:index+1]]
-        signal = trend_targets(prefix, symbols, lookback=lookback, skip=skip)
+        common_risk = profile['policy']['kind'] == 'COMMON_RISK_INVERSE_VOLATILITY'
+        signal = (inverse_vol_targets(prefix, symbols, window=lookback, annual_cap=float(profile['policy']['annual_cap'])) if common_risk else
+                  trend_targets(prefix, symbols, lookback=lookback, skip=profile['policy']['skip']))
         instructions = {}
         for leg in profile['legs']:
             if leg['rule'] == 'CASH':
                 instructions[leg['id']] = {'kind': 'HOLD'}
                 continue
-            weights = ({s: Fraction(1, len(symbols)) for s in symbols} if leg['rule'] == 'EQUAL_WEIGHT'
+            weights = ({s: Fraction(1, len(symbols)) for s in symbols} if leg['rule'] == 'EQUAL_WEIGHT' and not common_risk
                        else signal['weights'][leg['rule']])
             scale = Fraction(*leg['scale'])
             instructions[leg['id']] = {'kind': 'TARGET',

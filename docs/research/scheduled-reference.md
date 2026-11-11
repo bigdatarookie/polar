@@ -27,8 +27,10 @@ IDs, labels, rules/scales, primary roles, K-to-D delay, point criteria, prose an
 saved subperiods. Finite common-wire bounds are checked before an original.
 
 Retained preparation validates the existing exact reference-source rights and
-runtime versions. Preflight reads and validates source but evaluates no policy,
-features or weights and creates no attempt. A run requires a content-bound
+runtime versions. Preflight validates pinned metadata/schedule/bindings only: it does not
+open numeric quote payloads, evaluate policy/features/weights or create an attempt.
+Full quote/domain validation occurs after durable FIRST_START in the original
+attempt; any failure is preserved without refund. A run requires a content-bound
 polar.scheduled-reference-operation/1 authority: action ORIGINAL,
 binding_sha256 of config excluding execution_authority_ref, allowed_fit_calls=0,
 allowed_predict_calls=0, allowed_native_accounts equal legs times phases,
@@ -79,3 +81,36 @@ technical or financial acceptance. The first author failure at 03384fa is kept
 outside Git in polar-v037-scheduled-A-author-20261111-01: publication exceeded
 the common metric limit after native computation; the limit was preserved and
 the projection made finite.
+
+## Common forecast-risk and true cost stress (profile/2)
+
+The version2 closed profile supports COMMON_RISK_INVERSE_VOLATILITY with60
+returns and annual_cap string0.10, exactly three named INVERSE_VOL/EQUAL_WEIGHT/
+MOMENTUM legs at scale1, one FINAL calendar and a one-second K-to-D delay.
+Monthly weights use the same eligible61-close prefix, binary64 conversion and
+ordered covariance recipe; exactD50 floor12decimal weights and post-round
+risk-spread checks remain explicit in saved signals. The same signal/weight/time
+plan is executed in two fresh three-account scenarios, BASE100cent+10bps and
+COST_STRESS200cent+20bps. Each account recomputes frozenD desired quantities
+from its own marked centNAV and clips buys including its actual fees. Fees are
+native commissions and ledger charges, not a subtraction from another tape.
+The default cost path and legacy record descriptions remain unchanged.
+
+Two immutable public records distinguish FINAL(BASE) and FINAL_COST_STRESS.
+They retain supplied leg IDs, actual scalar cost descriptions and all configured
+point predicates. The protocol's positive initial-wealth condition is explicit,
+as are each benchmark's wealth, Sharpe, drawdown and realized-volatility ratio
+conditions. BASE-only fixed subperiods and saved-return uncertainty remain
+separate from point criteria and from financial acceptance.
+
+uncertainty.json in the semantic artifact contains fixed seed37001 paired
+circular63-block/1000-draw analysis of BASE exact saved returns, all shared-index
+hashes, every component/draw status and reasons, counts and central95 empirical
+order bounds. Full exact cumulative wealth, drawdown and rational moments use
+freshD50 scalar projection, with the frozen integer bit bound; missing/undefined
+statistics are not dropped or redrawn. Partial valid intervals are descriptive
+subsets only. A positive conditional robustness description requires all1000
+valid for every component versus both controls, all base/stress point screens
+MET and both lower Sharpe-delta bounds positive. It never grants adoption or
+calibrated market confidence. Stored reproduction recalculates only saved
+analysis and evaluation, without policy/source/native/model calls or writes.

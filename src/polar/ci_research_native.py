@@ -14,6 +14,11 @@ from .research_native_money import native_types
 
 
 def simulate(plan, diagnostics=None):
+    cost_profile = plan.get('cost_profile')
+    require('cost_profile' not in plan or cost_profile is not None, 'COST_PROFILE')
+    fee_cents(0, 1, cost_profile=cost_profile)  # Closed profile admission before native setup.
+    cost_profile = dict(cost_profile) if cost_profile is not None else None
+    flat_charge = 100 if cost_profile is None else cost_profile['flat_cents']
     require(importlib.metadata.version("nautilus_trader") == "1.231.0", "ENGINE_VERSION")
     from nautilus_trader.accounting.factory import AccountFactory
     from nautilus_trader.backtest.engine import BacktestEngine
@@ -41,7 +46,7 @@ def simulate(plan, diagnostics=None):
         def get_commission(self, order, fill_qty, fill_px, instrument):
             q = Fraction(fill_qty.as_decimal()); p = Fraction(fill_px.as_decimal())*1000000
             require(q.denominator == p.denominator == 1, "FEE_NATIVE_PRECISION")
-            return types["money_from_cents"](fee_cents(q.numerator, p.numerator))
+            return types["money_from_cents"](fee_cents(q.numerator, p.numerator, cost_profile=cost_profile))
 
     results = []
     for leg_index, leg in enumerate(profile["legs"]):
@@ -158,9 +163,11 @@ def simulate(plan, diagnostics=None):
                 if side == "BUY" and symbol in self.pending["budgets"]:
                     # A calendar order is a spending budget, not a fictitious
                     # billion-share target. The bound is only for exact search.
-                    desired = maximum_buy(1000000000, p, self.expected_cash, self.pending["budgets"][symbol])
+                    desired = maximum_buy(1000000000, p, self.expected_cash, self.pending["budgets"][symbol],
+                                          cost_profile=cost_profile)
                 q = min(desired, held) if side == "SELL" else maximum_buy(desired, p, self.expected_cash,
-                                                                self.pending["budgets"].get(symbol))
+                                                                self.pending["budgets"].get(symbol),
+                                                                cost_profile=cost_profile)
                 if not desired:
                     return
                 logical = f"{leg}/{d['day']}/{side}/{symbol}"
@@ -169,7 +176,7 @@ def simulate(plan, diagnostics=None):
                                     "reason": "FEE_AWARE_BUDGET_CAP" if q < desired else None})
                 if not q:
                     return
-                fee, settled = fee_cents(q, p), cent_round_micro(q*p)
+                fee, settled = fee_cents(q, p, cost_profile=cost_profile), cent_round_micro(q*p)
                 require(self.expected_cash + (settled-fee if side == "SELL" else -settled-fee) >= 0,
                         "SELL_FEE_SHORTFALL")
                 order = self.order_factory.market(instrument_id=ids[symbol], order_side=OrderSide.SELL if side == "SELL" else OrderSide.BUY,
@@ -187,7 +194,7 @@ def simulate(plan, diagnostics=None):
                 sign = 1 if row["side"] == "BUY" else -1
                 self.held[row["symbol"]] += sign*row["q"]
                 self.expected_cash -= sign*row["settled_cents"] + row["fee_cents"]
-                self.flat += 100; self.bps += row["fee_cents"]-100
+                self.flat += flat_charge; self.bps += row["fee_cents"]-flat_charge
                 self.fills.append({**row, "cash_after_cents": self.expected_cash,
                                    "exact_notional_micro": row["q"]*row["price_micro"],
                                    "settlement_epsilon_micro": row["settled_cents"]*10000-row["q"]*row["price_micro"],
@@ -251,6 +258,7 @@ def simulate(plan, diagnostics=None):
         finally:
             engine.dispose()
     return {"schema": "polar.ci-research-simulation/1", "legs": results,
+            **({'cost_profile': cost_profile} if cost_profile is not None else {}),
             **({"quote_basis": "SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT", "execution_phase": "REFERENCE_CLOSE",
                 "quantity_unit": "WHOLE_SYNTHETIC_REFERENCE_UNIT_NOT_RAW_SHARE"} if profile["kind"] == "REFERENCE_TARGETS" else {}),
             "engine": "nautilus_trader-1.231.0", "native_account_rule": "EXACT_CENT_HALF_EVEN"}
