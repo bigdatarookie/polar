@@ -18,6 +18,7 @@ MODEL = {'holder_multiplier': '1', 'common_cash': '0',
          'other_entitlements': 'OWNER_EXPLICIT_NONE_FOR_LOCAL_PREPARATION',
          'unit_currency': 'ASSUMED_USD_PER_ASSUMED_POST_SEPARATION_COMMON_SHARE'}
 AAOI_MODEL = {**MODEL, 'unit_currency': 'ASSUMED_USD_PER_ASSUMED_AAOI_PARENT_COMMON_SHARE'}
+AAWW_MODEL = {**MODEL, 'unit_currency': 'ASSUMED_USD_PER_ASSUMED_AAWW_PARENT_COMMON_SHARE'}
 
 
 class ReferenceError(ValueError):
@@ -46,7 +47,7 @@ def timestamp(value):
 def build(descriptor, rows, grid, invalidations=()):
     """Pure operation. Caller supplies exact snapshots; no hidden source reads."""
     require(descriptor['schema'] == 'polar.original-conditional-reference-input/1', 'INPUT_SCHEMA')
-    require(descriptor['model'] in (MODEL, AAOI_MODEL), 'UNSUPPORTED_OWNER_MODEL')
+    require(descriptor['model'] in (MODEL, AAOI_MODEL, AAWW_MODEL), 'UNSUPPORTED_OWNER_MODEL')
     require(descriptor['required_output']['counts'] == {'closes': 253, 'adjacent_gross_factors': 252}, 'INPUT_COUNTS')
     require(descriptor['required_output']['status'] == STATUS, 'INPUT_STATUS')
     require(type(rows) is list and len(rows) == 253, 'CLOSE_COUNT_NO_FILL')
