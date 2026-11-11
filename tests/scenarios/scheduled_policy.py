@@ -9,7 +9,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest
-from scheduled_fixture import fixture
+from scheduled_fixture import fixture, inverse_fixture
 from polar.reference_service import ReferenceResearchService
 from polar.research_results import ResearchResults
 import polar.scheduled_service as implementation
@@ -46,7 +46,7 @@ def execute(report):
                 assert ready['expected_native_accounts'] == 10
                 assert not (root/'scheduled-reference-attempts').exists()
                 item.update(input_rows=1600, symbols=4, dates=400, expected_native_accounts=10, fit_calls=0)
-            original_native, original_plan = implementation.bounded_native, implementation.plan_phase
+            original_native, original_plan, original_load = implementation.bounded_native, implementation.plan_phase, implementation.load_reference
             def plan(*args, **kwargs):
                 starts = list((root/'scheduled-reference-attempts').rglob('start.json'))
                 assert len(starts) == 1 and json.loads(starts[0].read_bytes())['status'] == 'FIRST_START_CONSERVATIVE_DEBIT'
@@ -108,6 +108,42 @@ def execute(report):
                 else: raise AssertionError('DUPLICATE_ACCEPTED')
                 assert snapshot(root) == before
                 item.update(recompute='REPRODUCED', fit_calls=0,predict_calls=0,native_calls=0,store_writes=0,duplicate='REJECTED')
+            # Version2 is the same service/ledger, with separate real cost accounts.
+            for key, original in [('bounded_native',original_native),('plan_phase',original_plan),('load_reference',original_load)]:
+                patch.setattr(implementation,key,original)
+            with phase('inverse_vol_base_and_true_doubled_cost_accounts') as item:
+                second = Path(temporary)/'inverse'; second.mkdir()
+                b_root,b_cfg,b_profile,b_calendar = inverse_fixture(second,patch)
+                b_service = ReferenceResearchService(b_root,128*1024**2)
+                assert b_service.preflight(b_cfg)['expected_native_accounts'] == 6
+                b_output = b_service.run(b_cfg)
+                assert b_output['native_accounts'] == 6 and b_output['fit_calls'] == b_output['predict_calls'] == 0
+                directory = b_root/'reference-research-experiments'/b_output['semantic_id']
+                tapes = json.loads((directory/'phases.json').read_bytes())
+                base,stress = tapes['FINAL'],tapes['FINAL_COST_STRESS']
+                assert {k:v for k,v in base['plan'].items() if k != 'cost_profile'} == {k:v for k,v in stress['plan'].items() if k != 'cost_profile'}
+                assert base['plan']['cost_profile'] == {'flat_cents':100,'bps':10}
+                assert stress['plan']['cost_profile'] == {'flat_cents':200,'bps':20}
+                assert all(len(x['simulation']['legs']) == 3 and len(x['evaluation']['criteria']) == 10 for x in tapes.values())
+                item.update(native_accounts=6,fit_calls=0,scenario_names=list(tapes),same_frozen_weights_times=True)
+            with phase('saved_paired_bootstrap_and_cost_record_readback') as item:
+                u = json.loads((directory/'uncertainty.json').read_bytes())
+                assert u['samples'] == 1000 and len(u['comparisons']) == 2 and len(u['replicates']) == 1000
+                for name,pub in b_output['results'].items():
+                    detail = ResearchResults(b_root,128*1024**2).read(pub['result_id']); r=detail['record']
+                    assert len(r['series']) == 3 and detail['assessment']['financial'] == 'NOT_REVIEWED'
+                    assert len(r['metrics']) == (40 if name == 'FINAL' else 32)
+                    assert any(x['code'] == 'CONDITIONAL_ROBUSTNESS' for x in r['limitations'])
+                item.update(replicates=1000,block_length=63,seed=37001,
+                            all_components_valid=u['all_components_valid'],robustness=u['robustness'],
+                            shared_index_hash=u['index_sequence_sha256'])
+            with phase('inverse_saved_only_reproduction_and_no_new_operation') as item:
+                before = snapshot(b_root)
+                for key in ('bounded_native','plan_phase','load_reference'): patch.setattr(implementation,key,forbidden)
+                reproduced = b_service.recompute(b_output['semantic_id'])
+                assert reproduced['status'] == 'REPRODUCED' and reproduced['native_calls'] == reproduced['store_writes'] == 0
+                assert snapshot(b_root) == before
+                item.update(recompute='REPRODUCED',fit_calls=0,predict_calls=0,native_calls=0,store_writes=0)
             value['compute_status'] = 'PASS'
     except BaseException:
         if value['compute_status'] != 'PASS': value['compute_status'] = 'FAIL'

@@ -28,8 +28,11 @@ def desired_targets(cash, held, prices, weights):
 
 
 class ReferenceLedger:
-    def __init__(self, symbols):
+    def __init__(self, symbols, *, cost_profile=None):
         require(type(symbols) is list and symbols == sorted(set(symbols)) and symbols, 'ALLOCATION_SYMBOL_ORDER')
+        fee_cents(0, 1, cost_profile=cost_profile)
+        self.cost_profile = dict(cost_profile) if cost_profile is not None else None
+        self.flat_charge = 100 if cost_profile is None else cost_profile['flat_cents']
         self.symbols = list(symbols); self.cash = INITIAL_CENTS
         self.held = {s: 0 for s in symbols}; self.previous_target = 0
         self.fills = []; self.orders = []; self.flat_cents = 0; self.bps_cents = 0
@@ -63,15 +66,15 @@ class ReferenceLedger:
                 desired = max(self.held[symbol]-targets[symbol], 0) if side == 'SELL' else max(targets[symbol]-self.held[symbol], 0)
                 if not desired: continue
                 p = execution_prices[symbol]
-                q = desired if side == 'SELL' else maximum_buy(desired, p, self.cash)
+                q = desired if side == 'SELL' else maximum_buy(desired, p, self.cash, cost_profile=self.cost_profile)
                 self.orders.append({'date': date, 'symbol': symbol, 'side': side,
                                     'desired_quantity': desired, 'quantity': q})
                 if not q: continue
-                fee, settled = fee_cents(q,p), cent_round_micro(q*p)
+                fee, settled = fee_cents(q,p,cost_profile=self.cost_profile), cent_round_micro(q*p)
                 cash = self.cash+(settled-fee if side == 'SELL' else -settled-fee)
                 require(cash >= 0, 'ALLOCATION_SELL_FEE_SHORTFALL')
                 self.cash = cash; self.held[symbol] += q if side == 'BUY' else -q
-                self.flat_cents += 100; self.bps_cents += fee-100
+                self.flat_cents += self.flat_charge; self.bps_cents += fee-self.flat_charge
                 self.fills.append({'date': date, 'symbol': symbol, 'side': side, 'q': q,
                     'price_micro': p, 'fee_cents': fee, 'settled_cents': settled,
                     'cash_after_cents': self.cash, 'exact_notional_micro': q*p})

@@ -78,6 +78,7 @@ def prepare(service, config, *, load_prices=True):
     schedule, days = reference_schedule(decode(pinned_bytes(manifest['schedule'])))
     require(manifest['symbols'] == profile['symbols'], 'SCHEDULED_PROFILE_SYMBOLS')
     grids = calendar_value(calendar, schedule)
+    list(operation_phases(profile, grids))
     require(all(days.index(g['initial']) >= profile['policy']['lookback'] for g in grids.values()), 'SCHEDULED_WARMUP')
     tz = ZoneInfo.from_file(io.BytesIO(tz_raw), key='America/New_York')
     # Preparation performs no features/weights/policy decision or native operation.
@@ -85,12 +86,26 @@ def prepare(service, config, *, load_prices=True):
     return profile, calendar, schedule, grids, tz, market
 
 
+def account_count(profile, grids):
+    return len(profile['legs'])*len(grids)*len(profile.get('cost_scenarios', [None]))
+
+
+def operation_phases(profile, grids):
+    if profile['schema'].endswith('/2'):
+        require(set(grids) == {'FINAL'}, 'SCHEDULED_UNCERTAINTY_FINAL_ONLY')
+        for scenario in profile['cost_scenarios']:
+            yield ('FINAL' if scenario['id'] == 'BASE' else 'FINAL_COST_STRESS'), 'FINAL', scenario
+    else:
+        for phase in grids:
+            yield phase, phase, None
+
+
 def preflight(service, config):
     p, _, _, grids, _, _ = prepare(service, config, load_prices=False)
     return {'schema': 'polar.scheduled-reference-preflight/1', 'status': 'READY_FOR_BOUND_OPERATION',
             'operation_binding_sha256': sha(canonical(binding(config))), 'policy_execution': 'NOT_RUN',
             'scientific_starts': 0, 'fit_calls': 0, 'predict_calls': 0,
-            'expected_native_accounts': len(p['legs'])*len(grids)}
+            'expected_native_accounts': account_count(p, grids)}
 
 
 def authority_for(service, config, profile, grids):
@@ -100,7 +115,7 @@ def authority_for(service, config, profile, grids):
     require(authority.get('schema') == 'polar.scheduled-reference-operation/1' and authority.get('action') == 'ORIGINAL' and
             authority.get('binding_sha256') == sha(canonical(binding(config))) and
             authority.get('allowed_fit_calls') == 0 and authority.get('allowed_predict_calls') == 0 and
-            authority.get('allowed_native_accounts') == len(profile['legs'])*len(grids), 'SCHEDULED_OPERATION_NOT_BOUND')
+            authority.get('allowed_native_accounts') == account_count(profile, grids), 'SCHEDULED_OPERATION_NOT_BOUND')
     method = decode(read_ref(authority['method_ref']))
     require(method.get('schema') == 'polar.prospective-method-disposition/1' and method.get('method_verdict') == 'PASS' and
             method.get('protocol', {}).get('sha256') == config['protocol_ref']['sha256'] and
@@ -151,14 +166,23 @@ def run(service, config):
     completed = 0
     try:
         market = load_reference(config['input_ref'])
-        phases = {}; diagnostics = {}
-        for phase, grid in grids.items():
-            plan = plan_phase(market, profile, grid, tz)
+        phases = {}; diagnostics = {}; plans = {}
+        for phase, reference_phase, scenario in operation_phases(profile, grids):
+            if reference_phase not in plans:
+                plans[reference_phase] = plan_phase(market, profile, grids[reference_phase], tz)
+            # Stress reuses every frozen signal/weight/time but re-executes its
+            # own account NAV/quantity/fee-aware cash clipping from fresh capital.
+            plan = plans[reference_phase]
+            if scenario is not None:
+                plan = {**plan, 'cost_profile': scenario['cost_profile']}
             simulation = bounded_native(plan); completed += len(simulation['legs'])
-            evaluation = evaluate_policy(simulation, profile, phase)
+            evaluation = evaluate_policy(simulation, profile, reference_phase)
             diagnostics[phase] = {t['id']: diagnose(t, schedule,
-                subperiods=profile['subperiods'] if phase == 'FINAL' else ()) for t in simulation['legs']}
+                subperiods=profile['subperiods'] if reference_phase == 'FINAL' and (scenario is None or scenario['id'] == 'BASE') else ()) for t in simulation['legs']}
             phases[phase] = {'plan': plan, 'simulation': simulation, 'evaluation': evaluation}
+            if scenario is not None:
+                phases[phase]['reference_phase'] = reference_phase
+                phases[phase]['cost_scenario'] = scenario
             with service.store.locked():
                 service.store._publish(parent+'/'+aid+'/phases', phase,
                     {'phase.json': canonical(phases[phase]), 'diagnostics.json': canonical(diagnostics[phase])}, file_limit=32*1024**2)
@@ -167,17 +191,33 @@ def run(service, config):
                  'diagnostics.json': canonical(diagnostics), 'bindings.json': canonical(binding(config))}
         manifest = {'schema': 'polar.scheduled-reference-semantic-manifest/1',
                     'files': {n: {'sha256': sha(b), 'bytes': len(b)} for n, b in files.items()}}
+        uncertainty = None
+        if profile['schema'].endswith('/2'):
+            from .scheduled_uncertainty import bootstrap
+            base = phases['FINAL']['simulation']
+            uncertainty = bootstrap(base, profile['primary_strategy'],
+                                    [x['id'] for x in profile['legs'] if x['id'] != profile['primary_strategy']])
+            screens_met = all(c['status'] == 'MET' for phase in phases.values() for c in phase['evaluation']['criteria'])
+            uncertainty['point_screens_all_met'] = screens_met
+            uncertainty['robustness'] = robustness(uncertainty, screens_met)
+            files['uncertainty.json'] = canonical(uncertainty)
+            manifest['files']['uncertainty.json'] = {'sha256':sha(files['uncertainty.json']), 'bytes':len(files['uncertainty.json'])}
         raw = canonical(manifest); sid = SEMANTIC+sha(raw)
         with service.store.locked():
             service.store._publish('reference-research-experiments', sid, {**files, 'manifest.json': raw}, file_limit=32*1024**2)
         publications = {}
         for phase, data in phases.items():
-            record = public_reference(public_config(config, profile), data['simulation'], data['evaluation'],
+            public = public_config(config, profile)
+            if 'cost_scenario' in data:
+                public['cost_profile'] = data['cost_scenario']['cost_profile']
+            record = public_reference(public, data['simulation'], data['evaluation'],
                                       semantic_id=sid, semantic_hash=sha(raw), phase=phase)
             # Display labels come from the bound profile, never a per-run UI branch.
             for series in record['series']:
                 series['label'] = next(x['label'] for x in profile['legs'] if x['id'] == series['id'])
             project_diagnostics(record, diagnostics[phase])
+            if uncertainty is not None:
+                project_uncertainty(record, uncertainty)
             publications[phase] = service.results.publish(record)
         finish = {'status': 'SUCCESS', 'attempt_id': aid, 'semantic_id': sid, 'results': publications,
                   'fit_calls': 0, 'predict_calls': 0, 'model_calls': 0, 'native_accounts': completed,
@@ -201,23 +241,32 @@ def recompute(service, semantic_id):
     raw = read_file(service.store.root, parent+'/manifest.json', 32*1024**2)
     require(semantic_id == SEMANTIC+sha(raw), 'SCHEDULED_MANIFEST_HASH')
     manifest = decode(raw)
-    require(manifest['schema'] == 'polar.scheduled-reference-semantic-manifest/1' and set(manifest['files']) == MEMBERS, 'SCHEDULED_MEMBER_SET')
+    require(manifest['schema'] == 'polar.scheduled-reference-semantic-manifest/1' and set(manifest['files']) in (MEMBERS, MEMBERS | {'uncertainty.json'}), 'SCHEDULED_MEMBER_SET')
     files = {}
     for name, pin in manifest['files'].items():
         body = read_file(service.store.root, parent+'/'+name, 32*1024**2)
         require(len(body) == pin['bytes'] and sha(body) == pin['sha256'], 'SCHEDULED_MEMBER_HASH')
         files[name] = decode(body)
     profile = profile_value(files['profile.json'])
+    expected_members = MEMBERS | ({'uncertainty.json'} if profile['schema'].endswith('/2') else set())
+    require(set(files) == expected_members, 'SCHEDULED_PROFILE_MEMBER_SET')
     require(files['bindings.json']['code'] == code_binding(), 'SCHEDULED_REPRODUCTION_CODE_BINDING')
     expected_diagnostics = {}
     # Only saved output arrays are used; no source, policy feature, model or native call.
     calendar = files['calendar.json']
     for phase, data in files['phases.json'].items():
-        require(canonical(evaluate_policy(data['simulation'], profile, phase)) == canonical(data['evaluation']), 'SCHEDULED_RECOMPUTE_MISMATCH')
+        require(canonical(evaluate_policy(data['simulation'], profile, data.get('reference_phase', phase))) == canonical(data['evaluation']), 'SCHEDULED_RECOMPUTE_MISMATCH')
         schedule = calendar['source_schedule_rows']
         expected_diagnostics[phase] = {t['id']: diagnose(t, schedule,
-            subperiods=profile['subperiods'] if phase == 'FINAL' else ()) for t in data['simulation']['legs']}
+            subperiods=profile['subperiods'] if data.get('reference_phase', phase) == 'FINAL' and data.get('cost_scenario',{}).get('id','BASE') == 'BASE' else ()) for t in data['simulation']['legs']}
     require(canonical(expected_diagnostics) == canonical(files['diagnostics.json']), 'SCHEDULED_DIAGNOSTIC_RECOMPUTE')
+    if 'uncertainty.json' in files:
+        from .scheduled_uncertainty import bootstrap
+        actual = bootstrap(files['phases.json']['FINAL']['simulation'], profile['primary_strategy'],
+                           [x['id'] for x in profile['legs'] if x['id'] != profile['primary_strategy']])
+        met = all(c['status'] == 'MET' for phase in files['phases.json'].values() for c in phase['evaluation']['criteria'])
+        actual['point_screens_all_met'] = met; actual['robustness'] = robustness(actual, met)
+        require(canonical(actual) == canonical(files['uncertainty.json']), 'SCHEDULED_UNCERTAINTY_RECOMPUTE')
     return {'status': 'REPRODUCED', 'semantic_id': semantic_id, 'fit_calls': 0, 'model_calls': 0,
             'predict_calls': 0, 'native_calls': 0, 'store_writes': 0}
 
@@ -277,3 +326,51 @@ def project_diagnostics(record, diagnostics):
                          f"exact gross USD {scalar('costs', 'gross_exact_notional_usd')}, settled gross USD {scalar('costs', 'gross_settled_notional_usd')}, "
                          f"fills {scalar('costs', 'positive_fill_count')}, gross/initial {scalar('costs', 'gross_notional_over_initial')}. "
                          'Carried holdings and cumulative end-minus-anchor costs; no reset, refit or extra liquidation.')})
+
+
+def robustness(uncertainty, screens_met):
+    comparisons = uncertainty.get('comparisons', [])
+    if not screens_met or not uncertainty.get('all_components_valid') or len(comparisons) != 2:
+        return 'INSUFFICIENT_EVIDENCE'
+    try:
+        from decimal import Decimal
+        positive = all(c['sr_delta']['valid_count'] == 1000 and c['sr_delta']['lower'] is not None and
+                       Decimal(c['sr_delta']['lower']) > 0 for c in comparisons)
+    except (ValueError, KeyError, ArithmeticError):
+        positive = False
+    return 'PASS_CONDITIONAL_EXPOSED_SCENARIO_ONLY' if positive else 'INSUFFICIENT_EVIDENCE'
+
+
+def project_uncertainty(record, uncertainty):
+    """Finite public summary; every replicate/reason remains in the saved artifact."""
+    by_id = {c['benchmark_id']:c for c in uncertainty['comparisons']}
+    for key, label, unit in [('lower','BASE saved paired SR delta lower central95 bound','ratio'),
+                             ('upper','BASE saved paired SR delta upper central95 bound','ratio'),
+                             ('valid_count','BASE saved paired SR delta valid replicates','count')]:
+        values = {}
+        for series in record['series']:
+            statistic = by_id.get(series['id'], {}).get('sr_delta')
+            if statistic is None:
+                values[series['id']] = {'value':None,'status':'NOT_APPLICABLE','reason':'PRIMARY_VS_CONTROL_COMPARISONS_ONLY'}
+            elif statistic[key] is None:
+                values[series['id']] = {'value':None,'status':'UNAVAILABLE','reason':'NO_VALID_BOOTSTRAP_STATISTIC'}
+            else:
+                values[series['id']] = {'value':str(statistic[key]),'status':'OK','reason':None}
+        record['metrics'].append({'id':'base_bootstrap_sr_'+key,'label':label,
+                                  'unit':unit,'values':values})
+    for comparison in uncertainty['comparisons']:
+        text = ('BASE saved-return paired circular blocks63, seed37001, 1000 draws; '
+                'deltas are primary strategy minus this control. ')
+        for key in ('sr_delta','growth_delta','drawdown_delta'):
+            stat = comparison[key]
+            text += (f"{key}: {stat['status']}, central95 [{stat['lower']}, {stat['upper']}], "
+                     f"valid {stat['valid_count']}/1000, invalid {stat['invalid_count']}; "
+                     f"reasons {stat['invalid_reason_counts']}. ")
+        text += 'Full per-replicate statistics/reasons and shared index hash in immutable semantic uncertainty.json.'
+        record['limitations'].append({'code':'SAVED_BOOTSTRAP_'+comparison['benchmark_id'],
+            'scope':comparison['benchmark_id'],'text':text[:1000]})
+    record['limitations'].append({'code':'CONDITIONAL_ROBUSTNESS','scope':'Entire modeled comparison',
+        'text':f"{uncertainty['robustness']}. All point screens across BASE and actual doubled-cost accounts MET: "
+               f"{uncertainty['point_screens_all_met']}; all six components have exactly1000 valid draws: "
+               f"{uncertainty['all_components_valid']}. Bootstrap applies to BASE saved returns only, including on this cost-scenario page. "
+               'Conditional on exposed history, selected survivors and block assumption; not calibrated market confidence, pristine holdout or general adoption evidence.'})

@@ -58,3 +58,34 @@ def fixture(tmp_path, monkeypatch):
         'code_revision': old['code_revision'], 'runtime_image_id': old['runtime_image_id'],
         'candidate_id': 'INVENTED-SCHEDULED', 'experiment_id': 'INVENTED-NOFIT-ORIGINAL'})
     return root, cfg, profile, calendar
+
+
+def inverse_fixture(tmp_path, monkeypatch):
+    root, old, profile, calendar = fixture(tmp_path, monkeypatch)
+    calendar['phases'] = {'FINAL': calendar['phases']['FINAL']}
+    cp = write(tmp_path/'inverse-calendar.json', calendar)
+    profile.update(schema='polar.scheduled-reference-profile/2', protocol_id='INVENTED-COMMON-RISK-V1',
+        calendar_sha256=cp['sha256'], policy={'kind':'COMMON_RISK_INVERSE_VOLATILITY','lookback':60,'annual_cap':'0.10'},
+        legs=[{'id':i,'label':label,'rule':rule,'scale':[1,1]} for i,label,rule in [
+            ('INVVOL','Monthly inverse volatility common forecast risk','INVERSE_VOL'),
+            ('EW','Monthly equal weight common forecast risk','EQUAL_WEIGHT'),
+            ('MOM','Monthly relative momentum common forecast risk','MOMENTUM')]],
+        primary_strategy='INVVOL', primary_benchmark='EW', decision_delay_seconds=1,
+        question_label='Invented no-fit inverse volatility comparison',
+        question_summary='Three fixed policies at common causal forecast risk, actual base and doubled cost accounts.',
+        cost_scenarios=[{'id':'BASE','cost_profile':{'flat_cents':100,'bps':10}},
+                        {'id':'COST_STRESS','cost_profile':{'flat_cents':200,'bps':20}}],
+        uncertainty={'kind':'PAIRED_CIRCULAR_SAVED_RETURNS','block':63,'replicates':1000,'seed':37001})
+    conditions = []
+    for other in ('EW','MOM'):
+        for kind, extra in [('TERMINAL_GT',{}),('SR_DELTA_GE',{'threshold':'0.10'}),
+                            ('DRAWDOWN_LE',{}),('VOL_RATIO_BETWEEN',{'lower':'0.8','upper':'1.25'})]:
+            conditions.append({'id':kind+'_'+other,'description':kind+' versus '+other,
+                               'kind':kind,'left_id':'INVVOL','right_id':other,**extra})
+        conditions.append({'id':'POSITIVE_GROWTH_'+other,'description':'Positive wealth for screen versus '+other,
+                           'kind':'POSITIVE_GROWTH','left_id':'INVVOL'})
+    profile['criteria'] = conditions
+    pp = write(tmp_path/'inverse-profile.json',profile)
+    cfg = {**old,'profile_ref':pp,'calendar_ref':cp,'candidate_id':'INVENTED-INVERSE-VOL',
+           'experiment_id':'INVENTED-INVERSE-VOL-ORIGINAL'}
+    return root,cfg,profile,calendar
