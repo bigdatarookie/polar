@@ -10,7 +10,7 @@ import sys
 
 import pytest
 
-from polar.conditional_reference import MODEL, STATUS, ReferenceError, build, construct
+from polar.conditional_reference import AAOI_MODEL, MODEL, STATUS, ReferenceError, build, construct
 from polar.gym_contract import GymError, canonical, sha
 from polar.history_bundle import HistoryError
 
@@ -176,3 +176,35 @@ def test_hash_failure_and_symlink_read_do_not_publish(tmp_path):
     Path(ref['path']).symlink_to(target)
     with pytest.raises(GymError, match='UNSAFE_REFERENCE'): construct(ref, root)
     assert list(root.iterdir()) == []
+
+
+def test_aaoi_label_preserved_through_immutable_publication_no_arithmetic_change(tmp_path):
+    ref, root = materialize(tmp_path)
+    d = json.loads(Path(ref['path']).read_bytes())
+    d['model'] = AAOI_MODEL.copy()
+    Path(ref['path']).write_bytes(canonical(d))
+    ref['sha256'] = sha(Path(ref['path']).read_bytes())
+    result = construct(ref, root)
+    report = json.loads((root / result['relative_path'] / 'report.json').read_bytes())
+    legacy_d, rows, grid = fixture()
+    legacy = build(legacy_d, rows, grid)
+    assert report['model'] == AAOI_MODEL and report['model'] != MODEL
+    assert legacy['model'] == MODEL
+    # Issue label support changes no factor, endpoint, clock, invalidation or evidence state.
+    assert all(report[k] == v for k, v in legacy.items() if k != 'model')
+    assert report['combined_decision_use_K'] is None
+    assert report['combined_decision_use_K_status'] == 'UNBOUND'
+
+
+@pytest.mark.parametrize('change', [
+    {'unit_currency': 'ASSUMED_USD_PER_ASSUMED_UNKNOWN_COMMON_SHARE'},
+    {'unit_currency': 'ASSUMED_USD_PER_ASSUMED_AAOI_PARENT_COMMON_SHARE '},
+    {'unit_currency': 'USD'}, {'holder_multiplier': '2'}, {'common_cash': '1'},
+    {'holder_multiplier': 1}, {'common_cash': 0},
+    {'other_entitlements': 'PROVIDER_CERTIFIED_NONE'}, {'extra_assumption': 'allowed'},
+])
+def test_aaoi_support_keeps_closed_model_predicate(change):
+    d, rows, grid = fixture()
+    d['model'] = {**AAOI_MODEL, **change}
+    with pytest.raises(ReferenceError, match='UNSUPPORTED_OWNER_MODEL'):
+        build(d, rows, grid)

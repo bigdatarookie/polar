@@ -17,6 +17,7 @@ K_FIELDS = ('entitlement_information_K', 'owner_model_information_K', 'combined_
 MODEL = {'holder_multiplier': '1', 'common_cash': '0',
          'other_entitlements': 'OWNER_EXPLICIT_NONE_FOR_LOCAL_PREPARATION',
          'unit_currency': 'ASSUMED_USD_PER_ASSUMED_POST_SEPARATION_COMMON_SHARE'}
+AAOI_MODEL = {**MODEL, 'unit_currency': 'ASSUMED_USD_PER_ASSUMED_AAOI_PARENT_COMMON_SHARE'}
 
 
 class ReferenceError(ValueError):
@@ -45,7 +46,7 @@ def timestamp(value):
 def build(descriptor, rows, grid, invalidations=()):
     """Pure operation. Caller supplies exact snapshots; no hidden source reads."""
     require(descriptor['schema'] == 'polar.original-conditional-reference-input/1', 'INPUT_SCHEMA')
-    require(descriptor['model'] == MODEL, 'UNSUPPORTED_OWNER_MODEL')
+    require(descriptor['model'] in (MODEL, AAOI_MODEL), 'UNSUPPORTED_OWNER_MODEL')
     require(descriptor['required_output']['counts'] == {'closes': 253, 'adjacent_gross_factors': 252}, 'INPUT_COUNTS')
     require(descriptor['required_output']['status'] == STATUS, 'INPUT_STATUS')
     require(type(rows) is list and len(rows) == 253, 'CLOSE_COUNT_NO_FILL')
@@ -112,7 +113,7 @@ def build(descriptor, rows, grid, invalidations=()):
                         **{k: None for k in K_FIELDS}, **{k + '_status': 'UNBOUND' for k in K_FIELDS}})
     result = {'schema': 'polar.original-conditional-reference-output/1', 'status': STATUS,
               'record_id': descriptor['record_id'], 'profile_id': descriptor['profile_id'],
-              'model': MODEL.copy(), 'closes': rows, 'adjacent_gross_factors': factors,
+              'model': descriptor['model'].copy(), 'closes': rows, 'adjacent_gross_factors': factors,
               'counts': {'closes': 253, 'adjacent_gross_factors': 252,
                          'invalidated_factors': sum(f['status'] == 'INVALIDATED' for f in factors)},
               'source_verification': 'BOUND_OPERAND_HASH_AND_POINTER_SHAPE_ONLY_ORIGINAL_SOURCE_NOT_REREAD',

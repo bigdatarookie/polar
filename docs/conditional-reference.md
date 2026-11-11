@@ -2,6 +2,8 @@
 
 This offline data operation produces `RETROSPECTIVE_CONDITIONAL_PREPARATION_REFERENCE` from the owner's exact 253-close descriptor. It is neither a funded portfolio nor a decision-admissible reference. It uses unit multiplier 1, common cash 0 and the explicit local no-other-entitlement assumption. Those declarations do not certify issue identity, currency, share scale, vintage, fallback behavior or absence of events.
 
+The input/output model predicate supports exactly two issue-unit labels: `ASSUMED_USD_PER_ASSUMED_POST_SEPARATION_COMMON_SHARE` (existing Alcoa convention) and `ASSUMED_USD_PER_ASSUMED_AAOI_PARENT_COMMON_SHARE` (AAOI parent-common convention). Both require the same complete four-field model, with string holder multiplier `1`, string common cash `0` and `OWNER_EXPLICIT_NONE_FOR_LOCAL_PREPARATION`. Unknown labels, extra fields or changed assumptions remain unsupported. The report preserves the exact supplied supported model; AAOI is never relabelled as Alcoa. Issue/source-use qualification and contrary revision/event evidence remain the owner's responsibility; label compatibility does not establish source identity or complete event coverage. The original AAOI `UNSUPPORTED_OWNER_MODEL` pre-publication failure remains preserved; this correction authorizes no private retry by the author and changes no arithmetic, K, invalidation, publication or CLI behavior.
+
 Run only after applicable independent technical qualification, using an existing private output directory outside Git:
 
 ```sh
