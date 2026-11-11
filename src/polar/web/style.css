@@ -101,3 +101,25 @@
 
 @media(min-width:701px){.workspace:has(.comparison-context:not([hidden])){grid-template-rows:minmax(490px,68%) minmax(0,32%)}.comparison-context{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;padding:8px 18px}.comparison-actions{margin:0}.comparison-actions label{margin-right:7px}.comparison-heading{gap:6px}.comparison-context>details,.comparison-context>.comparison-gap{grid-column:1/-1}.comparison-context>details>p{margin:5px 0}.comparison-context .comparison-gap{margin:0;color:var(--benchmark)}}
 .comparison-gap{color:var(--benchmark)!important}.comparison-context>details[open]{max-height:150px;overflow:auto}
+/* Narrow comparison keeps real controls and the complete plot in one working pane. */
+@media(max-width:700px){
+ .workspace:has(.comparison-context:not([hidden])){grid-template-rows:minmax(550px,76%) minmax(0,24%)}
+ .plot-toolbar{display:grid;grid-template-columns:minmax(0,1fr) 53px 119px;gap:5px 7px;padding:8px 12px;align-items:end}
+ .plot-toolbar .asset-field{grid-column:1;grid-row:1;width:auto;min-width:0;max-width:none}
+ .plot-toolbar .granularity-control{grid-column:2;grid-row:1;width:auto;min-width:0}
+ .plot-toolbar .source-control{grid-column:3;grid-row:1;width:auto;min-width:0;display:block}
+ .plot-toolbar label,.plot-toolbar .asset-field>label{font-size:9px;line-height:1.3}
+ .plot-toolbar #asset-search,.plot-toolbar select{width:100%;min-width:0;height:32px;padding:5px;font-size:10px}
+ .plot-toolbar .periods{grid-column:1/-1;grid-row:2;width:100%;display:flex;margin:0;gap:1px;justify-content:space-between}
+ .plot-toolbar .periods button{flex:1;padding:3px 5px;min-height:30px;font-size:10px}
+ .selection-state{padding:3px 12px;gap:6px;min-height:26px;font-size:9px}
+ #selection-context{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+ #selection-pending{font-size:9px}#open-test-mode,#retry-selection{font-size:9px;padding:3px 5px;min-height:22px}
+ .chart-legend{padding:5px 12px;gap:5px 10px;font-size:9px;line-height:1.4}.chart-legend #volume-toggle{font-size:9px;min-height:22px;padding:2px 5px}
+ .index-title{padding:4px 12px;font-size:9px;line-height:1.4}
+ .comparison-context{padding:5px 12px}.comparison-heading{display:flex;flex-wrap:nowrap;gap:7px;font-size:9px}.comparison-heading b{font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.comparison-heading span{font-size:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:70px}
+ .comparison-actions{margin:4px 0;display:flex;flex-wrap:nowrap;gap:4px}.comparison-actions label{width:auto;margin:0 auto 0 0;font-size:9px;gap:3px;white-space:nowrap}.comparison-actions button{padding:3px 5px;font-size:9px;min-height:26px;white-space:nowrap}.comparison-context details{font-size:9px}.comparison-context .comparison-gap{margin:3px 0;font-size:9px}
+ .data-diagnostics>summary{padding:4px 12px;font-size:9px;line-height:1.5}.data-diagnostics #diagnostic-summary{display:inline;font-size:8px;margin-left:8px}
+ .chart-card:has(.comparison-context:not([hidden])){min-height:0}
+ .main-strategy-row{gap:3px 7px;padding:7px 10px}.main-strategy-select b{font-size:10px}.main-strategy-select small{font-size:8px}.main-strategy-verdict{font-size:9px}
+}
