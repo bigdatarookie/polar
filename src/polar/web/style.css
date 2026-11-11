@@ -123,3 +123,6 @@
  .chart-card:has(.comparison-context:not([hidden])){min-height:0}
  .main-strategy-row{gap:3px 7px;padding:7px 10px}.main-strategy-select b{font-size:10px}.main-strategy-select small{font-size:8px}.main-strategy-verdict{font-size:9px}
 }
+
+#main-research-status[hidden]{display:none}#sort-label>#main-research-refresh{font-size:10px;padding:4px 7px;min-height:26px}.research-highlights>div{min-width:0}.research-highlights strong{overflow-wrap:anywhere}
+@media(max-width:700px){.workspace:has(.comparison-context:not([hidden])){grid-template-rows:minmax(585px,80%) minmax(0,20%)}.strategy-section .list-heading{padding:7px 10px}.strategy-section .list-heading p{display:none}.strategy-section .list-heading h2{font-size:12px}.strategy-section .list-heading h2 span{font-size:9px}.strategy-section #sort-label>#main-research-refresh{font-size:9px;min-height:23px}.index-title{font-size:9px}}
