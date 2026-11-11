@@ -56,7 +56,7 @@ function createResearchWorkspace({root,historyWorkspace,fetcher,theme=()=> 'auto
   function render(){
     for(const mode of ['auto','light','dark'])document.getElementById('research-theme-'+mode)?.setAttribute('aria-pressed',String(theme()===mode));
     const previous=committed?.detail?.result_id===root.dataset.renderedResult?[...root.querySelectorAll('details')].map(d=>d.open):[];
-    renderPending();list.replaceChildren();picker.replaceChildren();const detail=committed?.detail;onContext(detail?'Saved research · '+detail.record.question.id+' · '+detail.result_id:'Saved research · '+(loading?'Updating':error||'No result'));
+    renderPending();list.replaceChildren();picker.replaceChildren();const detail=committed?.detail;onContext(detail?'Saved research · '+detail.record.question.label+' · '+researchPhase(detail.record):'Saved research · '+(loading?'Updating':error||'No result'));
     for(const item of committed?.catalog.items||[]){
       const option=el('option',item.question.label);option.value=item.result_id;option.selected=item.result_id===detail?.result_id;picker.append(option);
       const b=button('',()=>load(committed.catalog.offset,item.result_id));b.className='research-result';b.dataset.resultId=item.result_id;b.setAttribute('aria-pressed',String(item.result_id===detail?.result_id));
@@ -72,7 +72,7 @@ function createResearchWorkspace({root,historyWorkspace,fetcher,theme=()=> 'auto
     const conclusion=detail.assessment.financial==='NOT_SUPPORTED'?'Point claim not supported':detail.assessment.financial==='INDETERMINATE'?'Diagnostic evidence · no final point conclusion':detail.assessment.financial==='SUPPORTED_WITH_LIMITS'?'Supported within stated limits':'Awaiting independent financial review';
     intro.append(el('p',phase+' / '+r.grid[0].slice(0,10)+' — '+r.grid.at(-1).slice(0,10),'research-eyebrow'),el('h1',r.question.label),el('p',r.question.summary),el('p',conclusion,'research-conclusion'),el('p',assessmentText(detail.assessment),'research-assessment'));
     const compare=button('Compare on main chart',()=>onCompare(detail),'research-compare-main');intro.append(compare);
-    const identity=el('details',undefined,'research-identity');identity.append(el('summary','Result identity · '+r.question.id),el('code',detail.result_id),el('code','Content SHA-256 '+detail.content_sha256));intro.append(identity);
+    const identity=el('details',undefined,'research-identity');identity.append(el('summary','Result identity · '+r.question.id),el('code',detail.result_id),el('code','Content SHA-256 '+detail.content_sha256));const jsonLink=el('a','Open the exact saved record JSON');jsonLink.href='/v1/research/results/'+encodeURIComponent(detail.result_id);jsonLink.target='_blank';jsonLink.rel='noopener';identity.append(jsonLink);intro.append(identity);
     intro.append(el('p',r.basis.currency+' nominal NAV · '+r.basis.frequency+' · UTC sample grid · '+r.basis.wealth_basis+' · '+r.basis.cost_basis,'research-basis'));
     r.series.forEach((leg,i)=>{const label=el('span',undefined,'research-leg'),line=el('i'),stroke=legStyle(leg,i);line.style.background=strokeBackground(stroke);line.style.height=stroke.width+'px';line.setAttribute('aria-hidden','true');label.append(line,el('b',leg.label),el('small',leg.role+(leg.id===r.primary_benchmark_id?' · PRIMARY':'')));legend.append(label);});
     const statement=el('section',undefined,'research-interpretation');statement.append(el('p','01 / THE QUESTION','research-eyebrow'),el('h2','What was tested'),el('p',r.question.summary));
@@ -132,12 +132,12 @@ function createResearchWorkspace({root,historyWorkspace,fetcher,theme=()=> 'auto
     const r=committed?.detail?.record;if(!r)return;inspect=Math.max(0,Math.min(inspect,r.grid.length-1));pointInput.value=String(inspect);pointInput.setAttribute('aria-valuetext',r.grid[inspect]+' · sample '+(inspect+1)+' of '+r.grid.length);
     pointSummary.textContent=r.grid[inspect]+' · '+r.series.map(leg=>leg.label+' '+valueLabel(leg.values[inspect])+' '+leg.unit).join(' · ');
     pointBody.replaceChildren();for(const leg of r.series){const group=el('section');group.append(el('h3',leg.label+' · '+leg.role));const dl=el('dl');definition(dl,'UTC grid sample',r.grid[inspect]);definition(dl,'NAV · USD',leg.values[inspect].status==='OK'?leg.values[inspect].value:valueLabel(leg.values[inspect]));
-      const ledger=leg.ledger[inspect];for(const key of ['cash','exposure','cumulative_flat_fees','cumulative_bps_fees'])definition(dl,key.replaceAll('_',' '),ledger[key]??'Unavailable');
+      const ledger=leg.ledger[inspect];for(const key of ['cash','exposure','cumulative_flat_fees','cumulative_bps_fees'])definition(dl,key.replaceAll('_',' ')+' · '+leg.unit,ledger[key]??'Unavailable');
       definition(dl,'Positions',Object.entries(ledger.positions).map(([id,n])=>id+': '+n).join(' · ')||'None');definition(dl,'Supplied net return',valueLabel(ledger.net_return));group.append(dl);pointBody.append(group);}
   }
   function renderChart(){
     if(!active||!committed?.detail||!canvas.clientWidth||!canvas.clientHeight)return;
-    if(!chart){chart=echarts.init(canvas,null,{renderer:'canvas'});chart.on('click',p=>{if(Number.isInteger(p.dataIndex)){inspect=p.dataIndex;renderPoint();}});}
+    if(!chart)chart=echarts.init(canvas,null,{renderer:'canvas'});
     root.querySelectorAll('.research-table-scroll').forEach(s=>s.updateColumnNavigation?.());
     const r=committed.detail.record,c=style(),narrow=innerWidth<701,metric=r.metrics.find(m=>m.id===metricChoice)||r.metrics[0];
     chartNote.textContent='Producer-supplied '+metric.label+' · '+metric.unit+'. This infographic does not recalculate a financial metric. Exact values and statuses remain in details; time-series comparison is on main. '+r.series.filter(leg=>researchPlotValue(metric.values[leg.id])===null).map(leg=>researchReadable(leg.label)+': '+(metric.values[leg.id].status==='OK'?'outside renderer precision; see exact value':valueLabel(metric.values[leg.id],metric.id))).join(' · ');
