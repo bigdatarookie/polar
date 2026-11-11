@@ -248,6 +248,8 @@ def recompute(service, semantic_id):
         require(len(body) == pin['bytes'] and sha(body) == pin['sha256'], 'SCHEDULED_MEMBER_HASH')
         files[name] = decode(body)
     profile = profile_value(files['profile.json'])
+    expected_members = MEMBERS | ({'uncertainty.json'} if profile['schema'].endswith('/2') else set())
+    require(set(files) == expected_members, 'SCHEDULED_PROFILE_MEMBER_SET')
     require(files['bindings.json']['code'] == code_binding(), 'SCHEDULED_REPRODUCTION_CODE_BINDING')
     expected_diagnostics = {}
     # Only saved output arrays are used; no source, policy feature, model or native call.

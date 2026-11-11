@@ -47,6 +47,23 @@ def test_inverse_base_stress_publication_and_saved_only(tmp_path, monkeypatch):
     assert result['status'] == 'REPRODUCED' and all(result[k] == 0 for k in ('fit_calls','predict_calls','native_calls','store_writes'))
     assert before == {str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob('*') if p.is_file()}
 
+    # This is a new invented self-consistent artifact, not corruption of the
+    # original immutable result. Rehashing cannot waive schema/2's bootstrap.
+    from polar.gym_contract import canonical, sha
+    manifest = json.loads((directory/'manifest.json').read_bytes())
+    del manifest['files']['uncertainty.json']
+    raw = canonical(manifest)
+    bad_id = 'scheduled-reference-experiment-'+sha(raw)
+    invalid = directory.parent/bad_id
+    invalid.mkdir()
+    for name in manifest['files']:
+        (invalid/name).write_bytes((directory/name).read_bytes())
+    (invalid/'manifest.json').write_bytes(raw)
+    bad_before = {str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob('*') if p.is_file()}
+    with pytest.raises(ValueError, match='SCHEDULED_PROFILE_MEMBER_SET'):
+        service.recompute(bad_id)
+    assert bad_before == {str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob('*') if p.is_file()}
+
 
 def test_inverse_cost_and_uncertainty_closed(tmp_path, monkeypatch):
     _,_,p,_ = inverse_fixture(tmp_path,monkeypatch)
