@@ -1,6 +1,6 @@
 """The shared public/invented author and QA test entry, inside the locked image."""
 import argparse,datetime,hashlib,signal,tempfile,importlib.metadata,json,os,pathlib,platform,subprocess,sys,time,xml.etree.ElementTree as ET
-p=argparse.ArgumentParser();p.add_argument('--test',action='append',default=[]);p.add_argument('--scenario',action='append',default=[],choices=['ml-ridge','obs158']);a=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument('--test',action='append',default=[]);p.add_argument('--scenario',action='append',default=[],choices=['ml-ridge','obs158','scheduled-policy']);a=p.parse_args()
 for x in a.test:
     if not x.startswith('tests/') or '..' in pathlib.PurePosixPath(x.split('::')[0]).parts or any(c in x for c in '\n\r\x00'):
         p.error('--test must be a repository tests/ path or node ID')

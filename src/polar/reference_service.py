@@ -77,6 +77,9 @@ class ReferenceResearchService:
         self.store=HistoryStore(root,limit);self.results=ResearchResults(root,limit)
 
     def prepare(self,config):
+        if config.get('schema') == 'polar.scheduled-reference-config/1':
+            from .scheduled_service import prepare
+            return prepare(self, config)
         fields={'schema','namespace','profile_id','protocol_ref','input_ref','calendar_ref','timezone_ref','code',
                 'code_revision','runtime_image_id','candidate_id','experiment_id','execution_authority_ref','artifact_root_identity'}
         require(type(config) is dict and set(config)==fields and config['schema']=='polar.reference-research-config/1'
@@ -140,6 +143,9 @@ class ReferenceResearchService:
         return market,calendar,tz,fit_event
 
     def preflight(self,config):
+        if config.get('schema') == 'polar.scheduled-reference-config/1':
+            from .scheduled_service import preflight
+            return preflight(self, config)
         market,calendar,_,_=self.prepare(config)
         return {'schema':'polar.reference-preflight/1','status':'READY_FOR_BOUND_OPERATION',
             'profile_id':config['profile_id'],'operation_binding_sha256':sha(canonical(binding(config))),
@@ -170,6 +176,9 @@ class ReferenceResearchService:
         return authority
 
     def run(self,config):
+        if config.get('schema') == 'polar.scheduled-reference-config/1':
+            from .scheduled_service import run
+            return run(self, config)
         market,calendar,tz,fit_event=self.prepare(config);authority=self._authority(config)
         is_c = config['profile_id'] in (reference_c.C, reference_c.INVENTED_C)
         legs = reference_c.LEGS if is_c else LEGS
@@ -266,6 +275,9 @@ class ReferenceResearchService:
             'evidence_level':'RETAINED_DESCRIPTIVE' if config['namespace']=='RETAINED' else 'INVENTED_CONTROL'}
 
     def recompute(self,semantic_id):
+        if semantic_id.startswith('scheduled-reference-experiment-'):
+            from .scheduled_service import recompute
+            return recompute(self, semantic_id)
         require(re.fullmatch('reference-experiment-[a-f0-9]{64}',semantic_id),'REFERENCE_EXPERIMENT_ID')
         parent='reference-research-experiments/'+semantic_id
         raw=read_file(self.store.root,parent+'/manifest.json',32*1024**2);require(semantic_id=='reference-experiment-'+sha(raw),'REFERENCE_MANIFEST_HASH')

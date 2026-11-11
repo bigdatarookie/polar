@@ -28,14 +28,14 @@ class Service:
         return ResearchResults(self.artifacts.root, self.artifacts.limit)
 
     def _research_engine(self, config=None, semantic_id=None):
-        if (isinstance(config,dict) and config.get('schema')=='polar.reference-research-config/1') or (semantic_id or '').startswith('reference-experiment-'):
+        if (isinstance(config,dict) and config.get('schema') in ('polar.reference-research-config/1', 'polar.scheduled-reference-config/1')) or (semantic_id or '').startswith(('reference-experiment-', 'scheduled-reference-experiment-')):
             from .reference_service import ReferenceResearchService
             return ReferenceResearchService(self.artifacts.root,self.artifacts.limit)
         from .ci_research_service import ResearchService
         return ResearchService(self.artifacts.root, self.artifacts.limit)
 
     def research_preflight(self, config):
-        if config.get('schema')=='polar.reference-research-config/1':
+        if config.get('schema') in ('polar.reference-research-config/1', 'polar.scheduled-reference-config/1'):
             return self._research_engine(config).preflight(config)
         from .ci_research_service import operation_binding
         from .gym_contract import canonical, sha
@@ -46,6 +46,9 @@ class Service:
                 "operation_binding_sha256": sha(canonical(operation_binding(config, pins)))}
 
     def research_config(self, seed):
+        if seed.get('schema') == 'polar.scheduled-reference-seed/1':
+            from .scheduled_service import config_from_seed
+            return config_from_seed(seed)
         from .reference_service import PROFILES,config_from_seed as reference_config
         if seed.get('profile_id') in PROFILES:return reference_config(seed)
         from .ci_research_service import config_from_seed
