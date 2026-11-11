@@ -58,7 +58,9 @@ def execute(report):
                 return result
             def native(plan):
                 with phase('native_five_accounts_'+str(len(simulations)+1)) as item:
-                    simulation = original_native(plan); simulations.append(simulation)
+                    simulation = original_native(plan)
+                    name = next(k for k,g in calendar['phases'].items() if g['initial'] == plan['grid'][0]['date'])
+                    simulations.append((name, simulation))
                     assert len(simulation['legs']) == 5
                     item.update(native_accounts=5, engine=simulation['engine'])
                     return simulation
@@ -69,7 +71,7 @@ def execute(report):
                 assert all(output[k] == 0 for k in ('fit_calls','predict_calls','model_calls'))
                 item.update(semantic_id=output['semantic_id'], native_accounts=10, fit_calls=0, predict_calls=0)
             with phase('literal_allocation_cost_and_terminal_controls') as item:
-                for name, sim in zip(calendar['phases'], simulations):
+                for name, sim in simulations:
                     controls = expected['independently_recomputed_allocation_controls'][name]
                     legs = {t['id']: t for t in sim['legs']}
                     assert all(len(t['nav']) == calendar['phases'][name]['nav_points'] and
