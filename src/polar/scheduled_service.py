@@ -86,7 +86,7 @@ def prepare(service, config, *, load_prices=True):
 
 
 def preflight(service, config):
-    p, _, _, grids, _, _ = prepare(service, config)
+    p, _, _, grids, _, _ = prepare(service, config, load_prices=False)
     return {'schema': 'polar.scheduled-reference-preflight/1', 'status': 'READY_FOR_BOUND_OPERATION',
             'operation_binding_sha256': sha(canonical(binding(config))), 'policy_execution': 'NOT_RUN',
             'scientific_starts': 0, 'fit_calls': 0, 'predict_calls': 0,

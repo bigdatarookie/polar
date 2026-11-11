@@ -116,3 +116,15 @@ def test_metadata_fails_without_policy_or_native_calls(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match='SCHEDULED_POLICY'): profile_value(profile)
     market = load_reference(cfg['input_ref']); calendar['phases']['FINAL']['decisions'].pop()
     with pytest.raises(ValueError, match='SCHEDULED_DECISION_GRID'): calendar_value(calendar, market['schedule'])
+
+def test_preflight_metadata_only_never_reads_quotes_before_start(tmp_path, monkeypatch):
+    root, cfg, _, _ = fixture(tmp_path, monkeypatch)
+    import polar.scheduled_service as module
+    def forbidden(*args, **kwargs):
+        raise AssertionError('PREFLIGHT_READ_RETAINED_NUMERIC_SOURCE')
+    monkeypatch.setattr(module, 'load_reference', forbidden)
+    result = ReferenceResearchService(root, 64*1024**2).preflight(cfg)
+    assert result['scientific_starts'] == result['fit_calls'] == result['predict_calls'] == 0
+    assert result['expected_native_accounts'] == 10
+    assert not (root/'scheduled-reference-attempts').exists()
+

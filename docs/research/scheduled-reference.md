@@ -27,8 +27,10 @@ IDs, labels, rules/scales, primary roles, K-to-D delay, point criteria, prose an
 saved subperiods. Finite common-wire bounds are checked before an original.
 
 Retained preparation validates the existing exact reference-source rights and
-runtime versions. Preflight reads and validates source but evaluates no policy,
-features or weights and creates no attempt. A run requires a content-bound
+runtime versions. Preflight validates pinned metadata/schedule/bindings only: it does not
+open numeric quote payloads, evaluate policy/features/weights or create an attempt.
+Full quote/domain validation occurs after durable FIRST_START in the original
+attempt; any failure is preserved without refund. A run requires a content-bound
 polar.scheduled-reference-operation/1 authority: action ORIGINAL,
 binding_sha256 of config excluding execution_authority_ref, allowed_fit_calls=0,
 allowed_predict_calls=0, allowed_native_accounts equal legs times phases,
