@@ -10,7 +10,7 @@ import sys
 
 import pytest
 
-from polar.conditional_reference import AAOI_MODEL, MODEL, STATUS, ReferenceError, build, construct
+from polar.conditional_reference import AAOI_MODEL, AAWW_MODEL, MODEL, STATUS, ReferenceError, build, construct
 from polar.gym_contract import GymError, canonical, sha
 from polar.history_bundle import HistoryError
 
@@ -178,17 +178,18 @@ def test_hash_failure_and_symlink_read_do_not_publish(tmp_path):
     assert list(root.iterdir()) == []
 
 
-def test_aaoi_label_preserved_through_immutable_publication_no_arithmetic_change(tmp_path):
+@pytest.mark.parametrize('model', [AAOI_MODEL, AAWW_MODEL], ids=['AAOI', 'AAWW'])
+def test_issue_label_preserved_through_immutable_publication_no_arithmetic_change(tmp_path, model):
     ref, root = materialize(tmp_path)
     d = json.loads(Path(ref['path']).read_bytes())
-    d['model'] = AAOI_MODEL.copy()
+    d['model'] = model.copy()
     Path(ref['path']).write_bytes(canonical(d))
     ref['sha256'] = sha(Path(ref['path']).read_bytes())
     result = construct(ref, root)
     report = json.loads((root / result['relative_path'] / 'report.json').read_bytes())
     legacy_d, rows, grid = fixture()
     legacy = build(legacy_d, rows, grid)
-    assert report['model'] == AAOI_MODEL and report['model'] != MODEL
+    assert report['model'] == model and report['model'] != MODEL
     assert legacy['model'] == MODEL
     # Issue label support changes no factor, endpoint, clock, invalidation or evidence state.
     assert all(report[k] == v for k, v in legacy.items() if k != 'model')
@@ -196,6 +197,7 @@ def test_aaoi_label_preserved_through_immutable_publication_no_arithmetic_change
     assert report['combined_decision_use_K_status'] == 'UNBOUND'
 
 
+@pytest.mark.parametrize('model', [AAOI_MODEL, AAWW_MODEL], ids=['AAOI', 'AAWW'])
 @pytest.mark.parametrize('change', [
     {'unit_currency': 'ASSUMED_USD_PER_ASSUMED_UNKNOWN_COMMON_SHARE'},
     {'unit_currency': 'ASSUMED_USD_PER_ASSUMED_AAOI_PARENT_COMMON_SHARE '},
@@ -203,8 +205,8 @@ def test_aaoi_label_preserved_through_immutable_publication_no_arithmetic_change
     {'holder_multiplier': 1}, {'common_cash': 0},
     {'other_entitlements': 'PROVIDER_CERTIFIED_NONE'}, {'extra_assumption': 'allowed'},
 ])
-def test_aaoi_support_keeps_closed_model_predicate(change):
+def test_issue_support_keeps_closed_model_predicate(model, change):
     d, rows, grid = fixture()
-    d['model'] = {**AAOI_MODEL, **change}
+    d['model'] = {**model, **change}
     with pytest.raises(ReferenceError, match='UNSUPPORTED_OWNER_MODEL'):
         build(d, rows, grid)
