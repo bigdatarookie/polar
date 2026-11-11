@@ -1,11 +1,11 @@
 // Adapted selected interaction geometry; unavailable retained points never become measurements.
 let plotGesture=null,hovering=false,wheelRemainder=0;
-function sourceName(s){return s==='assetClose'?'Asset close · '+(dataset?.instrument.currency||'USD')+'/share':'Retained NAV · '+(detail?.report?.units.nav||'USD')}
-function rawText(s,i){return s==='assetClose'?view.bars[i]?.close:view.equity[i]?.value}
-function rawTime(s,i){return s==='assetClose'?view.bars[i]?.endTime:view.equity[i]?.at}
+function sourceName(s){return s==='assetClose'?'Asset close · '+(dataset?.instrument.currency||'USD')+'/share':(historyDisplayed()?'Selected portfolio NAV · USD':'Retained NAV · '+(detail?.report?.units.nav||'USD'))}
+function rawText(s,i){return s==='assetClose'?view.bars[i]?.close:(historyDisplayed()?getMainComparison()?.strategyRaw?.[i]:view.equity[i]?.value)}
+function rawTime(s,i){return s==='assetClose'?view.bars[i]?.endTime:(historyDisplayed()?getMainComparison()?.times?.[i]:view.equity[i]?.at)}
 function rawValue(s,i){return numberOrNull(rawText(s,i))}
-function candlePlotValue(v){return historyDisplayed()?numberOrNull(v):indexValue(v,view.baseClose)}
-function plotPoint(s,i){if(!view.bars[i])return[NaN,NaN];let value=historyDisplayed()?(s==='assetClose'?numberOrNull(rawText(s,i)):null):indexValue(rawText(s,i),s==='assetClose'?view.baseClose:view.initialCash),p=chart.convertToPixel({xAxisIndex:0,yAxisIndex:0},[view.bars[i].time,value??0]);return[p[0],value===null?NaN:p[1]]}
+function candlePlotValue(v){return historyDisplayed()?priceDisplayValue(v):indexValue(v,view.baseClose)}
+function plotPoint(s,i){if(!view.bars[i])return[NaN,NaN];let value=historyDisplayed()?(s==='assetClose'?priceDisplayValue(rawText(s,i)):getMainComparison()?.strategyIndex?.[i]??null):indexValue(rawText(s,i),s==='assetClose'?view.baseClose:view.initialCash),p=chart.convertToPixel({xAxisIndex:0,yAxisIndex:0},[view.bars[i].time,value??0]);return[p[0],value===null?NaN:p[1]]}
 function plotBox(){return chartLayout().priceBox}
 function localPoint(e){let r=$('#chart-stage').getBoundingClientRect();return[e.clientX-r.x,e.clientY-r.y]}
 function inPlot(p){if(!anySource('assetClose')&&!anySource('strategyEquity'))return false;let b=plotBox();return p[0]>=b.x&&p[0]<=b.x+b.width&&p[1]>=b.y&&p[1]<= $('#chart').clientHeight-44}
@@ -20,7 +20,7 @@ function activatePoint(s,i){if(!sourceAvailable(s,i))return;state.cursorSource=s
 function clearMeasurement(msg='Measurement cleared.'){state.measurement=null;drawMeasurement();tell(msg)}
 function invalidateRange(){let m=state.measurement;if(m&&(m.start<state.lo||m.start>state.hi||m.end<state.lo||m.end>state.hi)){clearMeasurement('Measurement cleared: range changed');return true}return false}
 function drawMeasurement(){if(!chart||!state)return;let m=state.measurement,card=$('#measurement-fields');if(m&&(!sourceAvailable(m.source,m.start)||!sourceAvailable(m.source,m.end))){state.measurement=null;m=null}['#measure-band','#start-line','#end-line','#anchor-dot','#end-dot'].forEach(s=>$(s).hidden=!m);card.hidden=!m||!hovering;if(!m)return;
- let a=rawValue(m.source,m.start),b=rawValue(m.source,m.end),delta=decimalDelta(rawText(m.source,m.end),rawText(m.source,m.start)),d=Number(delta),p1=plotPoint(m.source,m.start),p2=plotPoint(m.source,m.end),box=plotBox(),unit=m.source==='assetClose'?(dataset.instrument.currency+'/share'):detail.report.units.nav,days=Math.abs(Date.parse(rawTime(m.source,m.end))-Date.parse(rawTime(m.source,m.start)))/86400000,intervals=Math.abs(m.end-m.start),c=palette(),color=d>0?c.positive:d<0?c.negative:c.muted;
+ let a=rawValue(m.source,m.start),b=rawValue(m.source,m.end),delta=decimalDelta(rawText(m.source,m.end),rawText(m.source,m.start)),d=Number(delta),p1=plotPoint(m.source,m.start),p2=plotPoint(m.source,m.end),box=plotBox(),unit=m.source==='assetClose'?(dataset.instrument.currency+'/share'):historyDisplayed()?'USD':detail.report.units.nav,days=Math.abs(Date.parse(rawTime(m.source,m.end))-Date.parse(rawTime(m.source,m.start)))/86400000,intervals=Math.abs(m.end-m.start),c=palette(),color=d>0?c.positive:d<0?c.negative:c.muted;
  const duration=days<1/24?Number((days*1440).toFixed(1))+' min':days<1?Number((days*24).toFixed(1))+' h':Number(days.toFixed(1))+' calendar days';
  const source=element('div',(m.source==='assetClose'?getAsset().symbol+' close':getStrategy().name+' NAV')+' · '+unit,'card-source');source.id='read-source';
  const change=element('strong',signedUSD(delta)+' '+unit);change.id='read-delta';change.style.color=color;
