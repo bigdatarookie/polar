@@ -90,4 +90,22 @@ function researchDecimalDisplay(value,places=2){
   const tail=fraction.slice(places);if(tail[0]>'5'||tail[0]==='5'&&(/[1-9]/.test(tail.slice(1))||scaled%2n===1n))scaled++;
   const digits=scaled.toString().padStart(places+1,'0');return (negative&&scaled!==0n?'−':'')+digits.slice(0,-places)+'.'+digits.slice(-places);
 }
-if(typeof module!=='undefined')module.exports={createResearchClient,validateResearchDetail,validateResearchCatalog,researchValue,researchPlotValue,researchDecimalDisplay,researchHistoryCompatibility};
+// Display-only common-date normalization. Source strings, metrics and ledgers stay intact.
+function researchNormalize(value,base){
+  const n=typeof value==='string'?researchPlotValue({status:'OK',value}):null;
+  if(n===null||!(base>0))return null;const out=n/base*100;
+  return Number.isFinite(out)&&(out!==0||n===0)?out:null;
+}
+function researchComparison(detail,bars){
+  const r=detail.record,strategy=r.series.find(s=>s.role==='STRATEGY'),benchmark=r.series.find(s=>s.id===r.primary_benchmark_id),byDate=new Map();
+  for(let i=0;i<r.grid.length;i++){const date=r.grid[i].slice(0,10);if(byDate.has(date))return {usable:false,reason:'Multiple supplied samples share a calendar date. No intraday aggregation or clock equivalence is inferred.'};byDate.set(date,i);}
+  const indices=bars.map(b=>byDate.get(b.time.slice(0,10))),strategyRaw=indices.map(i=>i===undefined||strategy.values[i].status!=='OK'?null:strategy.values[i].value),benchmarkRaw=indices.map(i=>i===undefined||benchmark.values[i].status!=='OK'?null:benchmark.values[i].value);
+  let first=-1,last=-1;
+  for(let i=0;i<bars.length;i++)if(indices[i]!==undefined){last=i;if(first<0&&bars[i].price_status==='OBSERVED'&&Number(bars[i].close)>0&&Number.isFinite(Number(bars[i].close))&&researchPlotValue(strategy.values[indices[i]])>0&&researchPlotValue(benchmark.values[indices[i]])>0)first=i;}
+  if(first<0)return {usable:false,reason:last<0?'No common calendar dates between the selected asset history and this saved portfolio.':'No common date with positive, renderer-safe observed close, strategy NAV and benchmark NAV. Missing values were not filled.'};
+  const priceBase=Number(bars[first].close),strategyBase=Number(strategyRaw[first]),benchmarkBase=Number(benchmarkRaw[first]);
+  return {usable:true,first,last,baselineDate:bars[first].time.slice(0,10),priceBase,strategyBase,benchmarkBase,strategy,benchmark,strategyRaw,benchmarkRaw,times:indices.map(i=>i===undefined?null:r.grid[i]),strategyIndex:strategyRaw.map(v=>researchNormalize(v,strategyBase)),benchmarkIndex:benchmarkRaw.map(v=>researchNormalize(v,benchmarkBase)),record:r,resultId:detail.result_id};
+}
+function researchReadable(value){return String(value||'Not supplied').replaceAll('_',' ').replace(/\s+/g,' ').trim();}
+function researchPhase(record){return record.question.label.match(/\b(?:FINAL|VALIDATION|TRAIN|TEST|DEVELOPMENT)\b/)?.[0]||'Saved interval';}
+if(typeof module!=='undefined')module.exports={createResearchClient,validateResearchDetail,validateResearchCatalog,researchValue,researchPlotValue,researchDecimalDisplay,researchHistoryCompatibility,researchNormalize,researchComparison,researchReadable,researchPhase};

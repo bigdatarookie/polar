@@ -1,6 +1,6 @@
 // Invented contract fixtures only. No private producer data or network.
 const {test}=require('node:test'),assert=require('node:assert/strict');
-const {createResearchClient,validateResearchDetail,researchValue,researchPlotValue,researchDecimalDisplay}=require('../src/polar/web/research.js');
+const {createResearchClient,validateResearchDetail,researchValue,researchPlotValue,researchDecimalDisplay,researchComparison,researchNormalize}=require('../src/polar/web/research.js');
 const hash='a'.repeat(64),id='research-'+hash;
 const ok=value=>({value,status:'OK',reason:null}),missing=(reason='NO_DATA',status='UNAVAILABLE')=>({value:null,status,reason});
 function fixture(suffix='a'){
@@ -96,4 +96,15 @@ test('explicit exact data and instrument relation can attribute history while NA
  const info=researchHistoryCompatibility(f.detail,context);assert.equal(info.status,'ATTRIBUTED_REVISION_SEPARATE_NAV');assert.match(info.label,/NAV remains separate/);
  f.detail.record.series[0].ledger[0].positions.extra=0;
  assert.equal(researchHistoryCompatibility(f.detail,context).status,'NOT_ATTRIBUTED_TO_HISTORY');
+});
+
+test('display comparison uses first common valid calendar date, separate positive bases and explicit gaps',()=>{
+ const f=fixture(),bars=[{time:'2024-01-01',close:'50',price_status:'OBSERVED'},{time:'2024-01-02',close:'200',price_status:'OBSERVED'},{time:'2024-01-03',close:'220',price_status:'OBSERVED'},{time:'2024-01-04',close:'180',price_status:'OBSERVED'},{time:'2024-01-05',close:'190',price_status:'OBSERVED'}];
+ f.detail.record.series[1].values[0]=ok('1000');f.detail.record.series[1].values[1]=missing('REAL_GAP');
+ const before=JSON.stringify(f.detail),m=researchComparison(f.detail,bars);assert(m.usable);assert.equal(m.baselineDate,'2024-01-02');assert.equal(m.first,1);assert.equal(m.last,3);assert.equal(m.strategyIndex[1],100);assert.equal(m.benchmarkIndex[1],100);assert.equal(m.benchmarkIndex[2],null);assert.equal(m.strategyIndex[0],null);assert.equal(m.strategyIndex[4],null);assert.equal(m.strategyIndex[3],0);assert.equal(researchNormalize('220',m.priceBase),110.00000000000001);assert.equal(JSON.stringify(f.detail),before);
+});
+test('no overlap, ambiguous date samples and renderer unsafe baselines explain unsupported comparison without padding',()=>{
+ const f=fixture();assert.equal(researchComparison(f.detail,[{time:'2020-01-01',close:'20',price_status:'OBSERVED'}]).usable,false);
+ f.detail.record.grid[1]='2024-01-02T22:00:00Z';assert.match(researchComparison(f.detail,[]).reason,/Multiple supplied samples/);
+ assert.equal(researchNormalize('0.'+'0'.repeat(1000)+'1',100),null);assert.equal(researchNormalize('10',0),null);assert.equal(researchNormalize('0',100),0);
 });
