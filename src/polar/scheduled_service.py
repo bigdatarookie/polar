@@ -249,9 +249,7 @@ def project_diagnostics(record, diagnostics):
     subperiod_count = max((len(x.get('subperiods', [])) for x in diagnostics.values()), default=0)
     for index in range(subperiod_count):
         for section, key, unit in [('metrics', 'net_total_return', 'fraction'), ('metrics', 'sharpe_252_rf0', 'ratio'),
-                                  ('metrics', 'max_drawdown', 'fraction'), ('costs', 'total_fee_usd', 'USD'),
-                                  ('costs', 'gross_exact_notional_usd', 'USD'), ('costs', 'gross_settled_notional_usd', 'USD'),
-                                  ('costs', 'positive_fill_count', 'count'), ('costs', 'gross_notional_over_initial', 'fraction')]:
+                                  ('metrics', 'max_drawdown', 'fraction'), ('costs', 'total_fee_usd', 'USD')]:
             values = {}
             for s in record['series']:
                 segments = diagnostics[s['id']].get('subperiods', [])
@@ -270,8 +268,12 @@ def project_diagnostics(record, diagnostics):
                 'Finite saved-ledger descriptions; no future tail or recovery guarantee.')
         record['limitations'].append({'code': 'SAVED_RISK_'+series['id'], 'text': text[:1000], 'scope': series['label']})
         for index, segment in enumerate(d.get('subperiods', [])):
+            scalar = lambda section, key: (segment.get(section, {}).get(key) or {}).get('value', 'unavailable')
             record['limitations'].append({'code': f'SEGMENT_{index}_'+series['id'], 'scope': series['label'],
                 'text': (f"Saved subperiod {index+1}: {segment.get('first_return_date')} through {segment.get('last_return_date')}, "
                          f"preceding-close anchor {segment.get('initial_date')}; {segment.get('intervals')} returns. "
                          f"Normalization initial NAV cents {segment.get('costs', {}).get('normalization_initial_nav_cents')}. "
+                         f"CAGR {scalar('metrics', 'net_cagr_act36525')}, annual volatility {scalar('metrics', 'annual_vol_252')}; "
+                         f"exact gross USD {scalar('costs', 'gross_exact_notional_usd')}, settled gross USD {scalar('costs', 'gross_settled_notional_usd')}, "
+                         f"fills {scalar('costs', 'positive_fill_count')}, gross/initial {scalar('costs', 'gross_notional_over_initial')}. "
                          'Carried holdings and cumulative end-minus-anchor costs; no reset, refit or extra liquidation.')})

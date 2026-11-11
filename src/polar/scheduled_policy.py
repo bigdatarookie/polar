@@ -42,7 +42,7 @@ def profile_value(p):
             0 <= policy['skip'] < policy['lookback'] <= 4096, 'SCHEDULED_POLICY')
     require(type(p['decision_delay_seconds']) is int and 1 <= p['decision_delay_seconds'] <= 3600, 'SCHEDULED_DECISION_DELAY')
     legs = p['legs']
-    require(type(legs) is list and 2 <= len(legs) <= 16 and
+    require(type(legs) is list and 2 <= len(legs) <= 5 and
             len({x['id'] for x in legs}) == len(legs), 'SCHEDULED_LEGS')
     ids = {x['id'] for x in legs}
     require(p['primary_strategy'] in ids and p['primary_benchmark'] in ids and
@@ -55,7 +55,7 @@ def profile_value(p):
         require(type(leg['scale']) is list and len(leg['scale']) == 2 and
                 all(type(v) is int for v in leg['scale']) and leg['scale'][1] > 0 and
                 0 <= Fraction(*leg['scale']) <= 1, 'SCHEDULED_WEIGHT_SCALE')
-    require(type(p['criteria']) is list and 1 <= len(p['criteria']) <= 32 and
+    require(type(p['criteria']) is list and 1 <= len(p['criteria']) <= 20 and
             len({c['id'] for c in p['criteria']}) == len(p['criteria']), 'SCHEDULED_CRITERIA')
     for c in p['criteria']:
         require(c['kind'] in CONDITIONS and set(c) == {'id', 'description', 'kind', 'left_id'} | CONDITIONS[c['kind']], 'SCHEDULED_CRITERION_SCHEMA')
@@ -66,6 +66,11 @@ def profile_value(p):
     require(type(p['subperiods']) is list and len(p['subperiods']) <= 8, 'SCHEDULED_SUBPERIODS')
     for pair in p['subperiods']:
         require(type(pair) is list and len(pair) == 2 and date.fromisoformat(pair[0]) <= date.fromisoformat(pair[1]), 'SCHEDULED_SUBPERIOD')
+    # Reuse the current common wire's finite bounds; never spend an original on
+    # a profile whose public projection cannot fit it.
+    require(29 + 4*len(p['subperiods']) <= 40 and
+            12 + len(p['additional_limitations']) + len(legs)*(1+len(p['subperiods'])) <= 30,
+            'SCHEDULED_PUBLIC_WIRE_BOUND')
     return p
 
 
