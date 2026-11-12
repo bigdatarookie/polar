@@ -26,11 +26,12 @@ def profile_value(p):
               'primary_strategy', 'primary_benchmark', 'decision_delay_seconds', 'criteria',
               'question_label', 'question_summary', 'clock_description', 'partition_description',
               'additional_limitations', 'subperiods'}
+    version5 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/5'
     version4 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/4'
     version2 = type(p) is dict and p.get('schema') in ('polar.scheduled-reference-profile/2','polar.scheduled-reference-profile/4')
     version3 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/3'
     require(type(p) is dict and set(p) == fields | ({'cost_scenarios', 'uncertainty'} if version2 else set()) and
-            p['schema'] in (PROFILE_SCHEMA, 'polar.scheduled-reference-profile/2', 'polar.scheduled-reference-profile/3', 'polar.scheduled-reference-profile/4'), 'SCHEDULED_PROFILE_SCHEMA')
+            p['schema'] in (PROFILE_SCHEMA, 'polar.scheduled-reference-profile/2', 'polar.scheduled-reference-profile/3', 'polar.scheduled-reference-profile/4', 'polar.scheduled-reference-profile/5'), 'SCHEDULED_PROFILE_SCHEMA')
     for key in ('protocol_sha256', 'input_sha256', 'calendar_sha256', 'timezone_sha256'):
         require(type(p[key]) is str and re.fullmatch('[a-f0-9]{64}', p[key]), 'SCHEDULED_PROFILE_HASH')
     require(type(p['protocol_id']) is str and re.fullmatch('[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}', p['protocol_id']), 'SCHEDULED_PROTOCOL_ID')
@@ -42,7 +43,9 @@ def profile_value(p):
     symbols = p['symbols']
     require(type(symbols) is list and 1 <= len(symbols) <= 64 and symbols == sorted(set(symbols)), 'SCHEDULED_SYMBOLS')
     policy = p['policy']
-    if version3:
+    if version5:
+        require(policy == {'kind':'FIXED_ANNUAL_RATIONAL_WEIGHTS'} and p['decision_delay_seconds']==60,'SCHEDULED_POLICY')
+    elif version3:
         require(policy == {'kind':'DAILY_SMA_GATED_QUARTERS','window':200} and len(symbols) == 4, 'SCHEDULED_POLICY')
     elif version2:
         require(type(policy) is dict and set(policy) == ({'kind','lookback','annual_cap','shrinkage','solver'} if version4 else {'kind', 'lookback', 'annual_cap'}) and
@@ -74,7 +77,14 @@ def profile_value(p):
                 all(x['scale'] == [1,1] for x in legs if x['rule'] != 'EQUAL_WEIGHT'), 'SCHEDULED_DAILY_SMA_LEGS')
     require(p['primary_strategy'] in ids and p['primary_benchmark'] in ids and
             p['primary_strategy'] != p['primary_benchmark'], 'SCHEDULED_PRIMARY_ROLES')
+    if version5:
+        from .scheduled_fixed import validate_legs
+        validate_legs(legs,symbols)
     for leg in legs:
+        if version5:
+            require(type(leg['id']) is str and re.fullmatch('[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}',leg['id']) and
+                    type(leg['label']) is str and 0<len(leg['label'])<=128,'SCHEDULED_LEG_ID_LABEL')
+            continue
         require(set(leg) == {'id', 'label', 'rule', 'scale'} and
                 leg['rule'] in (('SHRUNK_GMV','INVERSE_VOL','EQUAL_WEIGHT') if version4 else ('INVERSE_VOL', 'MOMENTUM', 'EQUAL_WEIGHT') if version2 else ('SMA_SLEEVES','EQUAL_WEIGHT','CASH') if version3 else ('SLEEVES', 'MOMENTUM', 'EQUAL_WEIGHT', 'CASH')), 'SCHEDULED_LEG')
         require(type(leg['id']) is str and re.fullmatch('[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}', leg['id']) and
@@ -106,6 +116,9 @@ def profile_value(p):
 
 def calendar_value(calendar, schedule, phases=None):
     """Validate date-only geometry before any policy signal is evaluated."""
+    if calendar.get('schema') == 'polar.prospective-fixed-allocation-calendar/1':
+        from .scheduled_fixed import calendar_value as fixed_calendar
+        return fixed_calendar(calendar,schedule)
     if calendar.get('schema') == 'polar.daily-gate-policy-calendar/1':
         return daily_calendar_value(calendar, schedule)
     require(calendar.get('schema') == 'polar.scheduled-policy-calendar/1', 'SCHEDULED_CALENDAR_SCHEMA')
@@ -132,6 +145,9 @@ def calendar_value(calendar, schedule, phases=None):
 def plan_phase(market, profile, grid, tz):
     """Called only after durable FIRST_START; source prefix is the signal firewall."""
     profile_value(profile)
+    if profile['schema'] == 'polar.scheduled-reference-profile/5':
+        from .scheduled_fixed import plan_phase as fixed_plan
+        return fixed_plan(market,profile,grid)
     if profile['schema'] == 'polar.scheduled-reference-profile/3':
         return daily_sma_plan(market, profile, grid, tz)
     symbols = market['symbols']; require(symbols == profile['symbols'], 'SCHEDULED_MARKET_SYMBOLS')

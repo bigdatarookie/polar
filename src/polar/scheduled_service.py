@@ -60,7 +60,7 @@ def prepare(service, config, *, load_prices=True):
             profile['calendar_sha256'] == sha(calendar_raw) and profile['timezone_sha256'] == sha(tz_raw), 'SCHEDULED_PROFILE_PINS')
     manifest = decode(read_ref(config['input_ref'])); calendar = decode(calendar_raw)
     require(manifest['schema'] == 'polar.synthetic-reference-source-input/1' and
-            calendar['source_schedule']['sha256'] == manifest['schedule']['sha256'], 'SCHEDULED_SOURCE_CALENDAR')
+            calendar['parent_schedule' if profile['schema'].endswith('/5') else 'source_schedule']['sha256'] == manifest['schedule']['sha256'], 'SCHEDULED_SOURCE_CALENDAR')
     if config['namespace'] == 'INVENTED':
         require(str(manifest.get('parent_dataset_revision', '')).startswith('INVENTED-') and
                 manifest.get('rights') == 'INVENTED_PUBLIC_TEST' and manifest.get('provenance') ==
@@ -79,11 +79,13 @@ def prepare(service, config, *, load_prices=True):
     require(manifest['symbols'] == profile['symbols'], 'SCHEDULED_PROFILE_SYMBOLS')
     require((profile['schema'] == 'polar.scheduled-reference-profile/3') ==
             (calendar.get('schema') == 'polar.daily-gate-policy-calendar/1'), 'SCHEDULED_CALENDAR_POLICY')
+    require((profile['schema']=='polar.scheduled-reference-profile/5') ==
+            (calendar.get('schema')=='polar.prospective-fixed-allocation-calendar/1'),'SCHEDULED_CALENDAR_POLICY')
     grids = calendar_value(calendar, schedule)
     list(operation_phases(profile, grids))
-    history = profile['policy']['window']-1 if profile['schema'] == 'polar.scheduled-reference-profile/3' else profile['policy']['lookback']
+    history = 0 if profile['schema'].endswith('/5') else profile['policy']['window']-1 if profile['schema'] == 'polar.scheduled-reference-profile/3' else profile['policy']['lookback']
     require(all(days.index(g['initial']) >= history for g in grids.values()), 'SCHEDULED_WARMUP')
-    tz = ZoneInfo.from_file(io.BytesIO(tz_raw), key='America/New_York')
+    tz = ZoneInfo.from_file(io.BytesIO(tz_raw), key='UTC' if profile['schema'].endswith('/5') else 'America/New_York')
     # Preparation performs no features/weights/policy decision or native operation.
     market = load_reference(config['input_ref']) if load_prices else None
     return profile, calendar, schedule, grids, tz, market
@@ -187,7 +189,7 @@ def run(service, config):
                 plan = {**plan, 'cost_profile': scenario['cost_profile']}
             simulation = bounded_native(plan); completed += len(simulation['legs'])
             evaluation = evaluate_policy(simulation, profile, reference_phase)
-            diagnostics[phase] = {t['id']: diagnose(t, schedule,
+            diagnostics[phase] = {t['id']: diagnose_phase(t, schedule, profile, plan,
                 subperiods=profile['subperiods'] if reference_phase == 'FINAL' and (scenario is None or scenario['id'] == 'BASE') else ()) for t in simulation['legs']}
             phases[phase] = {'plan': plan, 'simulation': simulation, 'evaluation': evaluation}
             if scenario is not None:
@@ -285,7 +287,7 @@ def recompute(service, semantic_id):
             require(data['plan'].get('gate_accounting') == gate_accounting(data['plan']), 'SCHEDULED_GATE_ACCOUNTING_RECOMPUTE')
         require(canonical(evaluate_policy(data['simulation'], profile, data.get('reference_phase', phase))) == canonical(data['evaluation']), 'SCHEDULED_RECOMPUTE_MISMATCH')
         schedule = calendar['source_schedule_rows']
-        expected_diagnostics[phase] = {t['id']: diagnose(t, schedule,
+        expected_diagnostics[phase] = {t['id']: diagnose_phase(t, schedule, profile, data['plan'],
             subperiods=profile['subperiods'] if data.get('reference_phase', phase) == 'FINAL' and data.get('cost_scenario',{}).get('id','BASE') == 'BASE' else ()) for t in data['simulation']['legs']}
     require(canonical(expected_diagnostics) == canonical(files['diagnostics.json']), 'SCHEDULED_DIAGNOSTIC_RECOMPUTE')
     if 'uncertainty.json' in files:
@@ -450,3 +452,10 @@ def project_optimization(record, counts):
                'All15 exact support solves and rational KKT/SPD certificates are saved per formation; cost stress reuses that one weight set. '
                'Saved verification checks certificate identities without source, estimation, solver, native execution or writes. '
                'Shared forecast risk uses the same fixed50percent diagonal-shrunk covariance for strategy and both new controls; no future-risk guarantee.'})
+
+
+def diagnose_phase(tape, schedule, profile, plan, *, subperiods=()):
+    if profile['schema'].endswith('/5'):
+        from .scheduled_fixed import diagnose_fixed
+        return diagnose_fixed(tape, schedule, plan['prices'], subperiods=subperiods)
+    return diagnose(tape, schedule, subperiods=subperiods)
