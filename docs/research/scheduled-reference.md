@@ -114,3 +114,43 @@ valid for every component versus both controls, all base/stress point screens
 MET and both lower Sharpe-delta bounds positive. It never grants adoption or
 calibrated market confidence. Stored reproduction recalculates only saved
 analysis and evaluation, without policy/source/native/model calls or writes.
+
+## Daily exact SMA200 gate (profile/3)
+
+The closed `polar.scheduled-reference-profile/3` supports only
+`{"kind":"DAILY_SMA_GATED_QUARTERS","window":200}` with four sorted symbols,
+one SMA_SLEEVES leg, full and half equal-weight monthly controls, and cash.
+It uses `polar.daily-gate-policy-calendar/1`: every nonterminal formation date
+has exactly its next eligible execution date, with a separate terminal exit.
+For each symbol the last 200 eligible integer-microprice closes include the
+formation close. A gate is active exactly when `200*last > sum`; equality is
+inactive, fewer observations invalidates, and each active weight is exactly
+one quarter with no redistribution.
+
+The complete daily observed boolean vector is retained independently of fills
+and affordability. First observation, any change from the previous observed
+vector, or formation month-end emits one coalesced portfolio-wide TARGET;
+otherwise HOLD performs no sizing or rebalancing. The monthly controls TARGET
+only on the bound month-end formations. Terminal EXIT overrides every leg.
+Saved plans retain vectors, previous observations, triggers and per-leg
+TARGET/HOLD/EXIT counts. The public record carries bounded gate counts and actual
+positive submitted-order counts, without pretending that targets equal fills.
+`DRAWDOWN_SCALED_LE` compares exact drawdown fractions; the frozen A2 profile
+uses factor `[4,5]`, not a rounded decimal comparison. This profile performs no
+fit, prediction, uncertainty bootstrap or learned-state operation.
+
+Use the existing CLI and artifact-root configuration; no new runner is needed:
+
+```sh
+python -m polar.cli research-config /absolute/sma-seed.json
+python -m polar.cli research-preflight /absolute/sma-config.json
+python -m polar.cli research-run /absolute/sma-config.json
+python -m polar.cli research-recompute scheduled-reference-experiment-SEMANTIC_HASH
+```
+
+Save `research-config`'s returned object as the config file. Existing applicable
+retained method/candidate/technical bindings and original-operation authority
+still apply; a public invented author check grants no retained run or financial
+acceptance. Run selected invented SMA/policy/service tests using the shared
+`scripts/ci.sh --test ... --reports EMPTY_DIRECTORY` path. Immutable records,
+stored-only verification and legacy profile/1 and profile/2 remain unchanged.

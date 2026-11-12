@@ -89,3 +89,31 @@ def inverse_fixture(tmp_path, monkeypatch):
     cfg = {**old,'profile_ref':pp,'calendar_ref':cp,'candidate_id':'INVENTED-INVERSE-VOL',
            'experiment_id':'INVENTED-INVERSE-VOL-ORIGINAL'}
     return root,cfg,profile,calendar
+
+
+def sma_fixture(tmp_path, monkeypatch):
+    root, old, profile, monthly = fixture(tmp_path, monkeypatch)
+    calendar = {'schema':'polar.daily-gate-policy-calendar/1','source_schedule':monthly['source_schedule'],
+                'source_calendar':old['calendar_ref'],'derivation':'PUBLIC_INVENTED_DAILY_DATES','phases':{}}
+    for phase,g in monthly['phases'].items():
+        dates=g['nav_dates']
+        calendar['phases'][phase]={'initial':dates[0],'terminal':dates[-1],'nav_dates':dates,
+            'daily_gate_decisions':[{'formation':a,'execution_day':b} for a,b in zip(dates[:-2],dates[1:-1])],
+            'terminal_decision_reference':dates[-2],'terminal_execution':dates[-1]}
+    cp=write(tmp_path/'sma-calendar.json',calendar)
+    profile.update(schema='polar.scheduled-reference-profile/3',protocol_id='INVENTED-SMA200-DAILY-V1',
+        calendar_sha256=cp['sha256'],policy={'kind':'DAILY_SMA_GATED_QUARTERS','window':200},
+        legs=[{'id':i,'label':label,'rule':rule,'scale':scale} for i,label,rule,scale in [
+            ('SMA','Daily exact SMA200 quarter sleeves','SMA_SLEEVES',[1,1]),
+            ('EW','Monthly full equal weight','EQUAL_WEIGHT',[1,1]),
+            ('EW_HALF','Monthly half equal weight','EQUAL_WEIGHT',[1,2]),
+            ('CASH','Cash control','CASH',[1,1])]],primary_strategy='SMA',primary_benchmark='EW',
+        question_label='Invented daily SMA200 gate comparison',
+        question_summary='Daily first/change/monthend quarter targets, otherwise HOLD; stricter fixed drawdown screen.')
+    for c in profile['criteria']:
+        c['left_id']='SMA'
+        if c['kind']=='DRAWDOWN_LE':c.update(kind='DRAWDOWN_SCALED_LE',factor=[4,5])
+    pp=write(tmp_path/'sma-profile.json',profile)
+    cfg={**old,'profile_ref':pp,'calendar_ref':cp,'candidate_id':'INVENTED-SMA-DAILY',
+         'experiment_id':'INVENTED-SMA-DAILY-ORIGINAL'}
+    return root,cfg,profile,calendar

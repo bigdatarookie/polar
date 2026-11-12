@@ -17,7 +17,7 @@ from .gym_service import code_binding
 from .history_bundle import read_file
 from .research_reference import load_reference, pinned_bytes, reference_schedule
 from .reference_projection import public_reference
-from .scheduled_policy import profile_value, calendar_value, plan_phase, evaluate_policy
+from .scheduled_policy import profile_value, calendar_value, plan_phase, evaluate_policy, gate_accounting
 from .scheduled_diagnostics import diagnose
 
 CONFIG_SCHEMA = 'polar.scheduled-reference-config/1'
@@ -77,9 +77,12 @@ def prepare(service, config, *, load_prices=True):
             require(importlib.metadata.version(package) == version, 'SCHEDULED_RUNTIME_VERSION')
     schedule, days = reference_schedule(decode(pinned_bytes(manifest['schedule'])))
     require(manifest['symbols'] == profile['symbols'], 'SCHEDULED_PROFILE_SYMBOLS')
+    require((profile['schema'] == 'polar.scheduled-reference-profile/3') ==
+            (calendar.get('schema') == 'polar.daily-gate-policy-calendar/1'), 'SCHEDULED_CALENDAR_POLICY')
     grids = calendar_value(calendar, schedule)
     list(operation_phases(profile, grids))
-    require(all(days.index(g['initial']) >= profile['policy']['lookback'] for g in grids.values()), 'SCHEDULED_WARMUP')
+    history = profile['policy']['window']-1 if profile['schema'] == 'polar.scheduled-reference-profile/3' else profile['policy']['lookback']
+    require(all(days.index(g['initial']) >= history for g in grids.values()), 'SCHEDULED_WARMUP')
     tz = ZoneInfo.from_file(io.BytesIO(tz_raw), key='America/New_York')
     # Preparation performs no features/weights/policy decision or native operation.
     market = load_reference(config['input_ref']) if load_prices else None
@@ -216,6 +219,8 @@ def run(service, config):
             for series in record['series']:
                 series['label'] = next(x['label'] for x in profile['legs'] if x['id'] == series['id'])
             project_diagnostics(record, diagnostics[phase])
+            if profile['schema'] == 'polar.scheduled-reference-profile/3':
+                project_gate_accounting(record, data['plan'], data['simulation'])
             if uncertainty is not None:
                 project_uncertainty(record, uncertainty)
             publications[phase] = service.results.publish(record)
@@ -255,6 +260,8 @@ def recompute(service, semantic_id):
     # Only saved output arrays are used; no source, policy feature, model or native call.
     calendar = files['calendar.json']
     for phase, data in files['phases.json'].items():
+        if profile['schema'] == 'polar.scheduled-reference-profile/3':
+            require(data['plan'].get('gate_accounting') == gate_accounting(data['plan']), 'SCHEDULED_GATE_ACCOUNTING_RECOMPUTE')
         require(canonical(evaluate_policy(data['simulation'], profile, data.get('reference_phase', phase))) == canonical(data['evaluation']), 'SCHEDULED_RECOMPUTE_MISMATCH')
         schedule = calendar['source_schedule_rows']
         expected_diagnostics[phase] = {t['id']: diagnose(t, schedule,
@@ -374,3 +381,22 @@ def project_uncertainty(record, uncertainty):
                f"{uncertainty['point_screens_all_met']}; all six components have exactly1000 valid draws: "
                f"{uncertainty['all_components_valid']}. Bootstrap applies to BASE saved returns only, including on this cost-scenario page. "
                'Conditional on exposed history, selected survivors and block assumption; not calibrated market confidence, pristine holdout or general adoption evidence.'})
+
+
+def project_gate_accounting(record, plan, simulation):
+    counts=plan['gate_accounting']; primary=next(s['id'] for s in record['series'] if s['role'] == 'STRATEGY')
+    for key,label in [('observations','Daily complete gate-vector observations'),('target_count','Nonterminal TARGET instructions'),
+                      ('hold_count','Nonterminal HOLD instructions without sizing')]:
+        values={}
+        for series in record['series']:
+            identity=series['id']
+            values[identity]=({'value':None,'status':'NOT_APPLICABLE','reason':'NO_DAILY_GATE_POLICY'}
+                 if key == 'observations' and identity != primary else
+                 {'value':str(counts[key] if key == 'observations' else counts[key][identity]),'status':'OK','reason':None})
+        record['metrics'].append({'id':'daily_gate_'+key,'label':label,'unit':'count','values':values})
+    orders={leg['id']:sum(o['routed_quantity'] > 0 for o in leg['orders']) for leg in simulation['legs']}
+    record['limitations'].append({'code':'DAILY_GATE_STATE_ACCOUNTING','scope':'Entire modeled comparison',
+      'text':f"{counts['observations']} complete observed vectors; {counts['vector_changes_excluding_first']} changes excluding first. "
+             f"Actual positive submitted order counts: {orders}. First/change/month-end triggers coalesce to one portfolio TARGET; "
+             'state follows previous observed vector independently of fills. Monthly controls HOLD otherwise; terminal EXIT overrides all. '
+             'Complete state/trigger/target/hold/exit accounting is saved in the semantic plan, not a learned model or risk guarantee.'})
