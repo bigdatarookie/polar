@@ -155,6 +155,10 @@ def public_config(config, profile):
             'primary_benchmark': profile['primary_benchmark'],
             **{key: profile[key] for key in ('question_label', 'question_summary', 'clock_description', 'partition_description')},
             'additional_limitations': [tuple(x) for x in profile['additional_limitations']],
+            'cohort_limitation': ('DECLARED_SOURCE_UNIVERSE_SCOPE',
+                f"Fixed declared cohort of {len(profile['symbols'])} source aliases, not a broad-universe sample. "
+                'Selection/survivor conditioning may remain; source aliases do not certify security continuity or independent economic bets.'),
+            'partition_limitation': ('NO_ML_FIT_EVALUATION_PHASES', profile['partition_description']),
             'bindings': {'protocol_id': profile['protocol_id'], 'protocol_sha256': config['protocol_ref']['sha256'],
                 'data_revision': 'selected-' + config['input_ref']['sha256'], 'data_sha256': config['input_ref']['sha256'],
                 'code_revision': config['code_revision'], 'evaluator_revision': config['code_revision'],
