@@ -90,6 +90,16 @@ function researchDecimalDisplay(value,places=2){
   const tail=fraction.slice(places);if(tail[0]>'5'||tail[0]==='5'&&(/[1-9]/.test(tail.slice(1))||scaled%2n===1n))scaled++;
   const digits=scaled.toString().padStart(places+1,'0');return (negative&&scaled!==0n?'−':'')+digits.slice(0,-places)+'.'+digits.slice(-places);
 }
+// Read the bounded catalog using the API's existing ten-item pages. Commit only a coherent complete set.
+async function researchLoadAll(client,isCurrent=()=>true){
+  let first=null,offset=0;const details=[],offsets={},seen=new Set();
+  do{const page=await client.load(offset,null,{includeDetails:true});if(!page||!isCurrent())return null;
+    if(!first)first=page;researchRequire(page.catalog.total===first.catalog.total,'RESEARCH_CATALOG_CHANGED');
+    for(const saved of page.details){researchRequire(!seen.has(saved.result_id),'RESEARCH_CATALOG_CHANGED');seen.add(saved.result_id);offsets[saved.result_id]=offset;details.push(saved);}
+    offset=page.catalog.next_offset;
+  }while(offset!==null);
+  researchRequire(details.length===first.catalog.total,'RESEARCH_CATALOG_CHANGED');return {catalog:first.catalog,details,offsets};
+}
 // Saved execution reader. Exact quantities/nanoseconds stay strings; no inferred fills.
 function executionScaledToken(value,places){if(typeof value!=='string'||!/^\d+$/.test(value))return null;const digits=value.padStart(places+1,'0');return digits.slice(0,-places)+'.'+digits.slice(-places);}
 function validateResearchExecutions(body,saved,offset=0){
@@ -98,6 +108,7 @@ function validateResearchExecutions(body,saved,offset=0){
   researchRequire(body.offset===offset&&body.limit===100&&Array.isArray(body.items),'EXECUTION_PAGE_INVALID');
   researchRequire(body.status==='OK'?Number.isSafeInteger(body.total)&&body.total>=0&&body.items.length<=100:body.status==='UNAVAILABLE'&&body.total===null&&body.items.length===0&&typeof body.reason==='string','EXECUTION_STATUS_INVALID');
   researchRequire(body.next_offset===null||Number.isSafeInteger(body.next_offset)&&body.next_offset===offset+100&&body.next_offset<body.total,'EXECUTION_PAGE_INVALID');
+  if(body.status==='OK')researchRequire(['USD_PER_SYNTHETIC_REFERENCE_UNIT','USD_PER_MODELED_SHARE'].includes(body.price_unit)&&['SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT','MODELED_RAW_SHARE_PRICE'].includes(body.quote_basis)&&typeof body.quantity_unit==='string'&&body.raw_ohlc_overlay_compatible===false,'EXECUTION_BASIS_INVALID');
   const seen=new Set();for(const event of body.items){
     researchRequire(typeof event.order_id==='string'&&!seen.has(event.order_id)&&typeof event.symbol==='string'&&['BUY','SELL'].includes(event.side)&&/^\d+$/.test(event.timestamp_ns)&&typeof event.timestamp==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(event.session_date)&&event.timestamp_semantics==='NATIVE_ORDER_SUBMISSION_AND_MATCHED_FILL','EXECUTION_EVENT_INVALID');seen.add(event.order_id);
     researchRequire(['intended_quantity','routed_quantity','filled_quantity'].every(k=>typeof event[k]==='string'&&/^\d+$/.test(event[k])),'EXECUTION_QUANTITY_INVALID');
@@ -107,7 +118,7 @@ function validateResearchExecutions(body,saved,offset=0){
 }
 function createResearchExecutionClient(fetcher){let ticket=0,controller;return {cancel(){ticket++;controller?.abort();},async load(saved,offset=0){const current=++ticket;controller?.abort();controller=new AbortController();const series=saved.record.series.find(s=>s.role==='STRATEGY');const response=await fetcher('/v1/research/results/'+encodeURIComponent(saved.result_id)+'/executions?series_id='+encodeURIComponent(series.id)+'&limit=100&offset='+offset,{signal:controller.signal});if(current!==ticket)return null;if(!response.ok)throw Error('EXECUTIONS_HTTP_'+response.status);const body=await response.json();if(current!==ticket)return null;return validateResearchExecutions(body,saved,offset);}};}
 // Supplied full-period strategy metrics: display conversion only, never recompute finance.
-const RESEARCH_ROW_METRICS={sharpe:['sharpe_252_rf0','sharpe'],drawdown:['max_drawdown'],annualized:['adjusted_reference_cagr_after_costs','price_cagr_after_costs','net_cagr_act36525','annualized_return','cagr']};
+const RESEARCH_ROW_METRICS={sharpe:['sharpe_252_rf0','net_sharpe','sharpe'],drawdown:['max_drawdown'],annualized:['adjusted_reference_cagr_after_costs','price_cagr_after_costs','net_cagr_act36525','annualized_return','cagr']};
 function researchRowMetric(detail,key){
   const leg=detail.record.series.find(s=>s.role==='STRATEGY');
   const metric=RESEARCH_ROW_METRICS[key]?.map(id=>detail.record.metrics.find(m=>m.id===id)).find(Boolean);
@@ -151,4 +162,4 @@ function researchComparison(detail,bars){
 }
 function researchReadable(value){return String(value||'Not supplied').replaceAll('_',' ').replace(/\s+/g,' ').trim();}
 function researchPhase(record){return record.question.label.match(/\b(?:FINAL|VALIDATION|TRAIN|TEST|DEVELOPMENT)\b/)?.[0]||'Saved interval';}
-if(typeof module!=='undefined')module.exports={createResearchClient,validateResearchDetail,validateResearchCatalog,researchValue,researchPlotValue,researchDecimalDisplay,executionScaledToken,validateResearchExecutions,createResearchExecutionClient,researchRowMetric,researchDecimalCompare,researchSortRows,researchHistoryCompatibility,researchNormalize,researchComparison,researchReadable,researchPhase};
+if(typeof module!=='undefined')module.exports={createResearchClient,validateResearchDetail,validateResearchCatalog,researchValue,researchPlotValue,researchDecimalDisplay,executionScaledToken,validateResearchExecutions,createResearchExecutionClient,researchLoadAll,researchRowMetric,researchDecimalCompare,researchSortRows,researchHistoryCompatibility,researchNormalize,researchComparison,researchReadable,researchPhase};

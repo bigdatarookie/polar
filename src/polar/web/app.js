@@ -12,6 +12,7 @@ let state = {...restoredControls(null, 0), dataMode:'real',assetId:null, strateg
 let dataset = null, detail = null, view = emptyView(), catalog = [], runRows = [], datasetOffset = 0, runOffset = 0;
 let researchWorkspace=null;
 let mainResearchClient=null,mainResearch={page:null,loading:false,error:null,offset:0},mainResearchSelection=null;
+let mainResearchFlow=0;
 let mainMetricSort={key:null,direction:'desc'};
 // Enable only against a qualified saved-executions serving handoff.
 const EXECUTIONS_RUNTIME_READY=false;
@@ -294,10 +295,10 @@ function setDataMode(mode){
   else loadHistorySelection({});
 }
 async function loadExecutions(offset=0){
-  const saved=selectedMainResearch();executionClient.cancel();if(!saved){executions={resultId:null,page:null,loading:false,error:null};selectedExecutionId=null;keepScroll(()=>{renderRail();renderChart();});return;}
+  const focusId=document.activeElement?.id,saved=selectedMainResearch();executionClient.cancel();if(!saved){executions={resultId:null,page:null,loading:false,error:null};selectedExecutionId=null;keepScroll(()=>{renderRail();renderChart();});return;}
   const id=saved.result_id;executions={resultId:id,page:null,loading:EXECUTIONS_RUNTIME_READY,error:EXECUTIONS_RUNTIME_READY?null:'SAVED_EXECUTION_READER_NOT_QUALIFIED'};keepScroll(renderRail);if(!EXECUTIONS_RUNTIME_READY)return;
   try{const page=await executionClient.load(saved,offset);if(!page||mainResearchSelection!==id)return;executions={resultId:id,page,loading:false,error:null};}catch(error){if(mainResearchSelection!==id)return;executions={resultId:id,page:null,loading:false,error:/^[A-Z0-9_]+$/.test(error.message)?error.message:'SAVED_EXECUTIONS_UNAVAILABLE'};}
-  keepScroll(()=>{renderRail();renderChart();});
+  keepScroll(()=>{renderRail();renderChart();});if(['executions-next','executions-previous'].includes(focusId)){const target=document.getElementById(focusId);(target&&!target.disabled?target:document.getElementById(focusId==='executions-next'?'executions-previous':'executions-next'))?.focus({preventScroll:true});}
 }
 function matchingExecutions(){
   if(executions.resultId!==mainResearchSelection||executions.page?.status!=='OK')return [];
@@ -308,7 +309,7 @@ async function selectExecution(event){
   selectedExecutionId=event.order_id;const binding=event.instrument,id=mainResearchSelection,center=event.session_date;
   const span=Math.max(14,Math.min(10000,Math.round((Date.parse(view.bars[state.hi]?.time)-Date.parse(view.bars[state.lo]?.time))/86400000)||30)),start=new Date(center+'T00:00:00Z'),end=new Date(start);start.setUTCDate(start.getUTCDate()-Math.floor(span/2));end.setUTCDate(end.getUTCDate()+Math.ceil(span/2)+1);
   await loadHistorySelection({datasetId:binding.dataset_id,revision:binding.dataset_revision,instrumentId:binding.instrument_id,rangeId:'Custom',window:{start:start.toISOString().slice(0,10),end_exclusive:end.toISOString().slice(0,10)},push:true});
-  if(id!==mainResearchSelection)return;
+  if(id!==mainResearchSelection)return;if(historyContext?.instrument?.instrument_id!==binding.instrument_id||historyContext?.revision?.dataset_revision!==binding.dataset_revision||loadError){tell('Order security update unavailable; previous valid chart retained. Retry the order or history request.');return;}
   if(innerWidth<701)$('#rail-inner').classList.remove('mobile-open');$('#workspace').scrollTop=0;$('#chart-stage').focus({preventScroll:true});tell(event.symbol+' · '+event.side+' saved '+event.status+' · '+event.session_date+'; execution USD/unit is a separate price axis.');saveWorkspace();
 }
 function renderSavedExecutions(body){
@@ -363,13 +364,14 @@ function renderRail() {
   report.orders.forEach(o=>{const row=element('article',undefined,'order-entry');row.append(element('b','Instruction · '+o.status),element('small','Decision '+o.decision_session_id),element('p',o.reason||'No additional reason'));const tape=report.order_tape.find(t=>t.decision_session_id===o.decision_session_id);if(tape)row.append(element('p',tape.quantity+' shares · '+fmtDate(tape.decision_at)));body.append(row);});
   panelNote(body,'Signed fills and instructions are separate; no closed-trade count or per-trade P&L is inferred.');
 }
+function showMainResearchPage(offset){const id=document.activeElement?.id;mainResearch.offset=offset;keepScroll(renderRows);if(['runs-prev','runs-next'].includes(id)&&document.getElementById(id)?.disabled)document.getElementById(id==='runs-next'?'runs-prev':'runs-next')?.focus({preventScroll:true});}
 async function loadMainResearch(offset=mainResearch.offset){
-  if(!mainResearchClient)return;
+  if(!mainResearchClient)return;const request=++mainResearchFlow;
   mainResearch.loading=true;mainResearch.error=null;mainResearch.offset=offset;if(historyDisplayed())keepScroll(renderRows);
   try{
-    const page=await mainResearchClient.load(offset,null,{includeDetails:true});if(!page)return;
+    const page=await researchLoadAll(mainResearchClient,()=>request===mainResearchFlow);if(!page)return;mainResearch.offset=Math.min(offset,Math.max(0,Math.floor((page.catalog.total-1)/10)*10));
     mainResearch.page=page;mainResearch.loading=false;if(mainResearchSelection&&executions.resultId!==mainResearchSelection)loadExecutions();mainResearch.error=null;if(!page.catalog.total){mainResearchSelection=null;mainResearch.chosen=null;comparisonCache=null;state.measurement=null;state.cursorSource='assetClose';}
-  }catch(error){mainResearch.loading=false;mainResearch.error=/^[A-Z0-9_]+$/.test(error.message)?error.message:'RESEARCH_API_UNAVAILABLE';}
+  }catch(error){if(request!==mainResearchFlow)return;mainResearch.loading=false;mainResearch.error=/^[A-Z0-9_]+$/.test(error.message)?error.message:'RESEARCH_API_UNAVAILABLE';}
   if(historyDisplayed())keepScroll(()=>{renderRows();syncToolbar();renderChart();drawMeasurement();});
 }
 function selectedMainResearch(){return mainResearch.page?.details?.find(d=>d.result_id===mainResearchSelection)||(mainResearch.chosen?.result_id===mainResearchSelection?mainResearch.chosen:null);}
@@ -390,7 +392,7 @@ function renderComparisonContext(){
   const model=getMainComparison(),r=saved.record,head=element('div',undefined,'comparison-heading');head.append(element('b',researchReadable(model?.strategy?.label||r.question.label)),element('span',researchPhase(r)+' · '+r.grid[0].slice(0,10)+' → '+r.grid.at(-1).slice(0,10)));
   const fit=element('button','Fit research dates');fit.id='fit-research';fit.disabled=!model?.usable;fit.onclick=()=>selectMainResearch(saved.result_id,true);
   const clear=element('button','Price only');clear.id='clear-comparison';clear.onclick=()=>selectMainResearch(null,false);
-  const open=element('button','Read research');open.id='comparison-read-research';open.onclick=()=>{mainResearchReturnFocus=open.id;researchWorkspace?.openResult(saved.result_id,mainResearch.page.catalog.offset);};
+  const open=element('button','Read research');open.id='comparison-read-research';open.onclick=()=>{mainResearchReturnFocus=open.id;researchWorkspace?.openResult(saved.result_id,mainResearch.page.offsets[saved.result_id]??0);};
   const controls=element('div',undefined,'comparison-actions');const label=element('label'),check=element('input');check.type='checkbox';check.checked=comparisonBenchmark;check.id='saved-benchmark-toggle';check.onchange=()=>{comparisonBenchmark=check.checked;keepScroll(()=>{syncToolbar();renderChart();});saveWorkspace();};label.append(check,document.createTextNode('Saved benchmark'));controls.append(label,fit,open,clear);
   host.append(head,controls);
   const note=element('p',model?.usable?'Index100 at '+model.baselineDate+' · '+getAsset().symbol+' raw candles / saved strategy / '+researchReadable(model.benchmark.label)+'. Calendar-date display alignment only; source clocks and wealth bases differ.':model?.reason||'No common comparison available.');note.id='comparison-scale';
@@ -403,18 +405,18 @@ function renderMainResearch(list){
   const status=element('p',mainResearch.loading?'Updating saved strategies · current comparison retained.':mainResearch.error?'Saved strategy update failed · '+mainResearch.error:page?.catalog.total?'Choose a strategy · rows select the main chart':'No saved research records available.','panel-note');status.id='main-research-status';status.hidden=!mainResearch.loading&&!mainResearch.error&&!!page?.catalog.total;status.setAttribute('role','status');list.append(status);
   const refresh=element('button',mainResearch.error?'Retry saved strategies':'Refresh saved strategies');refresh.id='main-research-refresh';refresh.onclick=()=>loadMainResearch();$('#sort-label').replaceChildren(refresh);
   let head=$('#main-strategy-head');if(!head){head=element('div',undefined,'main-strategy-head');head.id='main-strategy-head';list.before(head);}head.hidden=false;head.replaceChildren();
-  head.append(element('span','Strategy · sort this page'));
+  head.append(element('span','Strategy · sort all results'));
   for(const [key,label] of [['sharpe','Sharpe'],['drawdown','Drawdown'],['annualized','Annualized']]){
-    const button=element('button',label+(mainMetricSort.key===key?(mainMetricSort.direction==='asc'?' ↑':' ↓'):''));button.id='main-sort-'+key;button.setAttribute('aria-label',label+': '+(mainMetricSort.key===key?mainMetricSort.direction+'ending. Reverse sort':'sort descending')+' on this page');button.setAttribute('aria-pressed',String(mainMetricSort.key===key));button.onclick=()=>{mainMetricSort={key,direction:mainMetricSort.key===key&&mainMetricSort.direction==='desc'?'asc':'desc'};keepScroll(renderRows);};head.append(button);
+    const button=element('button',label+(mainMetricSort.key===key?(mainMetricSort.direction==='asc'?' ↑':' ↓'):''));button.id='main-sort-'+key;button.setAttribute('aria-label',label+': '+(mainMetricSort.key===key?mainMetricSort.direction+'ending. Reverse sort':'sort descending')+' across all results');button.setAttribute('aria-pressed',String(mainMetricSort.key===key));button.onclick=()=>{mainMetricSort={key,direction:mainMetricSort.key===key&&mainMetricSort.direction==='desc'?'asc':'desc'};keepScroll(renderRows);saveWorkspace();};head.append(button);
   }
   head.append(element('span','Details'));
-  for(const saved of researchSortRows(page?.details||[],mainMetricSort.key,mainMetricSort.direction)){
+  for(const saved of researchSortRows(page?.details||[],mainMetricSort.key,mainMetricSort.direction).slice(mainResearch.offset,mainResearch.offset+10)){
     const r=saved.record,row=element('article',undefined,'main-strategy-row');row.dataset.resultId=saved.result_id;row.setAttribute('role','listitem');row.dataset.selected=String(saved.result_id===mainResearchSelection);
     const choose=element('button',undefined,'main-strategy-select');choose.dataset.compareResult=saved.result_id;choose.id='main-compare-'+saved.result_id;choose.setAttribute('aria-pressed',String(saved.result_id===mainResearchSelection));choose.append(element('b',r.question.label),element('small',researchPhase(r)+' · '+r.grid[0].slice(0,10)+' – '+r.grid.at(-1).slice(0,10)+' · '+r.grid.length+' samples'));choose.onclick=()=>selectMainResearch(saved.result_id);
     const verdict=element('span',researchReadable(saved.assessment.financial),'main-strategy-verdict');
-    const open=element('button','Research','main-strategy-info');open.dataset.openResearch=saved.result_id;open.id='main-research-open-'+saved.result_id;open.setAttribute('aria-label','Read research: '+r.question.label);open.onclick=()=>{mainResearchReturnFocus=open.id;researchWorkspace?.openResult(saved.result_id,page.catalog.offset);};choose.append(verdict);row.append(choose);for(const key of ['sharpe','drawdown','annualized']){const metric=researchRowMetric(saved,key),cell=element('span',metric.display,'main-metric');cell.dataset.metric=key;cell.title=metric.label+' · '+(metric.available?metric.value+' '+metric.unit:metric.reason);if(!metric.available)cell.classList.add('unavailable');row.append(cell);}row.append(open);list.append(row);
+    const open=element('button','Research','main-strategy-info');open.dataset.openResearch=saved.result_id;open.id='main-research-open-'+saved.result_id;open.setAttribute('aria-label','Read research: '+r.question.label);open.onclick=()=>{mainResearchReturnFocus=open.id;researchWorkspace?.openResult(saved.result_id,page.offsets[saved.result_id]??0);};choose.append(verdict);row.append(choose);for(const key of ['sharpe','drawdown','annualized']){const metric=researchRowMetric(saved,key),cell=element('span',metric.display,'main-metric');cell.dataset.metric=key;cell.title=metric.label+' · '+(metric.available?metric.value+' '+metric.unit:metric.reason);if(!metric.available)cell.classList.add('unavailable');row.append(cell);}row.append(open);list.append(row);
   }
-  $('#runs-page').textContent=page?.catalog.items.length?'Results '+(page.catalog.offset+1)+'–'+(page.catalog.offset+page.catalog.items.length)+' of '+page.catalog.total:'No saved results';$('#runs-prev').disabled=mainResearch.loading||!page||page.catalog.offset===0;$('#runs-next').disabled=mainResearch.loading||page?.catalog.next_offset==null;
+  $('#runs-page').textContent=page?.details.length?'Results '+(mainResearch.offset+1)+'–'+Math.min(mainResearch.offset+10,page.catalog.total)+' of '+page.catalog.total+(mainMetricSort.key?' · globally sorted':' · catalog order'):'No saved results';$('#runs-prev').disabled=mainResearch.loading||!page||mainResearch.offset===0;$('#runs-next').disabled=mainResearch.loading||!page||mainResearch.offset+10>=page.catalog.total;
 }
 
 function renderRows() {
@@ -560,9 +562,9 @@ function initUI() {
   $('#retry-selection').onclick=()=>{if(failedSelection){const f=failedSelection;f.history?loadHistorySelection(f.request):loadSelection(f.datasetId,f.runId,f.options)}};
   $('#open-test-mode').onclick=()=>setDataMode('retained-test');
   $('#refresh').onclick=()=>{if(researchWorkspace?.isActive())return researchWorkspace.refresh();if(state.dataMode==='real'){loadMainResearch();return loadHistorySelection({datasetId:historyContext?.revision?.dataset_id,revision:historyContext?.revision?.dataset_revision,instrumentId:historyContext?.instrument?.instrument_id});}return loadSelection(dataset?.dataset_id||urlSelection()[0],detail?.run.id||urlSelection()[1],{catalogPage:datasetOffset,runsPage:runOffset});};
-  $('#reset').onclick=()=>{executionClient.cancel();executions={resultId:null,page:null,loading:false,error:null};selectedExecutionId=null;mainMetricSort={key:null,direction:'desc'};mainResearchSelection=null;comparisonCache=null;comparisonBenchmark=true;mainResearchClient?.cancel();mainResearch={page:null,loading:false,error:null,offset:0};researchWorkspace?.reset();loadMainResearch(0);state={...restoredControls(null,0),dataMode:state.dataMode,assetId:null,strategyId:null,cursor:0,inspect:0,measurement:null,infoId:null};try{localStorage.removeItem(themeKey);sessionStorage.removeItem(sessionKey);}catch{}$('#rail-inner').classList.remove('mobile-open');state.dataMode==='real'?loadHistorySelection({}):loadSelection(null,null,{catalogPage:0});};
+  $('#reset').onclick=()=>{mainResearchFlow++;executionClient.cancel();executions={resultId:null,page:null,loading:false,error:null};selectedExecutionId=null;mainMetricSort={key:null,direction:'desc'};mainResearchSelection=null;comparisonCache=null;comparisonBenchmark=true;mainResearchClient?.cancel();mainResearch={page:null,loading:false,error:null,offset:0};researchWorkspace?.reset();loadMainResearch(0);state={...restoredControls(null,0),dataMode:state.dataMode,assetId:null,strategyId:null,cursor:0,inspect:0,measurement:null,infoId:null};try{localStorage.removeItem(themeKey);sessionStorage.removeItem(sessionKey);}catch{}$('#rail-inner').classList.remove('mobile-open');state.dataMode==='real'?loadHistorySelection({}):loadSelection(null,null,{catalogPage:0});};
   $('#datasets-prev').onclick=()=>loadSelection(null,null,{push:true,catalogPage:Math.max(0,datasetOffset-10)});$('#datasets-next').onclick=()=>loadSelection(null,null,{push:true,catalogPage:datasetOffset+10});
-  $('#runs-prev').onclick=()=>historyDisplayed()?loadMainResearch(Math.max(0,(mainResearch.page?.catalog.offset||0)-10)):loadSelection(dataset?.dataset_id,null,{push:true,runsPage:Math.max(0,runOffset-10)});$('#runs-next').onclick=()=>historyDisplayed()?loadMainResearch(mainResearch.page?.catalog.next_offset):loadSelection(dataset?.dataset_id,null,{push:true,runsPage:runOffset+10});
+  $('#runs-prev').onclick=()=>historyDisplayed()?showMainResearchPage(Math.max(0,mainResearch.offset-10)):loadSelection(dataset?.dataset_id,null,{push:true,runsPage:Math.max(0,runOffset-10)});$('#runs-next').onclick=()=>historyDisplayed()?showMainResearchPage(mainResearch.offset+10):loadSelection(dataset?.dataset_id,null,{push:true,runsPage:runOffset+10});
   const input=$('#asset-search');input.onfocus=()=>{assetQuery='';assetOptionIndex=0;renderAssets();input.select();};input.oninput=()=>{assetQuery=input.value.toLowerCase();assetOptionIndex=0;renderAssets();};input.onkeydown=e=>{const list=filteredAssets();if(['ArrowDown','ArrowUp'].includes(e.key)){e.preventDefault();assetOptionIndex=Math.max(0,Math.min(list.length-1,assetOptionIndex+(e.key==='ArrowDown'?1:-1)));renderAssets();}else if(e.key==='Enter'&&!$('#asset-options').hidden&&list[assetOptionIndex]){e.preventDefault();selectAsset(list[assetOptionIndex].dataset_id);}else if(e.key==='Escape')closeAssets();};input.onblur=()=>setTimeout(closeAssets,100);
   chart=echarts.init($('#chart'),null,{renderer:'canvas'});chart.on('click',p=>{if(p.data?.execution)selectExecution(p.data.execution);});chart.on('datazoom',()=>{
     if(rendering||!view.bars.length)return;const d=chart.getOption().dataZoom[0],n=view.bars.length,index=v=>typeof v==='string'?view.bars.findIndex(b=>b.time===v):Number(v);
