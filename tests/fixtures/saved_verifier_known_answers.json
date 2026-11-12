@@ -1,0 +1,265 @@
+{
+  "schema": "polar.public-independent-known-answers/1",
+  "classification": "PUBLIC_INVENTED_ONLY_NO_RETAINED_EXPECTED_PAYLOAD",
+  "profile": "reference_whole_units_flat100_bps10_cent_half_even",
+  "money_controls": [
+    {
+      "id": "EVEN_TIE",
+      "q": 1,
+      "price_micro": 1125000,
+      "settled_cents": 112,
+      "fee_cents": 101
+    },
+    {
+      "id": "ODD_TIE",
+      "q": 3,
+      "price_micro": 1125000,
+      "settled_cents": 338,
+      "fee_cents": 101
+    },
+    {
+      "id": "ZERO_ORDER",
+      "q": 0,
+      "price_micro": 1125000,
+      "settled_cents": 0,
+      "fee_cents": 0
+    }
+  ],
+  "complete_ledger": {
+    "id": "TOY_FEE_AFFORDABILITY_TERMINAL",
+    "symbols": [
+      "AAPL",
+      "AMZN",
+      "TSLA",
+      "VTI"
+    ],
+    "initial_cents": 1000,
+    "grid": [
+      "2024-01-02T21:00:00Z",
+      "2024-01-03T21:00:00Z",
+      "2024-01-04T21:00:00Z"
+    ],
+    "sample_delay_ns": 1000,
+    "prices_micro": {
+      "2024-01-02": {
+        "AAPL": 1000000,
+        "AMZN": 1000000,
+        "TSLA": 1000000,
+        "VTI": 1000000
+      },
+      "2024-01-03": {
+        "AAPL": 1125000,
+        "AMZN": 1000000,
+        "TSLA": 1000000,
+        "VTI": 1000000
+      },
+      "2024-01-04": {
+        "AAPL": 1500000,
+        "AMZN": 1000000,
+        "TSLA": 1000000,
+        "VTI": 1000000
+      }
+    },
+    "intents": [
+      {
+        "formation": "2024-01-02",
+        "known": "2024-01-03T05:00:00Z",
+        "decision": "2024-01-03T05:01:00Z",
+        "execution": "2024-01-03T21:00:00Z",
+        "weight_AAPL": "4/5",
+        "frozen_desired_AAPL": 8
+      },
+      {
+        "formation": "2024-01-03",
+        "known": "2024-01-04T05:00:00Z",
+        "decision": "2024-01-04T05:01:00Z",
+        "execution": "2024-01-04T21:00:00Z",
+        "terminal": true,
+        "frozen_desired_AAPL": 0
+      }
+    ],
+    "fills": [
+      {
+        "day": "2024-01-03",
+        "side": "BUY",
+        "symbol": "AAPL",
+        "q": 7,
+        "price_micro": 1125000,
+        "settled_cents": 788,
+        "fee_cents": 101,
+        "cash_after_cents": 111,
+        "settlement_epsilon_micro": 5000,
+        "cash_rounding_micro": -5000
+      },
+      {
+        "day": "2024-01-04",
+        "side": "SELL",
+        "symbol": "AAPL",
+        "q": 7,
+        "price_micro": 1500000,
+        "settled_cents": 1050,
+        "fee_cents": 102,
+        "cash_after_cents": 1059,
+        "settlement_epsilon_micro": 0,
+        "cash_rounding_micro": 0
+      }
+    ],
+    "nav": [
+      {
+        "cash_cents": 1000,
+        "positions": {
+          "AAPL": 0,
+          "AMZN": 0,
+          "TSLA": 0,
+          "VTI": 0
+        },
+        "position_cents": {
+          "AAPL": 0,
+          "AMZN": 0,
+          "TSLA": 0,
+          "VTI": 0
+        },
+        "nav_cents": 1000,
+        "flat_cents": 0,
+        "bps_cents": 0
+      },
+      {
+        "cash_cents": 111,
+        "positions": {
+          "AAPL": 7,
+          "AMZN": 0,
+          "TSLA": 0,
+          "VTI": 0
+        },
+        "position_cents": {
+          "AAPL": 788,
+          "AMZN": 0,
+          "TSLA": 0,
+          "VTI": 0
+        },
+        "nav_cents": 899,
+        "flat_cents": 100,
+        "bps_cents": 1
+      },
+      {
+        "cash_cents": 1059,
+        "positions": {
+          "AAPL": 0,
+          "AMZN": 0,
+          "TSLA": 0,
+          "VTI": 0
+        },
+        "position_cents": {
+          "AAPL": 0,
+          "AMZN": 0,
+          "TSLA": 0,
+          "VTI": 0
+        },
+        "nav_cents": 1059,
+        "flat_cents": 200,
+        "bps_cents": 3
+      }
+    ],
+    "expected": {
+      "affordable_q": 7,
+      "next_q_cost_cents": 1001,
+      "total_fee_cents": 203,
+      "positive_fills": 2,
+      "gross_exact_notional_usd": "147/8",
+      "gross_settled_notional_cents": 1838,
+      "returns": [
+        "-101/1000",
+        "160/899"
+      ],
+      "mean": "69201/1798000",
+      "sample_variance": "62900138401/1616402000000",
+      "max_drawdown": "101/1000",
+      "net_total_return": "59/1000",
+      "mean_postinitial_exposure": "394/899",
+      "invested_fraction": "1/2",
+      "terminal_positions_all_zero": true
+    }
+  },
+  "metric_controls": [
+    {
+      "id": "ZERO_MEAN_NONZERO_VARIANCE",
+      "nav_cents": [
+        10000,
+        11000,
+        9900,
+        9900
+      ],
+      "elapsed_ns": 31557600000000000,
+      "returns": [
+        "1/10",
+        "-1/10",
+        "0"
+      ],
+      "mean": "0",
+      "sample_variance": "1/100",
+      "sharpe": "0",
+      "max_drawdown": "1/10",
+      "cagr": "-0.01",
+      "volatility_symbolic": "sqrt(252)*sqrt(1/100), freshDecimal50 declared order"
+    },
+    {
+      "id": "CONSTANT_CASH",
+      "nav_cents": [
+        1000,
+        1000,
+        1000
+      ],
+      "elapsed_ns": 172800000000000,
+      "mean": "0",
+      "sample_variance": "0",
+      "volatility": "0",
+      "sharpe": null,
+      "sharpe_reason": "ZERO_VARIANCE",
+      "cagr": "0"
+    }
+  ],
+  "negative_distinctions": [
+    {
+      "id": "FEE_PLUS_ONE",
+      "mutation": "First positive fee101->102; regenerate fixture content hashes; keep expected flat100/bps10 profile",
+      "expected": "FAIL_COST_ARITHMETIC"
+    },
+    {
+      "id": "NAV_PLUS_ONE",
+      "mutation": "Middle NAV899->900; regenerate fixture content hashes, leave cash/marks/fills unchanged",
+      "expected": "FAIL_NAV_IDENTITY"
+    },
+    {
+      "id": "TEMPORAL_INVERSION",
+      "mutation": "BUY D moved to execution close or later; regenerate fixture content hashes",
+      "expected": "FAIL_CLOCK_ORDER"
+    },
+    {
+      "id": "WRONG_EXPECTED_BINDING",
+      "mutation": "Externally pinned expected protocol hash differs from actual protocol; artifact hash graph otherwise valid",
+      "expected": "FAIL_BINDING"
+    },
+    {
+      "id": "UNSOLD_TERMINAL",
+      "mutation": "Final positionsAAPL1 and matching marked NAV/cash instead of mandatory terminalzero; internally rehash",
+      "expected": "FAIL_TERMINAL_LIQUIDATION"
+    },
+    {
+      "id": "RAW_FILE_TAMPER",
+      "mutation": "Change one byte without updating its manifest pin",
+      "expected": "FAIL_CONTENT_INTEGRITY"
+    },
+    {
+      "id": "UNSUPPORTED_SOLVER",
+      "mutation": "Request GMV/certificate/bootstrap/physical-availability property outside initial profile",
+      "expected": "UNKNOWN_OR_NOT_APPLICABLE_WITH_REASON_NEVER_PASS"
+    },
+    {
+      "id": "WRONG_COST_PROFILE",
+      "mutation": "Request flat200/bps20 while checker supports only flat100/bps10",
+      "expected": "UNKNOWN_UNSUPPORTED_PROFILE_OR_EXPLICIT_REJECTION_NEVER_SILENT_BASE_PASS"
+    }
+  ],
+  "case_reason_names": "Logical expectation classes; implementer may map its closed report reason IDs explicitly. No requirement to invent global financial status enums.",
+  "negative_fixture_rule": "Semantic mutants must have self-consistent new toy manifests/pins so financial checks, not only hash mismatch, detect them. Never mutate retained data."
+}
