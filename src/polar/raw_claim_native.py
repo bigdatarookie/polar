@@ -61,7 +61,7 @@ def settlement_module():
             require(amount >= 0 and old_nav['receivable_cents'] - new_nav['receivable_cents'] == amount
                     and old_nav['nav_cents'] == new_nav['nav_cents'], 'RAW_CLAIM_TRANSFER_CONSERVATION')
             event_hash = sha(canonical(asdict(evidence)))
-            previous = len(account.events())
+            previous = len(account.events)
             if amount:
                 # Supported ExecutionClient API routes through Portfolio.update_account;
                 # no mutation of cached balances or shadow affordability ledger.
@@ -76,9 +76,9 @@ def settlement_module():
             _, _, actual = self.balances()
             require(actual == {'total': after.available_cash_cents,
                 'free': after.available_cash_cents, 'locked': 0}, 'RAW_CLAIM_NATIVE_POSTPAY_RECONCILIATION')
-            require(len(account.events()) == previous + int(amount > 0), 'RAW_CLAIM_ACCOUNT_EVENT_COUNT')
+            require(len(account.events) == previous + int(amount > 0), 'RAW_CLAIM_ACCOUNT_EVENT_COUNT')
             if amount:
-                require(account.events()[-1].info.get('claim_evidence_sha256') == event_hash,
+                require(account.events[-1].info.get('claim_evidence_sha256') == event_hash,
                         'RAW_CLAIM_ACCOUNT_EVENT_BINDING')
             self.receipts.append({'kind': 'INTERNAL_DISTRIBUTION_RECEIVABLE_SETTLEMENT',
                 'event_id': event_id, 'at_ns': self.clock.timestamp_ns(),
