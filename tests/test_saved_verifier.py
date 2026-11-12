@@ -108,7 +108,7 @@ def toy_subject(mutation=None):
     return saved
 
 
-def write_packet(root, mutation=None):
+def write_packet(root, mutation=None, calendar_kind="monthly", calendar_mutation=None):
     saved = toy_subject(mutation)
     symbols = CONTROLS["complete_ledger"]["symbols"]
     days = list(CONTROLS["complete_ledger"]["prices_micro"])
@@ -118,6 +118,12 @@ def write_packet(root, mutation=None):
     calendar = {"source_schedule_rows": [{"date": d, "reference_close_utc": stamp} for d, stamp in
                                           zip(days, CONTROLS["complete_ledger"]["grid"])],
                 "phases": {"FINAL": {"nav_dates": days, "nav_points": 3, "return_count": 2, "decision_count": 1}}}
+    if calendar_kind == "daily":
+        calendar["phases"]["FINAL"] = {"nav_dates": days, "initial": days[0], "terminal": days[-1],
+            "daily_gate_decisions": [{"formation": days[0], "execution_day": days[1]}],
+            "terminal_decision_reference": days[-2], "terminal_execution": days[-1]}
+    if calendar_mutation:
+        calendar_mutation(calendar["phases"]["FINAL"])
     bindings = {"code_revision": "a" * 40, "runtime_image_id": "sha256:" + "b" * 64,
                 "protocol_ref": {"sha256": "c" * 64}, "input_ref": {"sha256": "d" * 64},
                 "candidate_id": "PUBLIC_TOY", "experiment_id": "EXPERIMENT_1"}
@@ -225,6 +231,48 @@ def test_complete_known_answer_is_covered_pass_with_explicit_unknowns(tmp_path):
     assert report["financial_verdict"] == "NOT_ASSESSED"
     assert set(report["scientific_calls"].values()) == {0}
     assert before == {str(p): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+
+
+def test_daily_calendar_uses_explicit_daily_census_and_terminal_not_monthly_counts(tmp_path):
+    report = checker.verify(write_packet(tmp_path, calendar_kind="daily"))
+    assert report["covered_verdict"] == "PASS", report["checks"]
+    for group in ("ledger", "costs", "metrics", "clocks", "comparisons", "terminal_liquidation"):
+        assert report["checks"][group]["status"] == "PASS"
+
+
+@pytest.mark.parametrize("kind", ["missing_terminal", "wrong_pair", "missing_daily_row"])
+def test_daily_calendar_bad_metadata_is_addressed_after_rehash(tmp_path, kind):
+    def change(calendar):
+        if kind == "missing_terminal":
+            del calendar["terminal_execution"]
+        elif kind == "wrong_pair":
+            calendar["daily_gate_decisions"][0]["formation"] = calendar["daily_gate_decisions"][0]["execution_day"]
+        else:
+            calendar["daily_gate_decisions"] = []
+    report = checker.verify(write_packet(tmp_path, calendar_kind="daily", calendar_mutation=change))
+    assert report["checks"]["content_identity"]["status"] == "PASS"
+    assert report["covered_verdict"] == "FAIL"
+    details = report["checks"]["clocks"]["details"]
+    assert any(x["address"].startswith("calendar.phases.FINAL.") for x in details)
+    if kind == "missing_terminal":
+        assert any(x["address"] == "calendar.phases.FINAL.terminal_execution" for x in details)
+
+
+def test_unknown_calendar_census_is_unknown_not_monthly_guess(tmp_path):
+    def change(calendar):
+        for key in ("nav_points", "return_count", "decision_count"):
+            del calendar[key]
+    report = checker.verify(write_packet(tmp_path, calendar_mutation=change))
+    assert report["covered_verdict"] == "UNKNOWN"
+    assert report["checks"]["calendar_shape"]["status"] == "UNKNOWN"
+
+
+def test_missing_saved_plan_field_reports_field_name(tmp_path):
+    def change(saved):
+        del saved["plan"]["profile"]["kind"]
+    report = checker.verify(write_packet(tmp_path, change))
+    assert report["covered_verdict"] == "FAIL"
+    assert {"address": "phases.FINAL.missing_field.kind", "reason": "MISSING_SAVED_FIELD"} in report["checks"]["shape"]["details"]
 
 
 @pytest.mark.parametrize("kind,group", [("fee", "costs"), ("nav", "ledger"), ("clock", "clocks"), ("terminal", "terminal_liquidation")])
