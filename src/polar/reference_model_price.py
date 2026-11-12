@@ -23,6 +23,9 @@ def validate(mapping,profile):
         if pair==[1,1]:
             require(all(leg['weights'][symbol][0]==0 for leg in profile['legs']),
                 'MODEL_PRICE_IDENTITY_ALIAS_MUST_BE_INACTIVE')
+        else:
+            require(any(leg['weights'][symbol][0]>0 for leg in profile['legs']),
+                'MODEL_PRICE_COARSE_ALIAS_MUST_BE_ACTIVE')
     return mapping
 
 

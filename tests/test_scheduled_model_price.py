@@ -54,11 +54,12 @@ def test_explicit_model_view_and_exact_targets_leave_source_unchanged(tmp_path,m
     assert desired[a]==10000000*10000//(3*prices[a])
     bad=deepcopy(plan);day=next(iter(bad['prices']));bad['prices'][day][a]['close_micro']+=1
     with pytest.raises(ValueError,match='MODEL_SAVED_PRICE_CORRESPONDENCE'):verify_plan(bad,p)
-    for mutate in ('fractional','bool','inactive','unbound','legacy'):
+    for mutate in ('fractional','bool','inactive','coarse_inactive','unbound','legacy'):
         bad=deepcopy(p)
         if mutate=='fractional':bad['model_price_mapping']['multipliers'][a]=[3,2]
         if mutate=='bool':bad['model_price_mapping']['multipliers'][c]=[True,1]
         if mutate=='inactive':bad['legs'][0]['weights'][c]=[1,100];bad['legs'][0]['weights'][b]=[1,2]
+        if mutate=='coarse_inactive':bad['model_price_mapping']['multipliers'][c]=[100,1]
         if mutate=='unbound':bad['model_price_mapping']['source_input_sha256']='0'*64
         if mutate=='legacy':bad['schema']='polar.scheduled-reference-profile/5'
         with pytest.raises(ValueError):profile_value(bad)
@@ -128,3 +129,32 @@ def test_source_equality_is_not_replaced_by_mapping_and_domain_failure_is_charge
     finish=json.loads(next(root.rglob('finish/record.json')).read_bytes())
     assert finish['scientific_status']=='INVALID' and finish['refund'] is False and finish['automatic_retry'] is False
     with pytest.raises(ValueError,match='ORIGINAL_ALREADY_RECORDED'):service.run(cfg)
+
+
+@pytest.mark.parametrize('allowance',['allowed_score_calls','allowed_rank_calls','allowed_estimator_calls',
+    'allowed_optimizer_calls','allowed_bootstrap_samples'])
+def test_profile10_authority_requires_zero_nonpolicy_work(tmp_path,monkeypatch,allowance):
+    # Inert INVENTED schema-predicate fixtures only: no Service prepare/run,
+    # retained paths or native invocation uses these manufactured metadata refs.
+    root,cfg,p,cal=model_fixture(tmp_path,monkeypatch)
+    from polar.scheduled_service import authority_for,binding
+    from polar.gym_contract import canonical,sha
+    method=write(tmp_path/'INVENTED-method.json',{'schema':'polar.prospective-method-disposition/1',
+        'method_verdict':'PASS','protocol':{'sha256':cfg['protocol_ref']['sha256']},'candidate_id':cfg['candidate_id']})
+    card=write(tmp_path/'INVENTED-card.json',{'schema':'polar.native-hypothesis-reservation/1','state':'RESERVED',
+        'candidate_id':cfg['candidate_id'],'experiment_registration_id':cfg['experiment_id']})
+    ci=write(tmp_path/'INVENTED-ci-predicate.json',{'schema':'polar.ci-result/1','status':'PASS',
+        'candidate_sha':cfg['code_revision'],'selection':['tests']})
+    closed={**cfg,'namespace':'RETAINED'}
+    grant={'schema':'polar.scheduled-reference-operation/1','action':'ORIGINAL',
+        'binding_sha256':sha(canonical(binding(closed))),'allowed_fit_calls':0,'allowed_predict_calls':0,
+        'allowed_native_accounts':5,'method_ref':method,'candidate_ref':card,'qualification_ref':ci,
+        **{k:0 for k in ('allowed_score_calls','allowed_rank_calls','allowed_estimator_calls',
+            'allowed_optimizer_calls','allowed_bootstrap_samples')}}
+    closed['execution_authority_ref']=write(tmp_path/'INVENTED-authority-predicate.json',grant)
+    assert authority_for(None,closed,p,{'FINAL':{}})==grant
+    bad={**grant,allowance:1}
+    closed['execution_authority_ref']=write(tmp_path/'INVENTED-bad-authority-predicate.json',bad)
+    with pytest.raises(ValueError,match='SCHEDULED_FIXED_COST_OPERATION_BOUND'):
+        authority_for(None,closed,p,{'FINAL':{}})
+    assert not (root/'scheduled-reference-attempts').exists()

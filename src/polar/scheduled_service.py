@@ -151,7 +151,7 @@ def authority_for(service, config, profile, grids):
             authority.get('binding_sha256') == sha(canonical(binding(config))) and
             authority.get('allowed_fit_calls') == 0 and authority.get('allowed_predict_calls') == 0 and
             authority.get('allowed_native_accounts') == account_count(profile, grids), 'SCHEDULED_OPERATION_NOT_BOUND')
-    if profile['schema'].endswith(('/8','/9')):
+    if profile['schema'].endswith(('/8','/9','/10')):
         require(all(authority.get(key)==0 for key in ('allowed_score_calls','allowed_rank_calls',
                 'allowed_estimator_calls','allowed_optimizer_calls','allowed_bootstrap_samples')),
                 'SCHEDULED_FIXED_COST_OPERATION_BOUND')
