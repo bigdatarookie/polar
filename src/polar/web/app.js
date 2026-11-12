@@ -21,6 +21,9 @@ let mainMetricSort={key:null,direction:'desc'};
 const EXECUTIONS_RUNTIME_READY=true; // Qualified ef73b9f serving receipt, 2026-11-12T06:51Z.
 const executionClient=createResearchExecutionClient((...args)=>fetch(...args));
 let executions={resultId:null,page:null,allItems:[],loading:false,error:null},selectedExecutionId=null,executionFlow=0,executionChoices=null;
+let executionQuery='',executionDayChoice='',executionMenuCache={source:null,sorted:[]};
+let executionAxes=null,markerSizingFrame=0,markerSizingCommit=false,executionPointerHeld=false,heldMarkerKey=null,heldMarkerSize=0;
+const handledTradeClicks=new WeakSet(),draggedTradeClicks=new WeakSet();let tradeClickGesture=null;
 let comparisonCache=null,comparisonBenchmark=true,mainResearchReturnFocus=null;
 let chart, loading = false, loadError = null, flow = 0, assetQuery = '', assetOptionIndex = 0, rendering = false, restoreFrame = 0;
 let pendingSelection=null, failedSelection=null;
@@ -39,7 +42,7 @@ function palette() {const c = getComputedStyle(document.documentElement); return
 function resolvedTheme() {if(state.theme!=='auto')return state.theme;try{return typeof matchMedia==='function'&&matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';}catch{return 'dark';}}
 function tell(text) {$('#status').textContent = text;}
 function keepScroll(fn) {const x=scrollX,y=scrollY,saved=['#workspace','#rail-body','#strategy-list','#raw-readout'].map(s=>[$(s),$(s)?.scrollTop||0]),id=document.activeElement?.id;fn();const active=id?document.getElementById(id):null;if(active&&active!==document.activeElement)active.focus({preventScroll:true});const restore=()=>{window.scrollTo(x,y);saved.forEach(([el,top])=>{if(el)el.scrollTop=top})};restore();const settled={x:scrollX,y:scrollY,tops:saved.map(([el])=>el?.scrollTop)};cancelAnimationFrame(restoreFrame);restoreFrame=requestAnimationFrame(()=>{if(scrollX===settled.x&&scrollY===settled.y)window.scrollTo(x,y);saved.forEach(([el,top],i)=>{if(el&&el.scrollTop===settled.tops[i])el.scrollTop=top;});});}
-function syncModes() {$$('[data-mode]').forEach(b=>b.setAttribute('aria-pressed', String(b.dataset.mode === state.mode)));}
+function syncModes() {$('#workspace').dataset.panel=state.mode;$$('[data-mode]').forEach(b=>b.setAttribute('aria-pressed', String(b.dataset.mode === state.mode)));}
 function saveWorkspace() {try {sessionStorage.setItem(sessionKey, JSON.stringify({dataset_id:dataset?.dataset_id,run_id:detail?.run.id,controls:state,history_revision:historyContext?.revision?.dataset_revision,instrument_id:historyContext?.instrument?.instrument_id,history_window:historyDisplayed()?visibleHistoryWindow():null,research_result_id:mainResearchSelection,research_benchmark:comparisonBenchmark,history_reference_selection:referenceSelection}));} catch {}}
 function writeURL(push) {const url=new URL(location.href);url.searchParams.set('mode',historyDisplayed()?'real':'retained-test');for(const key of ['dataset','run','revision','instrument'])url.searchParams.delete(key);if(dataset)url.searchParams.set('dataset',dataset.dataset_id);if(historyDisplayed()){if(historyContext?.revision)url.searchParams.set('revision',historyContext.revision.dataset_revision);if(historyContext?.instrument)url.searchParams.set('instrument',historyContext.instrument.instrument_id);}else if(detail)url.searchParams.set('run',detail.run.id);history[push?'pushState':'replaceState'](null,'',url);saveWorkspace();}
 function urlSelection() {const params=new URL(location.href).searchParams; return [params.get('dataset'),params.get('run')];}
@@ -62,7 +65,7 @@ function boundsForSelection(nextView,controls,previousWindow) {
   const bars=nextView.bars;if(!bars.length)return {lo:0,hi:0};
   if(controls.rangeId==='Custom'&&previousWindow?.first&&previousWindow?.last){
     const lo=bars.findIndex(b=>Date.parse(b.endTime)>=Date.parse(previousWindow.first));
-    let hi=-1;for(let i=0;i<bars.length;i++)if(Date.parse(b.time)<=Date.parse(previousWindow.last))hi=i;
+    let hi=-1;for(let i=0;i<bars.length;i++)if(Date.parse(bars[i].time)<=Date.parse(previousWindow.last))hi=i;
     if(lo>=0&&hi>=lo)return {lo,hi};
     return {lo:0,hi:bars.length-1,rangeId:'All'};
   }
@@ -118,7 +121,7 @@ async function loadHistorySelection(request={}) {
     next.seriesControls=next.series?controls:{...controls,sma:false,ema:false,bollinger:false,rsi:false,benchmark:false};
     next.seriesUnavailable=historyNeedsSeries(controls)&&!HISTORY_SERIES_RUNTIME.enabled?'C_RUNTIME_NOT_QUALIFIED':null;
     const nextView=buildHistoryView(next),same=dataset?.kind==='history'&&dataset.dataset_id===next.revision?.dataset_id&&dataset.dataset_revision===next.revision?.dataset_revision&&dataset.instrument.instrument_id===next.instrument?.instrument_id;
-    const preserveViewport=same&&request.seriesOnly&&!request.selectWindow||viewportVersion!==requestedViewportVersion,latestWindow={start:view.bars[state.lo]?.time,end_exclusive:view.bars[state.hi]?historyDayAfter(view.bars[state.hi].time):null};
+    const preserveViewport=same&&request.seriesOnly&&!request.selectWindow||viewportVersion!==requestedViewportVersion,latestWindow=visibleHistoryWindow()||{start:null,end_exclusive:null};
     const displayWindow=preserveViewport&&latestWindow.start&&latestWindow.end_exclusive?latestWindow:window;
     const nextState={...state,dataMode:'real',rangeId:preserveViewport?state.rangeId:requestedRange,granularity:'1D',assetId:next.instrument?.instrument_id||null,strategyId:null};
     if(displayWindow&&nextView.bars.length){const first=nextView.bars.findIndex(b=>b.time>=displayWindow.start),indices=nextView.bars.map((b,i)=>b.time<displayWindow.end_exclusive?i:-1);nextState.lo=Math.max(0,first);nextState.hi=Math.max(nextState.lo,...indices);}
@@ -206,7 +209,7 @@ function setGranularity(interval) {
   if(!dataset||!GRANULARITIES.includes(interval)||(historyDisplayed()&&interval!=='1D'))return;
   state.granularity=interval;state.measurement=null;state.infoId=null;view=buildView(dataset,detail?.report,interval);state.lo=0;state.hi=Math.max(0,view.bars.length-1);state.cursor=state.inspect=0;state.rangeId='All';cancelGesture();renderAll();saveWorkspace();tell(interval+' · supplied daily rows only; incomplete buckets stay unavailable.');
 }
-function visibleHistoryWindow(){return view.bars[state.lo]&&view.bars[state.hi]?{start:view.bars[state.lo].time,end_exclusive:historyDayAfter(view.bars[state.hi].time)}:null;}
+function visibleHistoryWindow(){const first=view.bars[state.lo]?.time,last=view.bars[state.hi]?.time;return historyDisplayed()&&historyDate(first)&&historyDate(last)?{start:first,end_exclusive:historyDayAfter(last)}:null;}
 function renderSeriesState(){
   const label=$('#series-state');if(!label)return;
   const needed=historyDisplayed()&&historyNeedsSeries(state),window=visibleHistoryWindow();
@@ -241,7 +244,7 @@ function scheduleViewportSeries(){
 function commitViewport(lo,hi,rangeId='Custom',dispatch=false){
   viewportVersion++;state.lo=lo;state.hi=hi;state.rangeId=rangeId;pendingPlotRange=null;
   if(dispatch&&chart){rendering=true;chart.dispatchAction({type:'dataZoom',startValue:lo,endValue:hi});rendering=false;}
-  clampCursor();invalidateRange();syncToolbar();drawMeasurement();showRaw(state.inspect);saveWorkspace();scheduleViewportSeries();
+  clampCursor();invalidateRange();syncToolbar();drawMeasurement();showRaw(state.inspect);saveWorkspace();scheduleViewportSeries();scheduleExecutionMarkerSizing();
 }
 function setPreset(id) {
   if(!view.bars.length)return;
@@ -325,10 +328,41 @@ function matchingExecutions(){
   if(executions.resultId!==mainResearchSelection||executions.page?.status!=='OK')return [];
   return (executions.allItems||[]).filter(event=>{const binding=event.instrument;return binding.status==='BOUND'&&binding.dataset_id===historyContext?.revision?.dataset_id&&binding.dataset_revision===historyContext?.revision?.dataset_revision&&binding.instrument_id===historyContext?.instrument?.instrument_id&&event.status==='FILLED';});
 }
+function executionMenuItems(){
+  const source=executions.allItems||[];if(executionMenuCache.source!==source){executionMenuCache={source,sorted:source.map(event=>({event,stamp:BigInt(event.timestamp_ns)})).sort((a,b)=>a.stamp>b.stamp?-1:a.stamp<b.stamp?1:a.event.order_id.localeCompare(b.event.order_id)).map(item=>item.event)};}
+  const query=executionQuery.trim().toLowerCase();return query?executionMenuCache.sorted.filter(event=>[event.order_id,event.symbol,event.session_date,event.status,event.side].join(' ').toLowerCase().includes(query)):executionMenuCache.sorted;
+}
+function executionMarkerBaseSize(width,count){return Math.max(8,Math.min(26,5+2.8*Math.sqrt(Math.max(0,width)/Math.max(1,count))));}
+function executionMarkerSizes(normal){
+  const key=selectedExecutionId?[executions.resultId,executions.page?.content_sha256,executions.page?.series_id,selectedExecutionId].join('|'):null;
+  if(key!==heldMarkerKey){heldMarkerKey=key;heldMarkerSize=key?Math.max(14,normal):0;}else if(key)heldMarkerSize=Math.max(heldMarkerSize,normal);
+  return {normal,selected:key?heldMarkerSize:normal};
+}
+function markerUpdateDuration(){try{return markerSizingCommit&&!matchMedia('(prefers-reduced-motion: reduce)').matches?100:0;}catch{return 0;}}
+function savedExecutionSeries(xAxisIndex,yAxisIndex,c,narrow){
+  const groups=executionDateGroups(matchingExecutions()),normal=executionMarkerBaseSize(chartLayout().priceBox.width,state.hi-state.lo+1),sizes=executionMarkerSizes(normal);
+  return {id:'saved-executions',name:'Saved fills · date lane, not candle prices',type:'scatter',xAxisIndex,yAxisIndex,animation:true,animationDuration:0,animationDurationUpdate:markerUpdateDuration,animationEasingUpdate:'cubicOut',emphasis:{disabled:true},
+    symbolSize:(_,params)=>params.data.events.some(event=>event.order_id===selectedExecutionId)?Math.max(sizes.selected,sizes.normal+(params.data.events.length>1?2:0)):sizes.normal+(params.data.events.length>1?2:0),
+    data:groups.filter(group=>view.bars.some(bar=>bar.time===group.date)).map(group=>{const selected=group.events.find(event=>event.order_id===selectedExecutionId),event=selected||group.events[0],id=group.events.map(item=>item.order_id).join('|');return {id,name:id,value:[group.date,0],events:group.events,symbol:group.events.length>1?'diamond':'triangle',symbolRotate:group.events.length===1&&event.side==='SELL'?180:0,label:{show:!!selected||group.events.length>1,formatter:selected?event.symbol+' '+event.side:group.events.length+' fills',position:'top',color:c.action,fontSize:9},itemStyle:{color:group.events.length>1?c.muted:event.side==='BUY'?c.up:c.down,borderColor:selected?c.action:c.surface,borderWidth:selected?2.7:1}};}),z:9};
+}
+function updateExecutionMarkers(){
+  if(!chart||$('#workspace').hidden||!executionAxes||!historyDisplayed()||!state.markers)return;
+  markerSizingCommit=true;const previous=rendering;rendering=true;
+  try{chart.setOption({dataZoom:['inside','slider'].map(id=>({id,startValue:state.lo,endValue:state.hi})),series:[savedExecutionSeries(executionAxes.x,executionAxes.y,palette(),innerWidth<701)]},{lazyUpdate:false});}finally{rendering=previous;markerSizingCommit=false;}
+}
+function scheduleExecutionMarkerSizing(){cancelAnimationFrame(markerSizingFrame);if(executionPointerHeld)return;markerSizingFrame=requestAnimationFrame(updateExecutionMarkers);}
+function clearTradeSelection(){
+  if(!selectedExecutionId&&!executionChoices)return;selectedExecutionId=null;executionChoices=null;heldMarkerKey=null;heldMarkerSize=0;
+  const body=$('#rail-body'),bounds=body?.getBoundingClientRect(),anchor=bounds?$$('.saved-order').find(row=>row.getBoundingClientRect().bottom>bounds.top+2):null,top=anchor?.getBoundingClientRect().top;
+  $$('.saved-order').forEach(row=>{row.dataset.selected='false';row.querySelector('.saved-order-select')?.setAttribute('aria-pressed','false');});const pin=$('#execution-pinned');if(pin)pin.hidden=true;$('.execution-choices')?.remove();
+  if(body&&anchor&&bounds.height&&top!==undefined)body.scrollTop+=anchor.getBoundingClientRect().top-top;
+  updateExecutionMarkers();
+}
+function isTradeSelectionTarget(target){return !!target?.closest?.('.saved-order,.execution-select-action,[data-execution-choice]');}
 function revealExecutionRow(event,{focus=true}={}){
-  const index=(executions.allItems||[]).findIndex(item=>item.order_id===event.order_id);if(index<0)return;
+  if(!executionMenuItems().some(item=>item.order_id===event.order_id))executionQuery='';executionDayChoice=event.session_date;const index=executionMenuItems().findIndex(item=>item.order_id===event.order_id);if(index<0)return;
   executions.offset=Math.floor(index/100)*100;executionChoices=null;state.mode='Orders';cancelAnimationFrame(restoreFrame);renderRail();syncModes();if(innerWidth<701)openTools();
-  const button=document.getElementById('saved-order-'+encodeURIComponent(event.order_id));button?.closest('.saved-order')?.scrollIntoView({block:'nearest',inline:'nearest'});if(focus)button?.focus({preventScroll:true});
+  const button=document.getElementById('saved-order-'+encodeURIComponent(event.order_id));button?.closest('.saved-order')?.scrollIntoView({block:'center',inline:'nearest'});if(focus)button?.focus({preventScroll:true});
 }
 function chooseExecutionGroup(events){
   if(events.length===1){selectExecution(events[0],{origin:'marker'});return;}
@@ -336,7 +370,7 @@ function chooseExecutionGroup(events){
 }
 async function selectExecution(event,{origin='row'}={}){
   if(event.instrument.status!=='BOUND')return;
-  selectedExecutionId=event.order_id;const index=(executions.allItems||[]).findIndex(item=>item.order_id===event.order_id);if(index>=0)executions.offset=Math.floor(index/100)*100;
+  selectedExecutionId=event.order_id;executionDayChoice=event.session_date;const index=executionMenuItems().findIndex(item=>item.order_id===event.order_id);if(index>=0)executions.offset=Math.floor(index/100)*100;
   const binding=event.instrument,id=mainResearchSelection,center=event.session_date,same=binding.dataset_id===historyContext?.revision?.dataset_id&&binding.dataset_revision===historyContext?.revision?.dataset_revision&&binding.instrument_id===historyContext?.instrument?.instrument_id,point=view.bars.findIndex(bar=>bar.time===center);
   if(origin==='marker'&&same){revealExecutionRow(event);renderChart();saveWorkspace();tell(event.symbol+' '+event.side+' · selected exact saved order · '+center);return;}
   if(same&&point>=0){const span=state.hi-state.lo;if(point<state.lo||point>state.hi){const lo=Math.max(0,Math.min(view.bars.length-1-span,point-Math.floor(span/2)));commitViewport(lo,lo+span,'Custom',true);}keepScroll(()=>{renderRail();renderChart();});}
@@ -349,22 +383,37 @@ async function selectExecution(event,{origin='row'}={}){
   if(innerWidth<701)$('#rail-inner').classList.remove('mobile-open');$('#workspace').scrollTop=0;$('#chart-stage').focus({preventScroll:true});tell(event.symbol+' '+event.side+' · saved '+event.status+' · '+center+(view.bars.some(bar=>bar.time===center)?' · date lane; fill price is not the candle price.':' · no matching source session available; exact fill remains in its order details.'));saveWorkspace();
 }
 function renderSavedExecutions(body){
-  const saved=selectedMainResearch();panelNote(body,saved?researchReadable(saved.record.question.label):'Select a saved strategy to inspect its actual saved order tape.');if(!saved)return;
+  const saved=selectedMainResearch();if(!saved){panelNote(body,'Select a saved strategy to inspect its actual saved order tape.');return;}
   if(executions.resultId!==saved.result_id||executions.loading){panelNote(body,'Loading saved executions · no fills inferred.');return;}
   if(executions.error){panelNote(body,'Saved executions unavailable · '+executions.error);const retry=element('button','Retry saved executions');retry.id='retry-executions';retry.onclick=()=>loadExecutions();body.append(retry);return;}
   const page=executions.page;if(!page||page.status==='UNAVAILABLE'){panelNote(body,'Saved execution tape unavailable · '+(page?.reason||'NOT_LOADED'));return;}
-  panelNote(body,page.total===0?'No orders in this saved tape.':page.total+' saved simulation orders · '+(page.price_unit==='USD_PER_SYNTHETIC_REFERENCE_UNIT'?'Synthetic reference units':'Modeled share units')+'. Event lane shows dates, not candle prices.');
-  if(executionChoices){const group=element('section',undefined,'execution-choices');group.setAttribute('role','group');group.setAttribute('aria-label','Choose exact execution on '+executionChoices[0].session_date);group.append(element('b',executionChoices.length+' executions · '+executionChoices[0].session_date));executionChoices.forEach((event,index)=>{const choice=element('button',event.symbol+' '+event.side+' · $'+executionScaledToken(event.price_micro,6)+' · '+event.order_id.split('/').slice(-2).join('/'));choice.id='execution-choice-'+index;choice.setAttribute('aria-label','Select order '+event.order_id+' · '+event.timestamp);choice.onclick=()=>selectExecution(event,{origin:'marker'});group.append(choice);});const close=element('button','Close choices');close.onclick=()=>{executionChoices=null;renderRail();};group.append(close);body.append(group);}
-  const nav=element('div',undefined,'execution-pages');for(const [label,offset] of [['Previous',Math.max(0,(executions.offset||0)-100)],['Next',(executions.offset||0)+100<page.total?(executions.offset||0)+100:null]]){const button=element('button',label);button.id='executions-'+label.toLowerCase();button.disabled=label==='Previous'?!executions.offset:offset===null;button.onclick=()=>{executions.offset=offset;const id=button.id;keepScroll(renderRail);$('#rail-body').scrollTop=0;const next=document.getElementById(id);(next&&!next.disabled?next:document.getElementById(id==='executions-next'?'executions-previous':'executions-next'))?.focus({preventScroll:true});};nav.append(button);}body.append(nav);
-  for(const event of (executions.allItems||[]).slice(executions.offset||0,(executions.offset||0)+100)){
-    const article=element('article',undefined,'order-entry saved-order');article.dataset.orderId=event.order_id;article.dataset.selected=String(event.order_id===selectedExecutionId);
-    const button=element('button',undefined,'saved-order-select');button.id='saved-order-'+encodeURIComponent(event.order_id);button.setAttribute('aria-pressed',String(event.order_id===selectedExecutionId));button.setAttribute('aria-label',event.symbol+' '+event.side+' '+event.status+' · '+event.session_date+' · '+event.order_id);button.disabled=event.instrument.status!=='BOUND';button.onclick=()=>selectExecution(event);
-    button.append(element('b',event.symbol+' · '+event.side),element('span',event.status==='FILLED'?'$'+fixedTwoDecimal(executionScaledToken(event.price_micro,6)):'Not routed','mono'));article.append(button,element('small',event.session_date+' · '+event.filled_quantity+' '+(page.price_unit==='USD_PER_SYNTHETIC_REFERENCE_UNIT'?'ref. units':'modeled shares')),element('p',event.status+(event.status==='FILLED'?' · fee $'+executionScaledToken(event.fee_cents,2):' · '+(event.reason||'No fill'))));
-    const exact=element('details');exact.append(element('summary','Execution details'),element('p',event.timestamp),element('p','Saved logical session '+event.session_date+' · native submission/matched fill'),element('p',event.order_id),element('p','Intended '+event.intended_quantity+' · routed '+event.routed_quantity+' · filled '+event.filled_quantity+' '+page.quantity_unit),element('p',event.status==='FILLED'?'Exact price $'+executionScaledToken(event.price_micro,6)+' · '+page.price_unit:'No fill price'),element('p',event.instrument.status==='BOUND'?event.instrument.source_symbol+' · declared current mapping, not PIT certification · '+event.instrument.basis_relation:event.instrument.reason),element('p','Timestamp ns '+event.timestamp_ns+' · price_micro '+(event.price_micro??'Not filled')));article.append(exact);body.append(article);
+  const menu=element('section',undefined,'execution-menu');body.append(menu);const context=element('p',researchReadable(saved.record.question.label),'execution-context');context.title=saved.record.question.label;menu.append(context);
+  const tools=element('div',undefined,'execution-tools'),count=element('small',page.total+' saved orders');const searchLabel=element('label','Find an order'),search=element('input');search.id='execution-search';search.type='search';search.maxLength=180;search.placeholder='ID, instrument or date';search.value=executionQuery;searchLabel.append(search);tools.append(searchLabel);
+  const jump=element('label','Date','execution-jump'),days=element('select');days.id='execution-day';days.setAttribute('aria-label','Jump to saved order date');const blank=element('option','Jump to day');blank.value='';days.append(blank);for(const date of [...new Set(executionMenuItems().map(event=>event.session_date))]){const option=element('option',date);option.value=date;days.append(option);}days.value=executionDayChoice;days.onchange=()=>{executionDayChoice=days.value;const event=executionMenuItems().find(item=>item.session_date===days.value);if(event)revealExecutionRow(event);};jump.append(days,count);tools.append(jump);menu.append(tools);
+  const unitNote=element('p',page.price_unit==='USD_PER_SYNTHETIC_REFERENCE_UNIT'?'Synthetic reference units · markers show dates, not candle prices.':'Modeled units · date-only markers; exact basis in details.','execution-units');menu.append(unitNote);
+  const pin=element('div',undefined,'execution-pinned');pin.id='execution-pinned';const chosen=(executions.allItems||[]).find(event=>event.order_id===selectedExecutionId);pin.hidden=!chosen;pin.append(element('small','Selected order'));
+  if(chosen){const reveal=element('button',undefined,'execution-select-action');reveal.title=chosen.order_id;reveal.setAttribute('aria-label','Reveal selected order '+chosen.order_id);reveal.append(element('span',chosen.order_id),element('small','Reveal ↓'));reveal.onclick=()=>revealExecutionRow(chosen);pin.append(reveal);}menu.append(pin);
+  if(executionChoices){const group=element('section',undefined,'execution-choices');group.setAttribute('role','group');group.setAttribute('aria-label','Choose exact execution on '+executionChoices[0].session_date);group.append(element('b',executionChoices.length+' executions · '+executionChoices[0].session_date));executionChoices.forEach((event,index)=>{const choice=element('button',event.symbol+' '+event.side+' · $'+executionScaledToken(event.price_micro,6));choice.id='execution-choice-'+index;choice.dataset.executionChoice=event.order_id;choice.setAttribute('aria-label','Select order '+event.order_id+' · '+event.timestamp);choice.append(element('small',event.order_id));choice.onclick=()=>selectExecution(event,{origin:'marker'});group.append(choice);});const close=element('button','Close choices');close.onclick=()=>{executionChoices=null;renderRail();};group.append(close);menu.append(group);}
+  const nav=element('div',undefined,'execution-pages'),stream=element('div',undefined,'execution-stream');
+  function updateStream(){const items=executionMenuItems(),maximum=Math.max(0,Math.floor((items.length-1)/100)*100);executions.offset=Math.min(executions.offset||0,maximum);count.textContent=items.length+' / '+page.total+' orders';nav.replaceChildren();
+    for(const [label,offset,id]of [['‹ Newer',Math.max(0,executions.offset-100),'previous'],['Older ›',executions.offset+100<items.length?executions.offset+100:null,'next']]){const button=element('button',label);button.id='executions-'+id;button.disabled=id==='previous'?!executions.offset:offset===null;button.onclick=()=>{executions.offset=offset;const focus=button.id;keepScroll(renderRail);$('#rail-body').scrollTop=0;const next=document.getElementById(focus);(next&&!next.disabled?next:document.getElementById(id==='next'?'executions-previous':'executions-next'))?.focus({preventScroll:true});};nav.append(button);}
+    stream.replaceChildren();if(!items.length){panelNote(stream,page.total?'No matching orders. Clear the search to see the full tape.':'No orders in this saved tape.');return;}
+    let day=null;const dayCounts=new Map();for(const item of items)dayCounts.set(item.session_date,(dayCounts.get(item.session_date)||0)+1);
+    for(const event of items.slice(executions.offset,executions.offset+100)){
+      if(day!==event.session_date){day=event.session_date;const heading=element('div',undefined,'execution-day');heading.append(element('b',day),element('span',dayCounts.get(day)+' orders'));stream.append(heading);}
+      const article=element('article',undefined,'order-entry saved-order');article.dataset.orderId=event.order_id;article.dataset.selected=String(event.order_id===selectedExecutionId);
+      const button=element('button',undefined,'saved-order-select');button.id='saved-order-'+encodeURIComponent(event.order_id);button.setAttribute('aria-pressed',String(event.order_id===selectedExecutionId));button.setAttribute('aria-label',event.symbol+' '+event.side+' '+event.status+' · '+event.session_date+' · '+event.order_id);button.disabled=event.instrument.status!=='BOUND';button.onclick=()=>selectExecution(event);
+      const main=element('span',undefined,'execution-row-main'),side=element('b',event.side+' '+event.symbol,'execution-side '+event.side.toLowerCase());main.append(side,element('span',event.status==='FILLED'?'$'+fixedTwoDecimal(executionScaledToken(event.price_micro,6)):'No fill','mono'));
+      const meta=element('span',undefined,'execution-row-meta');meta.append(element('span',(event.status==='FILLED'?event.filled_quantity+' filled':event.intended_quantity+' intended')+' units · '+event.status),element('span',event.timestamp.slice(11,19)+' UTC'));
+      const identity=element('small',event.order_id,'execution-row-id');identity.title=event.order_id;button.append(main,meta,identity);article.append(button);
+      const exact=element('details');exact.append(element('summary','Exact data & units'),element('p',event.order_id),element('p',event.timestamp),element('p','Saved logical session '+event.session_date+' · native submission/matched fill'),element('p','Intended '+event.intended_quantity+' · routed '+event.routed_quantity+' · filled '+event.filled_quantity+' '+page.quantity_unit),element('p',event.status==='FILLED'?'Exact price $'+executionScaledToken(event.price_micro,6)+' · '+page.price_unit:'No fill price'),element('p','Fee '+(event.fee_cents===null?'not charged':'$'+executionScaledToken(event.fee_cents,2))),element('p',event.instrument.status==='BOUND'?'Instrument '+event.instrument.instrument_id+' · '+event.instrument.source_symbol+' · declared current mapping, not PIT · '+event.instrument.basis_relation:event.instrument.reason),element('p','Saved result '+executions.resultId+' · series '+page.series_id),element('p','Timestamp ns '+event.timestamp_ns+' · price_micro '+(event.price_micro??'Not filled')));article.append(exact);stream.append(article);
+    }
   }
+  search.oninput=()=>{executionQuery=search.value;executions.offset=0;updateStream();};menu.append(nav,stream);updateStream();
 }
+
 function renderRail() {
-  const body=$('#rail-body');body.replaceChildren(element('h3',state.mode));
+  const body=$('#rail-body');body.replaceChildren();if(state.mode!=='Orders'||!historyDisplayed())body.append(element('h3',state.mode));
   if(state.mode==='Settings') {
     body.append(element('p','Appearance changes preserve your research context.','panel-intro'));
     const settings=element('div',undefined,'settings-group');settings.append(element('h4','Color theme'));const group=element('div',undefined,'theme-options');
@@ -444,7 +493,7 @@ async function selectMainResearch(id,fit=true,preserveSameResult=false){
   mainResearch.chosen=mainResearch.page?.details?.find(d=>d.result_id===id)||mainResearch.chosen;mainResearchSelection=id;comparisonCache=null;comparisonAnchor=null;state.measurement=null;state.cursorSource='assetClose';cancelGesture();
   if(fit&&historyContext?.loadedWindow&&selectedMainResearch()?.record?.grid?.length){const grid=selectedMainResearch().record.grid,window=historyWindow(historyContext,'Custom',{}, {start:grid[0].slice(0,10),end_exclusive:historyDayAfter(grid.at(-1).slice(0,10))});if(!historyWindowContains(historyContext.loadedWindow,window)){await loadHistorySelection({...currentHistoryRequest(),seriesOnly:true,selectWindow:true,rangeId:'Custom',window});if(id!==mainResearchSelection)return;}}
   const model=getMainComparison();if(fit&&model?.usable){viewportVersion++;state.lo=model.first;state.hi=model.last;state.rangeId='Custom';state.cursor=state.inspect=state.lo;}
-  selectedExecutionId=null;loadExecutions();keepScroll(renderAll);saveWorkspace();tell(model?.usable?'Saved strategy and benchmark compared on Index100. Portfolio is not attributed to this asset.':model?.reason||'Select stored history to compare.');
+  selectedExecutionId=null;executionQuery='';executionDayChoice='';loadExecutions();keepScroll(renderAll);saveWorkspace();tell(model?.usable?'Saved strategy and benchmark compared on Index100. Portfolio is not attributed to this asset.':model?.reason||'Select stored history to compare.');
 }
 function comparisonReadout(i){const model=getMainComparison();if(!model?.usable)return '';return '\nSaved portfolio sample '+(model.times[i]||'not supplied on this calendar date')+' · strategy '+(model.strategyRaw[i]??'Unavailable')+' USD · benchmark '+(model.benchmarkRaw[i]??'Unavailable')+' USD · Index100 baseline '+model.baselineDate+'; no fills inferred.';}
 function renderPortfolioOverlayControls(body){
@@ -591,7 +640,7 @@ function chartLayout(){
 function renderChart() {
   if(!chart||$('#workspace').hidden)return;hideCandleBoundary();const c=palette(),bars=view.bars,narrow=innerWidth<701,layout=chartLayout(),control=displayedHistoryControls(),real=historyDisplayed();
   $('.volume-title').style.top=Math.max(0,layout.grid[1].top-16)+'px';
-  const available=anySource('assetClose')||anySource('strategyEquity'),message=$('#view-message');message.hidden=available;
+  executionAxes=null;const available=anySource('assetClose')||anySource('strategyEquity'),message=$('#view-message');message.hidden=available;
   message.textContent=real?(loading?'Loading registered history…':loadError?'History unavailable · '+loadError:dataset?'No observed OHLCV in the selected window. No values were padded.':'No registered chart-ready stored history. No synthetic data was substituted.'):loading?'Loading retained records…':loadError?'Backend unavailable · '+loadError:!dataset?'No retained datasets':['NO_DATA','INVALID'].includes(detail?.report?.status)?'Retained report: '+detail.report.status+(detail.report.diagnostic?' · '+detail.report.diagnostic:''):detail&&!detail.report?'Report unavailable · '+detail.run.state:'No plottable observations; source values are unavailable.';
   const series=[{id:'asset',name:real?'Raw vendor OHLC':'Retained asset OHLC',type:'candlestick',data:bars.map(b=>['open','close','low','high'].map(k=>real?(b.price_status==='OBSERVED'?priceDisplayValue(b[k]):null):indexValue(b[k],view.baseClose))),itemStyle:{color:c.up,color0:c.down,borderColor:c.up,borderColor0:c.down},emphasis:{disabled:true},barMaxWidth:15,z:2}];
   if(real){
@@ -616,8 +665,7 @@ function renderChart() {
   if(layout.executions){
     for(const axis of xAxis)axis.axisLabel={show:false};const xIndex=xAxis.length,yIndex=yAxis.length;
     xAxis.push({...x,id:'execution-x',gridIndex:layout.executionGrid,axisLabel:x.axisLabel});yAxis.push({id:'execution-y',type:'value',gridIndex:layout.executionGrid,min:-1,max:1,show:false});
-    series.push({id:'saved-executions',name:'Saved fills · date lane, not candle prices',type:'scatter',xAxisIndex:xIndex,yAxisIndex:yIndex,symbolSize:(_,p)=>p.data.events.some(event=>event.order_id===selectedExecutionId)?13:9,
-      data:executionDateGroups(matchingExecutions()).filter(group=>bars.some(bar=>bar.time===group.date)).map(group=>{const selected=group.events.find(event=>event.order_id===selectedExecutionId),event=selected||group.events[0];return {id:group.events.map(e=>e.order_id).join('|'),value:[group.date,0],events:group.events,symbol:group.events.length>1?'diamond':'triangle',symbolRotate:group.events.length===1&&event.side==='SELL'?180:0,label:{show:!!selected||group.events.length>1,formatter:selected?event.symbol+' '+event.side:group.events.length+' fills',position:'top',color:c.action,fontSize:9},itemStyle:{color:selected?c.action:group.events.length>1?c.muted:event.side==='BUY'?c.up:c.down,borderColor:selected?c.ink:c.surface,borderWidth:1}};}),z:9});
+    executionAxes={x:xIndex,y:yIndex};series.push(savedExecutionSeries(xIndex,yIndex,c,narrow));
   }
   const axes=xAxis.map((_,index)=>index);
   rendering=true;chart.setOption({animation:false,backgroundColor:c.surface,textStyle:{fontFamily:'Golos Text',color:c.ink},grid:layout.grid,graphic:layout.executions?[{type:'text',left:layout.left,top:layout.grid[layout.executionGrid].top-26,silent:true,style:{text:'Saved fills · dates only · exact unit prices in order details',fill:c.muted,fontSize:narrow?8:9}}]:[],xAxis,yAxis,dataZoom:[{id:'inside',type:'inside',xAxisIndex:axes,startValue:state.lo,endValue:state.hi,filterMode:real?'filter':'none',rangeMode:['value','value'],zoomOnMouseWheel:false,moveOnMouseWheel:false,moveOnMouseMove:true,disabled:!available},{id:'slider',type:'slider',xAxisIndex:axes,startValue:state.lo,endValue:state.hi,filterMode:real?'filter':'none',rangeMode:['value','value'],left:layout.left,right:layout.right,bottom:4,height:15,moveHandleSize:0,showDataShadow:false,showDetail:false,borderColor:c.rule,backgroundColor:c.surface,fillerColor:resolvedTheme()==='dark'?'#bb9ae720':'#7145a315',handleStyle:{color:c.surface,borderColor:c.action},brushSelect:false,disabled:!available}],tooltip:{show:true,trigger:'item',confine:true,backgroundColor:c.surface,borderColor:c.rule,textStyle:{color:c.ink,fontSize:10,fontFamily:'Golos Text'},formatter:p=>{if(p.data?.events){const events=p.data.events;return element('div',events.length>1?events.length+' saved executions · '+events[0].session_date+' · select to choose exact order':events[0].symbol+' '+events[0].side+' · '+events[0].session_date+' · $'+executionScaledToken(events[0].price_micro,6)+' / '+(executions.page.price_unit==='USD_PER_SYNTHETIC_REFERENCE_UNIT'?'synthetic reference unit':'modeled share')+' · date lane, not candle price');}if(state.measurement||!p.data?.fill)return '';const f=p.data.fill;return element('div',(Number(f.quantity)<0?'SELL ':'BUY ')+f.quantity+' shares · '+usd(f.price)+' · fee '+f.fee+' · '+fmtDate(f.fill_at)+' · receipt '+fmtDate(f.receipt_at));}},series},{notMerge:true});rendering=false;
@@ -654,7 +702,7 @@ function initUI() {
   $('#datasets-prev').onclick=()=>loadSelection(null,null,{push:true,catalogPage:Math.max(0,datasetOffset-10)});$('#datasets-next').onclick=()=>loadSelection(null,null,{push:true,catalogPage:datasetOffset+10});
   $('#runs-prev').onclick=()=>historyDisplayed()?showMainResearchPage(Math.max(0,mainResearch.offset-10)):loadSelection(dataset?.dataset_id,null,{push:true,runsPage:Math.max(0,runOffset-10)});$('#runs-next').onclick=()=>historyDisplayed()?showMainResearchPage(mainResearch.offset+10):loadSelection(dataset?.dataset_id,null,{push:true,runsPage:runOffset+10});
   const input=$('#asset-search');input.onfocus=()=>{assetQuery='';assetOptionIndex=0;renderAssets();input.select();};input.oninput=()=>{assetQuery=input.value.toLowerCase();assetOptionIndex=0;renderAssets();};input.onkeydown=e=>{const list=filteredAssets();if(['ArrowDown','ArrowUp'].includes(e.key)){e.preventDefault();assetOptionIndex=Math.max(0,Math.min(list.length-1,assetOptionIndex+(e.key==='ArrowDown'?1:-1)));renderAssets();}else if(e.key==='Enter'&&!$('#asset-options').hidden&&list[assetOptionIndex]){e.preventDefault();selectAsset(list[assetOptionIndex].dataset_id);}else if(e.key==='Escape')closeAssets();};input.onblur=()=>setTimeout(closeAssets,100);
-  chart=echarts.init($('#chart'),null,{renderer:'canvas'});chart.on('click',p=>{if(p.seriesId==='saved-executions'&&p.data?.events)chooseExecutionGroup(p.data.events);});chart.on('datazoom',()=>{
+  chart=echarts.init($('#chart'),null,{renderer:'canvas'});chart.on('click',p=>{if(p.seriesId==='saved-executions'&&p.data?.events){if(p.event?.event)handledTradeClicks.add(p.event.event);chooseExecutionGroup(p.data.events);}});chart.on('datazoom',()=>{
     if(rendering||!view.bars.length)return;const d=chart.getOption().dataZoom[0],n=view.bars.length,index=v=>typeof v==='string'?view.bars.findIndex(b=>b.time===v):Number(v);
     const lo=Math.max(0,Math.min(n-1,Number.isFinite(index(d.startValue))?index(d.startValue):Math.ceil(d.start/100*(n-1)))),hi=Math.max(lo,Math.min(n-1,Number.isFinite(index(d.endValue))?index(d.endValue):Math.floor(d.end/100*(n-1))));
     commitViewport(lo,hi);
@@ -662,6 +710,11 @@ function initUI() {
   let lastSize='';new ResizeObserver(()=>{const w=$('#chart').clientWidth,h=$('#chart').clientHeight;if(document.hidden||w<40||h<40)return;const size=w+'x'+h;if(size===lastSize)return;lastSize=size;chart.resize();renderChart();positionInfo();requestAnimationFrame(drawMeasurement);}).observe($('#chart'));
   initGestures();$('#strategy-list').addEventListener('scroll',positionInfo,{passive:true});
   document.addEventListener('pointerdown',e=>{if(state.infoId&&!e.target.closest('#record-detail,[data-info]'))closeInfo();},true);
+  document.addEventListener('pointerdown',event=>{if(event.isPrimary!==false){tradeClickGesture={x:event.clientX,y:event.clientY,moved:false};executionPointerHeld=!!event.target.closest('#chart');}},true);
+  for(const type of ['pointerup','pointercancel'])document.addEventListener(type,()=>{if(executionPointerHeld){executionPointerHeld=false;scheduleExecutionMarkerSizing();}},true);
+  document.addEventListener('pointermove',event=>{if(tradeClickGesture&&Math.hypot(event.clientX-tradeClickGesture.x,event.clientY-tradeClickGesture.y)>6)tradeClickGesture.moved=true;},true);
+  document.addEventListener('click',event=>{if(event.detail>0&&tradeClickGesture?.moved)draggedTradeClicks.add(event);tradeClickGesture=null;if(draggedTradeClicks.has(event)||isTradeSelectionTarget(event.target)||event.target.closest('#chart'))return;clearTradeSelection();},true);
+  document.addEventListener('click',event=>{if(event.target.closest('#chart')&&!handledTradeClicks.has(event)&&!draggedTradeClicks.has(event))clearTradeSelection();});
   document.addEventListener('keydown',e=>{if(e.key==='Escape'&&state.infoId){e.preventDefault();closeInfo(true);}});
   $('#rail-inner').addEventListener('keydown',e=>{if(innerWidth>=701||!$('#rail-inner').classList.contains('mobile-open'))return;if(e.key==='Escape'){$('#rail-inner').classList.remove('mobile-open');$('#tools-button').focus({preventScroll:true});}if(e.key==='Tab'){const items=[...$('#rail-inner').querySelectorAll('button,input,select')].filter(el=>!el.disabled&&el.getClientRects().length),i=items.indexOf(document.activeElement);if(e.shiftKey&&i===0){e.preventDefault();items.at(-1)?.focus();}else if(!e.shiftKey&&i===items.length-1){e.preventDefault();items[0]?.focus();}}});
   const fit=()=>requestAnimationFrame(()=>{if(document.hidden)return;chart.resize();renderChart();positionInfo();});window.addEventListener('pageshow',fit);window.addEventListener('focus',fit);window.addEventListener('resize',positionInfo);document.addEventListener('visibilitychange',()=>{if(document.hidden)saveWorkspace();else fit();});window.addEventListener('pagehide',saveWorkspace);window.addEventListener('popstate',()=>{const p=new URL(location.href).searchParams;state.dataMode=p.get('mode')==='retained-test'?'retained-test':'real';if(state.dataMode==='real')loadHistorySelection({datasetId:p.get('dataset'),revision:p.get('revision'),instrumentId:p.get('instrument')});else loadSelection(...urlSelection());});
