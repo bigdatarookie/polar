@@ -246,3 +246,15 @@ test('outside clear removes only trade state and same-result navigation cannot r
  assert.equal(vm.runInContext('JSON.stringify(state)===beforeClear',ctx),true);assert.equal(vm.runInContext('selectedExecutionId',ctx),null);assert.equal(vm.runInContext('executionChoices',ctx),null);assert.equal(vm.runInContext('executions.offset',ctx),100);assert.equal(vm.runInContext('executionQuery',ctx),'TEST');
  await ctx.selectMainResearch('same-result',true,true);assert.equal(vm.runInContext('selectedExecutionId',ctx),null);assert.equal(vm.runInContext('JSON.stringify(state)===beforeClear',ctx),true);
 });
+test('dense native marker hit regions expose exact neighboring IDs instead of renderer topmost selection',()=>{
+ const {context:ctx}=appContext(async()=>{throw Error('no request');});
+ const buy={order_id:'BUY/2021-02-26/AAPL',session_date:'2021-02-26',timestamp_ns:'1614373200000000200'},sell={order_id:'SELL/2021-03-01/AAPL',session_date:'2021-03-01',timestamp_ns:'1614632400000000200'};
+ const markers=[{x:177.1379,y:259,size:14,border:2.7,events:[buy]},{x:179.3423,y:259,size:8,border:1,events:[sell]}];
+ const candidates=ctx.executionHitCandidates(markers,177.1379,259);assert.deepEqual(Array.from(candidates,e=>e.order_id),[buy.order_id,sell.order_id]);assert.equal(markers[0].x,177.1379);assert.equal(markers[1].x,179.3423);
+ assert.equal(ctx.executionHitCandidates(markers,300,259).length,0);assert.equal(ctx.executionHitCandidates(markers,177,300).length,0);
+});
+test('isolated hits and true same-date overlap preserve all nanosecond IDs without duplicates',()=>{
+ const {context:ctx}=appContext(async()=>{throw Error('no request');}),a={order_id:'same-a',session_date:'2025-01-02',timestamp_ns:'1735851600000000102'},b={order_id:'same-b',session_date:'2025-01-02',timestamp_ns:'1735851600000000103'};
+ assert.deepEqual(Array.from(ctx.executionHitCandidates([{x:10,y:20,size:12,events:[a,b]},{x:10,y:20,size:12,events:[a]}],10,20),e=>e.order_id),['same-a','same-b']);
+ assert.deepEqual(Array.from(ctx.executionHitCandidates([{x:10,y:20,size:12,events:[a]},{x:80,y:20,size:12,events:[b]}],80,20),e=>e.order_id),['same-b']);
+});
