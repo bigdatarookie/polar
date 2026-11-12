@@ -28,13 +28,14 @@ def profile_value(p):
               'question_label', 'question_summary', 'clock_description', 'partition_description',
               'additional_limitations', 'subperiods'}
     version7 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/7'
-    version5 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/5'
+    version8 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/8'
+    version5 = type(p) is dict and p.get('schema') in ('polar.scheduled-reference-profile/5','polar.scheduled-reference-profile/8')
     version6 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/6'
     version4 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/4'
     version2 = type(p) is dict and p.get('schema') in ('polar.scheduled-reference-profile/2','polar.scheduled-reference-profile/4')
     version3 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/3'
-    require(type(p) is dict and set(p) == fields | ({'cost_scenarios', 'uncertainty'} if version2 or version6 or version7 else set()) and
-            p['schema'] in (PROFILE_SCHEMA, 'polar.scheduled-reference-profile/2', 'polar.scheduled-reference-profile/3', 'polar.scheduled-reference-profile/4', 'polar.scheduled-reference-profile/5', 'polar.scheduled-reference-profile/6', 'polar.scheduled-reference-profile/7'), 'SCHEDULED_PROFILE_SCHEMA')
+    require(type(p) is dict and set(p) == fields | ({'cost_scenarios', 'uncertainty'} if version2 or version6 or version7 else {'cost_scenarios'} if version8 else set()) and
+            p['schema'] in (PROFILE_SCHEMA, 'polar.scheduled-reference-profile/2', 'polar.scheduled-reference-profile/3', 'polar.scheduled-reference-profile/4', 'polar.scheduled-reference-profile/5', 'polar.scheduled-reference-profile/6', 'polar.scheduled-reference-profile/7', 'polar.scheduled-reference-profile/8'), 'SCHEDULED_PROFILE_SCHEMA')
     for key in ('protocol_sha256', 'input_sha256', 'calendar_sha256', 'timezone_sha256'):
         require(type(p[key]) is str and re.fullmatch('[a-f0-9]{64}', p[key]), 'SCHEDULED_PROFILE_HASH')
     require(type(p['protocol_id']) is str and re.fullmatch('[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}', p['protocol_id']), 'SCHEDULED_PROTOCOL_ID')
@@ -46,6 +47,9 @@ def profile_value(p):
     symbols = p['symbols']
     require(type(symbols) is list and 1 <= len(symbols) <= 64 and symbols == sorted(set(symbols)), 'SCHEDULED_SYMBOLS')
     policy = p['policy']
+    if version8:
+        require(p['cost_scenarios']==[{'id':'BASE','cost_profile':{'flat_cents':100,'bps':10}},
+                {'id':'COST_STRESS','cost_profile':{'flat_cents':200,'bps':20}}], 'SCHEDULED_FIXED_COST_SCENARIOS')
     if version7:
         from .scheduled_relative import validate_profile
         validate_profile(p)
@@ -138,7 +142,7 @@ def profile_value(p):
     # Reuse the current common wire's finite bounds; never spend an original on
     # a profile whose public projection cannot fit it.
     require((32 if version7 else 29 + 4*len(p['subperiods']) + (3 if version2 or version3 or version6 else 0)) <= 40 and
-            (24 + len(p['additional_limitations']) if version7 else 12 + len(p['additional_limitations']) + len(legs)*(1+len(p['subperiods'])) + (4 if version4 or version6 else 3 if version2 else 1 if version3 else 0)) <= 30,
+            (24 + len(p['additional_limitations']) if version7 else 12 + len(p['additional_limitations']) + len(legs)*(1+len(p['subperiods'])) + (4 if version4 or version6 else 3 if version2 else 1 if version3 or version8 else 0)) <= 30,
             'SCHEDULED_PUBLIC_WIRE_BOUND')
     return p
 
@@ -180,7 +184,7 @@ def plan_phase(market, profile, grid, tz):
     if profile['schema'] == 'polar.scheduled-reference-profile/6':
         from .scheduled_temporal_plan import plan_phase as temporal_plan
         return temporal_plan(market,profile,grid,tz)
-    if profile['schema'] == 'polar.scheduled-reference-profile/5':
+    if profile['schema'] in ('polar.scheduled-reference-profile/5','polar.scheduled-reference-profile/8'):
         from .scheduled_fixed import plan_phase as fixed_plan
         return fixed_plan(market,profile,grid)
     if profile['schema'] == 'polar.scheduled-reference-profile/3':
