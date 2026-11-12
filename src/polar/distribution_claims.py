@@ -151,6 +151,8 @@ class State:
             require(type(c) is Claim, 'CLAIM_STATE_TYPE'); c.__post_init__()
             require(c.action.instrument in dict(self.holdings) and c.action.ex_date <= self.session_date and
                     (c.paid_at is None or c.paid_at <= self.session_date), 'CLAIM_STATE_CLOCK_IDENTITY')
+            require(c.paid_at != self.session_date or self.phase >= Phase.PRE_DECISION_CLOSE,
+                    'CLAIM_STATE_PAYMENT_PHASE')
         require(len({c.action.event_id for c in self.claims}) == len(self.claims), 'CLAIM_DUPLICATE_EVENT')
         require(type(self.splits) is tuple and len(self.splits) <= 10000, 'CLAIM_SPLIT_HISTORY')
         for s in self.splits:

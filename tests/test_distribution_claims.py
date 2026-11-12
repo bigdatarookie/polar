@@ -111,3 +111,17 @@ def test_json_saved_consistency_and_transition_tamper_controls():
     corrupt=json.loads(p.after_json);corrupt['claims'][0]['paid_at']=DATES[1]
     with pytest.raises(ClaimError,match='PAYMENT_EVIDENCE'):restore(corrupt)
     with pytest.raises(ClaimError):verify(replace(p,inputs_json='{}'))
+
+
+def test_paid_claim_cannot_precede_same_session_payment_phase():
+    due=recognize(state(),action(),DATES[0])
+    paid=pay(due,'INVENTED-D1',DATES[2])
+    with pytest.raises(ClaimError,match='STATE_PAYMENT_PHASE'):
+        replace(paid,phase=Phase.PRE_SESSION)
+    saved=json.loads(json.dumps(record(paid)))
+    saved['phase']='PRE_SESSION'
+    with pytest.raises(ClaimError,match='STATE_PAYMENT_PHASE'): restore(saved)
+    assert restore(json.loads(json.dumps(record(paid)))) == paid
+    # A prior-session payment may legitimately be present before today's session.
+    later=replace(paid,session_date=DATES[3],phase=Phase.PRE_SESSION)
+    assert restore(json.loads(json.dumps(record(later)))) == later
