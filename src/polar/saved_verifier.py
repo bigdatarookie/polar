@@ -85,14 +85,14 @@ class Checks:
     def __init__(self):
         self.groups = {}
 
-    def check(self, group, condition, address):
+    def check(self, group, condition, address, reason="SAVED_VALUE_MISMATCH"):
         item = self.groups.setdefault(group, {"status": "PASS", "checked": 0, "failures": 0, "details": []})
         item["checked"] += 1
         if not condition:
             item["status"] = "FAIL"
             item["failures"] += 1
             if len(item["details"]) < 20:
-                item["details"].append({"address": address, "reason": "SAVED_VALUE_MISMATCH"})
+                item["details"].append({"address": address, "reason": reason})
 
     def unknown(self, group, reason):
         item = self.groups.setdefault(group, {"status": "UNKNOWN", "checked": 0, "failures": 0, "details": []})
@@ -129,6 +129,38 @@ def midnight_ns(day):
     return utc_ns(dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
 
 
+def calendar_expectations(contract, checks, address):
+    """Read the two existing calendar representations without changing the subject."""
+    checks.require("clocks", type(contract) is dict and type(contract.get("nav_dates")) is list and
+                   len(contract["nav_dates"]) >= 3, address + ".nav_dates")
+    days = contract["nav_dates"]
+    checks.require("clocks", all(type(d) is str for d in days) and days == sorted(set(days)), address + ".nav_dates.order")
+    monthly = ("nav_points", "return_count", "decision_count")
+    if any(k in contract for k in monthly):
+        for key in monthly:
+            checks.require("clocks", key in contract and integer(contract[key]), address + "." + key)
+        return {"dates": days, "nav_points": contract["nav_points"], "return_count": contract["return_count"],
+                "decision_count": contract["decision_count"] + 1, "decision_pairs": None}
+    if "daily_gate_decisions" in contract:
+        rows = contract["daily_gate_decisions"]
+        checks.require("clocks", type(rows) is list and len(rows) == len(days) - 2, address + ".daily_gate_decisions")
+        for key in ("initial", "terminal", "terminal_decision_reference", "terminal_execution"):
+            checks.require("clocks", key in contract, address + "." + key)
+        checks.require("clocks", contract["initial"] == days[0] and contract["terminal"] == days[-1] and
+                       contract["terminal_decision_reference"] == days[-2] and
+                       contract["terminal_execution"] == days[-1], address + ".terminal_bounds")
+        pairs = []
+        for i, row in enumerate(rows):
+            checks.require("clocks", type(row) is dict and row.get("formation") == days[i] and
+                           row.get("execution_day") == days[i + 1], address + f".daily_gate_decisions[{i}]")
+            pairs.append((row["formation"], row["execution_day"]))
+        pairs.append((contract["terminal_decision_reference"], contract["terminal_execution"]))
+        return {"dates": days, "nav_points": len(days), "return_count": len(days) - 1,
+                "decision_count": len(rows) + 1, "decision_pairs": pairs}
+    checks.unknown("calendar_shape", "UNSUPPORTED_CALENDAR_DECISION_CENSUS")
+    return None
+
+
 def verify_phase(name, saved, public, profile, calendar, checks, initial_cents):
     """Fold recorded fills and validate saved states; do not rerun the policy."""
     at = "phases." + name
@@ -146,15 +178,23 @@ def verify_phase(name, saved, public, profile, calendar, checks, initial_cents):
     checks.require("clocks", len(grids) >= 3 and len({r["date"] for r in grids}) == len(grids), at + ".grid")
     dates = [r["date"] for r in grids]
     checks.require("clocks", dates == sorted(dates), at + ".date_order")
-    contract = calendar["phases"][saved.get("reference_phase", name)]
-    checks.check("clocks", dates == contract["nav_dates"] and len(grids) == contract["nav_points"] and
-                 len(grids) - 1 == contract["return_count"], at + ".calendar_grid")
+    calendar_phase = saved.get("reference_phase", name)
+    checks.require("clocks", type(calendar.get("phases")) is dict and calendar_phase in calendar["phases"],
+                   "calendar.phases." + str(calendar_phase))
+    expected = calendar_expectations(calendar["phases"][calendar_phase], checks, "calendar.phases." + str(calendar_phase))
+    if expected is None:
+        return
+    checks.check("clocks", dates == expected["dates"] and len(grids) == expected["nav_points"] and
+                 len(grids) - 1 == expected["return_count"], at + ".calendar_grid")
     for i, row in enumerate(grids):
         checks.check("clocks", row["nominal_ns"] == close(row["date"]) and
                      row["sample_ns"] == close(row["date"]) + 1000, f"{at}.grid[{i}]")
     decisions = {r["day"]: r for r in plan["decisions"]}
     checks.require("clocks", len(decisions) == len(plan["decisions"]) and
-                   len(decisions) == contract["decision_count"] + 1, at + ".decisions")
+                   len(decisions) == expected["decision_count"], at + ".decisions")
+    if expected["decision_pairs"] is not None:
+        checks.check("clocks", [(r["formation"], r["day"]) for r in plan["decisions"]] == expected["decision_pairs"],
+                     at + ".daily_calendar_plan_correspondence")
     schedule_days = list(schedule)
     for day, decision in decisions.items():
         formation = decision["formation"]
@@ -394,7 +434,12 @@ def verify(packet, packet_sha256=None):
                                    [{"role": "semantic_manifest", "id": packet["semantic_id"], "sha256": digest(manifest_raw)}], name + ".binding")
                     verify_phase(name, phases[name], public, profile, calendar, checks, initial)
                 except (ValueError, KeyError, TypeError, IndexError, ArithmeticError) as exc:
-                    checks.check("shape", False, name + "." + type(exc).__name__)
+                    if isinstance(exc, KeyError):
+                        key = str(exc.args[0])
+                        key = key if re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", key) else "unknown_field"
+                        checks.check("shape", False, at_phase_address(name, key), "MISSING_SAVED_FIELD")
+                    else:
+                        checks.check("shape", False, "phases." + name + "." + type(exc).__name__)
     except (ValueError, KeyError, TypeError, IndexError, ArithmeticError, OSError) as exc:
         checks.check("input_integrity", False, type(exc).__name__)
     statuses = [v["status"] for v in checks.groups.values()]
@@ -406,12 +451,16 @@ def verify(packet, packet_sha256=None):
         ("financial_adoption", "SEPARATE_VALIDATOR_INTERPRETATION_REQUIRED")]]
     source_hashes = {p.name: digest(p.read_bytes()) for p in [Path(__file__), Path(__file__).with_name("saved_verifier_math.py")]}
     return {"schema": "polar.saved-verifier-report/1", "profile": packet.get("profile"), "subject": subject,
-            "packet_sha256": packet_sha256 or digest(raw), "checker": {"version": "1", "source_sha256": source_hashes},
+            "packet_sha256": packet_sha256 or digest(raw), "checker": {"version": "1.1", "source_sha256": source_hashes},
             "covered_verdict": verdict, "overall_verdict": "FAIL" if verdict == "FAIL" else "UNKNOWN",
             "checks": checks.groups, "unverified_properties": unverified,
             "summary": dict(Counter(v["status"] for v in checks.groups.values())),
             "scientific_calls": {"producer": 0, "evaluator": 0, "fit": 0, "native": 0, "reproduction": 0},
             "financial_verdict": "NOT_ASSESSED"}
+
+
+def at_phase_address(phase, missing_field):
+    return "phases." + phase + ".missing_field." + missing_field
 
 
 def main(argv=None):

@@ -14,6 +14,16 @@ externally pinned packet declares initial capital; the toy uses1000cents and
 the retained protocol uses its own bound capital. No universal scientific
 capital choice is made by the checker.
 
+The adapter accepts the two existing saved calendar shapes: monthly contracts
+declare `nav_points`, `return_count` and `decision_count`; daily contracts instead
+declare `nav_dates`, `daily_gate_decisions` (formation/execution pairs), and
+explicit initial/terminal bounds and terminal decision/execution dates. Daily
+counts derive from that bound census plus its terminal event, with every pair
+checked against the grid and saved plan. The checker never adds monthly count
+fields to a daily scientific artifact. Unsupported census shapes remain UNKNOWN;
+invalid declared pairs/bounds fail with their calendar-field address. Missing
+saved fields retain the field name in the compact error address.
+
 ## Command and packet
 
 Use the accepted Python runtime and qualified checker source. Keep licensed
