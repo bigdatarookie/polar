@@ -142,4 +142,19 @@ function sharpeText(metric) {
   return fixedTwoDecimal(metric.value)??'Unavailable';
 }
 
-if (typeof module !== 'undefined') module.exports = {buildView, indexValue, createLatestLoader, restoredControls, decimalDelta, fixedTwoDecimal, sharpeText, indicatorDefaults};
+// Descriptive selected-interval drawdown only; never changes report metrics/verdicts.
+function intervalMaxDrawdown(points,{complete=true}={}) {
+  const na=reason=>({status:'UNAVAILABLE',value:null,reason,count:points?.length||0});
+  if(!complete)return na('INCOMPLETE_INTERVAL');if(!Array.isArray(points)||points.length<2)return na('INSUFFICIENT_POINTS');
+  const parse=value=>{if(typeof value!=='string'||!/^[-+]?[0-9]+(?:\.[0-9]+)?$/.test(value))return null;const [whole,fraction='']=value.split('.');return {integer:BigInt(whole+fraction),scale:fraction.length};};
+  let peak=null,bestNumerator=0n,bestDenominator=1n;
+  for(const point of points){if(!point||!['OK','OBSERVED'].includes(point.status))return na('GAP_OR_UNAVAILABLE_SAMPLE');const current=parse(point.value);if(!current)return na('INVALID_VALUE');
+    if(!peak||current.integer*10n**BigInt(peak.scale)>peak.integer*10n**BigInt(current.scale))peak=current;
+    if(peak.integer<=0n)return na('INVALID_PEAK_DENOMINATOR');
+    const denominator=peak.integer*10n**BigInt(current.scale),numerator=denominator-current.integer*10n**BigInt(peak.scale);
+    if(numerator*bestDenominator>bestNumerator*denominator){bestNumerator=numerator;bestDenominator=denominator;}
+  }
+  const scaled=bestNumerator*10000n;let rounded=scaled/bestDenominator;const remainder=scaled%bestDenominator;if(remainder*2n>bestDenominator||remainder*2n===bestDenominator&&rounded%2n)rounded++;
+  const digits=rounded.toString().padStart(3,'0');return {status:'OK',value:digits.slice(0,-2)+'.'+digits.slice(-2),reason:null,count:points.length};
+}
+if (typeof module !== 'undefined') module.exports = {intervalMaxDrawdown,buildView, indexValue, createLatestLoader, restoredControls, decimalDelta, fixedTwoDecimal, sharpeText, indicatorDefaults};

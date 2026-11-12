@@ -25,8 +25,19 @@ function historySeriesValue(point,key) {return point?.statuses?.[key]?.status===
 // Cache identity covers immutable input and all backend calculation parameters.
 function historySeriesCacheKey(context,controls){return historyStable({pin:historyPin(context.revision),instrument:context.instrument.instrument_id,interval:'1D',basis:'RAW_CLOSE',controls:historyControls(controls),benchmark:'hist-us-0004',calculation:'polar.history-calculation/1',numeric:'decimal50-v1',definition:'467df7e251db727ecc35ae413b5416d2a61dea36a7f717850a06b1b03807f424'});}
 function historyWindowContains(outer,inner){return !!outer&&!!inner&&outer.start<=inner.start&&outer.end_exclusive>=inner.end_exclusive;}
+// Bounds describe transport only; no exchange-calendar qualification is inferred.
+function historyInitialWindow(instrument,rangeId='3M',explicit=null){
+  const full={start:instrument.first_date,end_exclusive:historyDayAfter(instrument.last_date)};
+  let visible=explicit;if(!visible){let d=new Date(instrument.last_date+'T00:00:00Z');if(rangeId==='All')visible=full;else {if(rangeId==='1W')d.setUTCDate(d.getUTCDate()-7);else d.setUTCMonth(d.getUTCMonth()-({'1M':1,'3M':3,'6M':6,'12M':12}[rangeId]||3));visible={start:d.toISOString().slice(0,10),end_exclusive:full.end_exclusive};}}
+  visible={start:visible.start<full.start?full.start:visible.start,end_exclusive:visible.end_exclusive>full.end_exclusive?full.end_exclusive:visible.end_exclusive};
+  historyRequire(historyDate(visible.start)&&historyDate(visible.end_exclusive)&&visible.start<visible.end_exclusive,'HISTORY_WINDOW_INVALID');
+  const span=(Date.parse(visible.end_exclusive)-Date.parse(visible.start))/86400000,margin=Math.max(180,Math.ceil(span));
+  const shift=(date,days)=>new Date(Date.parse(date+'T00:00:00Z')+days*86400000).toISOString().slice(0,10);
+  return {visible,buffer:{start:shift(visible.start,-margin)<full.start?full.start:shift(visible.start,-margin),end_exclusive:shift(visible.end_exclusive,margin)>full.end_exclusive?full.end_exclusive:shift(visible.end_exclusive,margin)}};
+}
 function historyBufferedWindow(context,visible){
   const rows=context.rows,first=context.instrument.first_date,last=context.instrument.last_date;
+  if(context.loadedWindow)return {...context.loadedWindow};
   if(rows.length<=5000)return {start:first,end_exclusive:historyDayAfter(last)};
   const lo=Math.max(0,rows.findIndex(r=>r.session_date>=visible.start));let hi=rows.findIndex(r=>r.session_date>=visible.end_exclusive);if(hi<0)hi=rows.length;
   const margin=Math.max(128,hi-lo),start=Math.max(0,lo-margin),end=Math.min(rows.length-1,hi+margin);
@@ -40,9 +51,26 @@ function historyBufferNeedsPrefetch(context,buffer,visible){
   const lo=at(visible.start),hi=at(visible.end_exclusive),left=at(buffer.start),right=at(buffer.end_exclusive),reserve=Math.max(32,hi-lo);
   return left>0&&lo-left<reserve||right<rows.length&&right-hi<reserve;
 }
+// Independent full-resolution interval read; never reseeds backend indicators.
+async function readHistoryRange(fetcher,context,window,signal){
+  historyRequire(historyDate(window.start)&&historyDate(window.end_exclusive)&&window.start<window.end_exclusive,'HISTORY_WINDOW_INVALID');
+  const pin=historyPin(context.revision),instrument=context.instrument.instrument_id,prefix='/v1/history/datasets/'+encodeURIComponent(context.revision.dataset_id)+'/revisions/'+encodeURIComponent(context.revision.dataset_revision),query=new URLSearchParams({instrument_id:instrument,start:window.start,end:window.end_exclusive,limit:'1000',warmup_sessions:'0'});
+  let cursor=null,request=null,metadata=null;const rows=[],cursors=new Set();
+  do{const response=await fetcher(prefix+'/bars?'+query+(cursor?'&cursor='+encodeURIComponent(cursor):''),{signal,cache:'no-store',credentials:'same-origin'}),text=await response.text();historyRequire(new TextEncoder().encode(text).byteLength<=1048576,'HISTORY_RESPONSE_TOO_LARGE');let page;try{page=JSON.parse(text);}catch{throw Error('HISTORY_RESPONSE_INVALID');}
+    if(!response.ok)throw Error(page?.code||page?.detail?.code||'HISTORY_HTTP_'+response.status);
+    historyRequire(page.schema_version==='polar.history-bars/1'&&historyPin(page)===pin&&page.instrument_id===instrument,'HISTORY_BARS_IDENTITY_MISMATCH');
+    historyRequire(page.window?.start===window.start&&page.window?.end_exclusive===window.end_exclusive&&typeof page.request_identity==='string'&&(!request||request===page.request_identity),'HISTORY_REQUEST_MISMATCH');request=page.request_identity;
+    historyRequire(Array.isArray(page.rows)&&page.rows.length===page.row_count&&page.row_count<=1000,'HISTORY_PAGE_INVALID');
+    if(metadata)historyRequire(historyStable([page.coverage,page.fitness,page.data_status])===historyStable([metadata.coverage,metadata.fitness,metadata.data_status]),'HISTORY_PAGE_STATUS_MISMATCH');
+    for(const row of page.rows){historyRequire(historyDate(row.session_date)&&row.row_role==='VISIBLE'&&row.session_date>=window.start&&row.session_date<window.end_exclusive&&(!rows.length||rows.at(-1).session_date<row.session_date),'HISTORY_ROW_ORDER_MISMATCH');historyRequire(['open','high','low','close','adjusted_close','volume'].every(k=>row[k]===null||typeof row[k]==='string'),'HISTORY_NUMERIC_TOKEN_INVALID');rows.push(row);}
+    historyRequire(rows.length<=5000,'HISTORY_ASSET_PROFILE_EXCEEDED');metadata=page;cursor=page.next_cursor;historyRequire(cursor===null||typeof cursor==='string'&&!cursors.has(cursor)&&cursor.length<=2048,'HISTORY_CURSOR_INVALID');historyRequire(page.window_complete===(cursor===null),'HISTORY_PAGE_INCOMPLETE');if(cursor)cursors.add(cursor);
+  }while(cursor);
+  historyRequire(metadata.window_complete&&rows.length===metadata.coverage.observed_in_window,'HISTORY_WINDOW_INCOMPLETE');return {rows,bars:metadata,loadedWindow:{...window}};
+}
 function createHistoryClient(fetcher) {
-  let controller=null;const seriesCache=new Map(),seriesPending=new Map();
+  let controller=null;const seriesCache=new Map(),seriesPending=new Map(),rangeCache=new Map();
   return {
+    range(context,window,{signal}={}){const key=historyPin(context.revision)+'|'+context.instrument.instrument_id;for(const [cacheKey,entry]of rangeCache)if(entry.key===key&&historyWindowContains(entry.result.loadedWindow,window))return Promise.resolve(entry.result);return readHistoryRange(fetcher,context,window,signal).then(result=>{rangeCache.set(key+'|'+window.start+'|'+window.end_exclusive,{key,result});while(rangeCache.size>16)rangeCache.delete(rangeCache.keys().next().value);return result;});},
     cancel(){controller?.abort();for(const p of seriesPending.values())p.controller.abort();seriesPending.clear();},
     async load(selection={}) {
       controller?.abort();for(const p of seriesPending.values())p.controller.abort();seriesPending.clear();const own=new AbortController();controller=own;
@@ -82,29 +110,10 @@ function createHistoryClient(fetcher) {
       pinnedSelection={...pinnedSelection,instrumentId:instrument.instrument_id};
       if(!instrument.row_count)return {catalog,revision:summary,assets,instrument,rows:[],bars:null};
       historyRequire(historyDate(instrument.first_date)&&historyDate(instrument.last_date),'HISTORY_BOUNDS_INVALID');
-      // Fetch the bounded admitted asset once; range selection uses these exact
-      // observations. No market calendar padding or recursive-state reseeding.
-      const start=instrument.first_date,end=historyDayAfter(instrument.last_date);
-      const query=new URLSearchParams({instrument_id:instrument.instrument_id,start,end,limit:'1000',warmup_sessions:'0'});
-      let rows=[],metadata=null;cursor=null;request=null;const cursors=new Set();
-      do {
-        const page=await read(prefix+'/bars?'+query+(cursor?'&cursor='+encodeURIComponent(cursor):''));
-        historyRequire(page.schema_version==='polar.history-bars/1'&&historyPin(page)===pin&&page.instrument_id===instrument.instrument_id,'HISTORY_BARS_IDENTITY_MISMATCH');
-        historyRequire(page.window?.start===start&&page.window?.end_exclusive===end&&typeof page.request_identity==='string'&&(!request||request===page.request_identity),'HISTORY_REQUEST_MISMATCH');request=page.request_identity;
-        historyRequire(Array.isArray(page.rows)&&page.rows.length===page.row_count&&page.row_count<=1000,'HISTORY_PAGE_INVALID');
-        if(metadata)historyRequire(historyStable([page.coverage,page.fitness,page.data_status,page.warmup?.status])===historyStable([metadata.coverage,metadata.fitness,metadata.data_status,metadata.warmup?.status]),'HISTORY_PAGE_STATUS_MISMATCH');
-        for(const row of page.rows){
-          historyRequire(historyDate(row.session_date)&&row.row_role==='VISIBLE'&&row.session_date>=start&&row.session_date<end&&(!rows.length||rows.at(-1).session_date<row.session_date),'HISTORY_ROW_ORDER_MISMATCH');
-          historyRequire(['open','high','low','close','adjusted_close','volume'].every(k=>row[k]===null||typeof row[k]==='string'),'HISTORY_NUMERIC_TOKEN_INVALID');rows.push(row);
-        }
-        historyRequire(rows.length<=5000,'HISTORY_ASSET_PROFILE_EXCEEDED');
-        metadata=page;cursor=page.next_cursor;
-        historyRequire(cursor===null||(typeof cursor==='string'&&cursor.length<=2048&&!cursors.has(cursor)),'HISTORY_CURSOR_INVALID');
-        historyRequire(page.window_complete===(cursor===null),'HISTORY_PAGE_INCOMPLETE');
-        if(cursor)cursors.add(cursor);
-      }while(cursor);
-      historyRequire(metadata.window_complete===true&&rows.length===metadata.coverage.observed_in_window,'HISTORY_WINDOW_INCOMPLETE');
-      return {catalog,revision:summary,assets,instrument,rows,bars:metadata};
+      const initial=historyInitialWindow(instrument,selection.rangeId||'All',selection.window);
+      const result=await readHistoryRange(fetcher,{revision:summary,instrument},initial.buffer,own.signal);
+      rangeCache.set(pin+'|'+instrument.instrument_id+'|'+initial.buffer.start+'|'+initial.buffer.end_exclusive,{key:pin+'|'+instrument.instrument_id,result});
+      return {catalog,revision:summary,assets,instrument,...result,requestedWindow:initial.visible};
     },
     series(context,controls,window) {
       historyRequire(HISTORY_SERIES_RUNTIME.enabled,'C_RUNTIME_NOT_QUALIFIED');
@@ -171,4 +180,4 @@ function buildHistoryView(context) {
   return {history:true,bars,cPoints:dates.map(date=>points.get(date)||null),equity:bars.map(b=>({time:b.time,value:null,at:null,status:'NO_STRATEGY_RESULT'})),markers:[],sma:[],baseClose:null,initialCash:null};
 }
 
-if(typeof module!=='undefined')module.exports={createHistoryClient,historySeriesCacheKey,historyWindowContains,historyBufferedWindow,historyBufferNeedsPrefetch,buildHistoryView};
+if(typeof module!=='undefined')module.exports={historyInitialWindow,readHistoryRange,createHistoryClient,historySeriesCacheKey,historyWindowContains,historyBufferedWindow,historyBufferNeedsPrefetch,buildHistoryView};

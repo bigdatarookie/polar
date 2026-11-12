@@ -36,7 +36,7 @@ function validateResearchCatalog(body,offset){
 }
 function createResearchClient(fetcher){
   let serial=0,controller;
-  return {cancel(){serial++;controller?.abort();},async load(offset=0,selection=null,{includeDetails=false,selectionItem=null}={}){
+  return {async detail(item){const response=await fetcher('/v1/research/results/'+encodeURIComponent(item.result_id),{cache:'no-store',credentials:'same-origin'});if(!response.ok)throw Error('RESEARCH_HTTP_'+response.status);return validateResearchDetail(await response.json(),item);},cancel(){serial++;controller?.abort();},async load(offset=0,selection=null,{includeDetails=false,selectionItem=null,catalogOnly=false}={}){
     researchRequire(Number.isInteger(offset)&&offset>=0&&offset<=4096,'RESEARCH_PAGE_INVALID');
     const ticket=++serial;controller?.abort();const own=new AbortController();controller=own;
     async function read(url){
@@ -49,8 +49,9 @@ function createResearchClient(fetcher){
       const catalog=validateResearchCatalog(await read('/v1/research/results?limit=10&offset='+offset),offset);if(ticket!==serial)return null;
       const selected=selection?(catalog.items.find(i=>i.result_id===selection)||(selectionItem?.result_id===selection?selectionItem:null)):catalog.items[0];
       researchRequire(!selection||selected,'RESEARCH_SELECTION_NOT_ON_PAGE');
-      const details=includeDetails?await Promise.all(catalog.items.map(async item=>validateResearchDetail(await read('/v1/research/results/'+encodeURIComponent(item.result_id)),item))):null;
-      const detail=selected?(details?details.find(d=>d.result_id===selected.result_id):validateResearchDetail(await read('/v1/research/results/'+encodeURIComponent(selected.result_id)),selected)):null;
+      const details=includeDetails?[]:null;
+      if(includeDetails)for(const item of catalog.items){if(ticket!==serial)return null;details.push(validateResearchDetail(await read('/v1/research/results/'+encodeURIComponent(item.result_id)),item));}
+      const detail=!catalogOnly&&selected?(details?details.find(d=>d.result_id===selected.result_id):validateResearchDetail(await read('/v1/research/results/'+encodeURIComponent(selected.result_id)),selected)):null;
       if(ticket!==serial)return null;return {catalog,detail,...(includeDetails?{details}:{} )};
     }catch(error){if(ticket!==serial)return null;throw error;}
   }};
@@ -151,6 +152,14 @@ async function researchLoadAll(client,isCurrent=()=>true){
   }while(offset!==null);
   researchRequire(details.length===first.catalog.total,'RESEARCH_CATALOG_CHANGED');return {catalog:first.catalog,details,offsets,items};
 }
+// Metadata discovery precedes full immutable records. Metrics remain pending until the complete set is supplied.
+async function researchLoadProgressive(client,isCurrent,onCatalog,onProgress){
+ let first=null,offset=0;const items=[],offsets={},seen=new Set();
+ do{const page=await client.load(offset,null,{catalogOnly:true});if(!page||!isCurrent())return null;if(!first)first=page;researchRequire(page.catalog.total===first.catalog.total,'RESEARCH_CATALOG_CHANGED');for(const item of page.catalog.items){researchRequire(!seen.has(item.result_id),'RESEARCH_CATALOG_CHANGED');seen.add(item.result_id);items.push(item);offsets[item.result_id]=offset;}offset=page.catalog.next_offset;}while(offset!==null);
+ researchRequire(items.length===first.catalog.total,'RESEARCH_CATALOG_CHANGED');const snapshot={catalog:first.catalog,items,offsets,details:[]};onCatalog(snapshot);
+ for(const item of items){const detail=await client.detail(item);if(!isCurrent())return null;snapshot.details.push(detail);onProgress(snapshot);}
+ return snapshot;
+}
 // Saved execution reader. Exact quantities/nanoseconds stay strings; no inferred fills.
 function executionScaledToken(value,places){if(typeof value!=='string'||!/^\d+$/.test(value))return null;const digits=value.padStart(places+1,'0');return digits.slice(0,-places)+'.'+digits.slice(-places);}
 function validateResearchExecutions(body,saved,offset=0){
@@ -177,6 +186,11 @@ async function researchLoadAllExecutions(client,saved,isCurrent=()=>true){
     offset=page.next_offset;
   }while(offset!==null);
   researchRequire(allItems.length===first.total,'EXECUTION_TAPE_CHANGED');return {page:first,allItems};
+}
+// Date-only groups. Lane Y is a neutral categorical location, never a fill-price scale.
+function executionDateGroups(events){
+  const groups=new Map();for(const event of events){if(!groups.has(event.session_date))groups.set(event.session_date,[]);groups.get(event.session_date).push(event);}
+  return [...groups].sort(([a],[b])=>a.localeCompare(b)).map(([date,items])=>({date,events:items.slice().sort((a,b)=>BigInt(a.timestamp_ns)<BigInt(b.timestamp_ns)?-1:BigInt(a.timestamp_ns)>BigInt(b.timestamp_ns)?1:a.order_id.localeCompare(b.order_id))}));
 }
 function createResearchExecutionClient(fetcher){let ticket=0,controller;return {cancel(){ticket++;controller?.abort();},async load(saved,offset=0){const current=++ticket;controller?.abort();controller=new AbortController();const series=saved.record.series.find(s=>s.role==='STRATEGY');const response=await fetcher('/v1/research/results/'+encodeURIComponent(saved.result_id)+'/executions?series_id='+encodeURIComponent(series.id)+'&limit=100&offset='+offset,{signal:controller.signal});if(current!==ticket)return null;if(!response.ok)throw Error('EXECUTIONS_HTTP_'+response.status);const body=await response.json();if(current!==ticket)return null;return validateResearchExecutions(body,saved,offset);}};}
 // Supplied full-period strategy metrics: display conversion only, never recompute finance.
@@ -212,16 +226,16 @@ function researchNormalize(value,base){
   if(n===null||!(base>0))return null;const out=n/base*100;
   return Number.isFinite(out)&&(out!==0||n===0)?out:null;
 }
-function researchComparison(detail,bars){
+function researchComparison(detail,bars,anchor=null){
   const r=detail.record,strategy=r.series.find(s=>s.role==='STRATEGY'),benchmark=r.series.find(s=>s.id===r.primary_benchmark_id),byDate=new Map();
   for(let i=0;i<r.grid.length;i++){const date=r.grid[i].slice(0,10);if(byDate.has(date))return {usable:false,reason:'Multiple supplied samples share a calendar date. No intraday aggregation or clock equivalence is inferred.'};byDate.set(date,i);}
   const indices=bars.map(b=>byDate.get(b.time.slice(0,10))),strategyRaw=indices.map(i=>i===undefined||strategy.values[i].status!=='OK'?null:strategy.values[i].value),benchmarkRaw=indices.map(i=>i===undefined||benchmark.values[i].status!=='OK'?null:benchmark.values[i].value);
   let first=-1,last=-1;
   for(let i=0;i<bars.length;i++)if(indices[i]!==undefined){last=i;if(first<0&&bars[i].price_status==='OBSERVED'&&Number(bars[i].close)>0&&Number.isFinite(Number(bars[i].close))&&researchPlotValue(strategy.values[indices[i]])>0&&researchPlotValue(benchmark.values[indices[i]])>0)first=i;}
   if(first<0)return {usable:false,reason:last<0?'No common calendar dates between the selected asset history and this saved portfolio.':'No common date with positive, renderer-safe observed close, strategy NAV and benchmark NAV. Missing values were not filled.'};
-  const priceBase=Number(bars[first].close),strategyBase=Number(strategyRaw[first]),benchmarkBase=Number(benchmarkRaw[first]);
-  return {usable:true,first,last,baselineDate:bars[first].time.slice(0,10),priceBase,strategyBase,benchmarkBase,strategy,benchmark,strategyRaw,benchmarkRaw,times:indices.map(i=>i===undefined?null:r.grid[i]),strategyIndex:strategyRaw.map(v=>researchNormalize(v,strategyBase)),benchmarkIndex:benchmarkRaw.map(v=>researchNormalize(v,benchmarkBase)),record:r,resultId:detail.result_id};
+  const priceBase=anchor?.priceBase??Number(bars[first].close),strategyBase=anchor?.strategyBase??Number(strategyRaw[first]),benchmarkBase=anchor?.benchmarkBase??Number(benchmarkRaw[first]);
+  return {usable:true,first,last,baselineDate:anchor?.baselineDate||bars[first].time.slice(0,10),priceBase,strategyBase,benchmarkBase,strategy,benchmark,strategyRaw,benchmarkRaw,times:indices.map(i=>i===undefined?null:r.grid[i]),strategyIndex:strategyRaw.map(v=>researchNormalize(v,strategyBase)),benchmarkIndex:benchmarkRaw.map(v=>researchNormalize(v,benchmarkBase)),record:r,resultId:detail.result_id};
 }
 function researchReadable(value){return String(value||'Not supplied').replaceAll('_',' ').replace(/\s+/g,' ').trim();}
 function researchPhase(record){return record.question.label.match(/\b(?:FINAL|VALIDATION|TRAIN|TEST|DEVELOPMENT)\b/)?.[0]||'Saved interval';}
-if(typeof module!=='undefined')module.exports={validateResearchRevision,createResearchRevisionWatcher,withResearchDOMState,researchSnapshotSignature,researchSnapshotPage,createResearchClient,validateResearchDetail,validateResearchCatalog,researchValue,researchPlotValue,researchDecimalDisplay,researchLoadAllExecutions,executionScaledToken,validateResearchExecutions,createResearchExecutionClient,researchLoadAll,researchRowMetric,researchDecimalCompare,researchSortRows,researchHistoryCompatibility,researchNormalize,researchComparison,researchReadable,researchPhase};
+if(typeof module!=='undefined')module.exports={researchLoadProgressive,validateResearchRevision,createResearchRevisionWatcher,withResearchDOMState,researchSnapshotSignature,researchSnapshotPage,createResearchClient,validateResearchDetail,validateResearchCatalog,researchValue,researchPlotValue,researchDecimalDisplay,executionDateGroups,researchLoadAllExecutions,executionScaledToken,validateResearchExecutions,createResearchExecutionClient,researchLoadAll,researchRowMetric,researchDecimalCompare,researchSortRows,researchHistoryCompatibility,researchNormalize,researchComparison,researchReadable,researchPhase};
