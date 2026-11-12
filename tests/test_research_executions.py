@@ -13,6 +13,7 @@ from test_research_results import invented_result
 
 
 def fixture(tmp_path, kind='scheduled', *, cash=False, clipped=False):
+    tmp_path.mkdir(exist_ok=True)
     results=ResearchResults(tmp_path,128*1024**2);r=invented_result()
     legs=[]
     for series in r['series']:

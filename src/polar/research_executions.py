@@ -4,6 +4,7 @@ Only the requested saved simulation member is read; training/model/private input
 members are not opened. No service runner/evaluator/predictor is imported.
 """
 import re
+from fractions import Fraction
 from datetime import datetime, timezone
 from .history_bundle import read_file, decode, sha
 from .research_results import ResearchError
@@ -25,6 +26,10 @@ def integer(v, minimum=0):
 def money(cents):
     n=integer(cents)
     return f"{n//100}.{n%100:02d}"
+
+
+def matches_money(cents, token):
+    return Fraction(integer(cents),100)==Fraction(token)
 
 
 def utc(ns):
@@ -98,10 +103,10 @@ def project(results, result_id, series_id=None, limit=100, offset=0):
         leg=next(x for x in legs if x['id']==public['id']);nav=leg['nav']
         require(len(nav)==len(r['grid'])==len(public['values'])==len(public['ledger']))
         for row,clock,value,ledger in zip(nav,r['grid'],public['values'],public['ledger']):
-            require(utc(row['nominal_ns'])==clock and value['status']=='OK' and money(row['nav_cents'])==value['value'])
-            require(row['positions']==ledger['positions'] and money(row['cash_cents'])==ledger['cash'] and
-                    money(row['exposure_cents'])==ledger['exposure'] and money(row['flat_cents'])==ledger['cumulative_flat_fees'] and
-                    money(row['bps_cents'])==ledger['cumulative_bps_fees'])
+            require(utc(row['nominal_ns'])==clock and value['status']=='OK' and matches_money(row['nav_cents'],value['value']))
+            require(row['positions']==ledger['positions'] and matches_money(row['cash_cents'],ledger['cash']) and
+                    matches_money(row['exposure_cents'],ledger['exposure']) and matches_money(row['flat_cents'],ledger['cumulative_flat_fees']) and
+                    matches_money(row['bps_cents'],ledger['cumulative_bps_fees']))
     synthetic=r['basis']['wealth_basis']=='SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT'
     require((simulation.get('quote_basis')=='SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT')==synthetic)
     leg=next(x for x in legs if x['id']==series['id']);orders=leg['orders'];fills=leg['fills']
