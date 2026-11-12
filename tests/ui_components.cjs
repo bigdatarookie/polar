@@ -187,3 +187,10 @@ test('named price references remain independent, preserve saved benchmark, and s
  vm.runInContext("toggleHistoryReference('benchmark',true);toggleHistoryReference('asset',false)",ctx);assert.equal(refreshes,1);assert.deepEqual(Array.from(vm.runInContext('[referenceSelection.asset,referenceSelection.benchmark,state.benchmark]',ctx)),[false,true,true]);
  vm.runInContext("toggleHistoryReference('benchmark',false)",ctx);assert.equal(refreshes,2);assert.equal(vm.runInContext('state.benchmark',ctx),false);
 });
+
+test('retained-test return restores pinned real dates and never treats synthetic timestamps as history dates',()=>{
+ const {context:ctx}=appContext(async()=>{throw Error('no request');});ctx.renderRail=()=>{};ctx.loadSelection=()=>{};ctx.loadHistorySelection=request=>{ctx.returnRequest=request;};
+ vm.runInContext("state.dataMode='real';state.rangeId='Custom';state.lo=0;state.hi=1;dataset={kind:'history'};historyContext={revision:{dataset_id:'pinned-data',dataset_revision:'pinned-revision'},instrument:{instrument_id:'actual-instrument'}};view.bars=[{time:'2026-08-06'},{time:'2026-09-07'}];setDataMode('retained-test');view.bars=[{time:'2024-01-02T21:00:00Z'},{time:'2024-01-03T21:00:00Z'}];setDataMode('real')",ctx);
+ assert.deepEqual(JSON.parse(JSON.stringify(ctx.returnRequest)),{datasetId:'pinned-data',revision:'pinned-revision',instrumentId:'actual-instrument',rangeId:'Custom',window:{start:'2026-08-06',end_exclusive:'2026-09-08'}});
+ const result=vm.runInContext("historyWindow({instrument:{first_date:'2020-01-01',last_date:'2026-11-06'}},'Custom',{first:'2024-01-02T21:00:00Z',last:'2024-01-03T21:00:00Z'},null)",ctx);assert.match(result.start,/^\d{4}-\d{2}-\d{2}$/);assert(result.start>='2020-01-01'&&result.start<result.end_exclusive);assert.equal(result.end_exclusive,'2026-11-07');
+});

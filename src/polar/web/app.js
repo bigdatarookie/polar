@@ -15,7 +15,7 @@ let mainResearchClient=null,mainResearch={page:null,loading:false,error:null,off
 let mainResearchFlow=0,autoResearchError=null,autoResearchWatcher=null,mainRefreshPinnedId=null;
 const autoResearchClient=createResearchClient((...args)=>fetch(...args));
 let mainSelectionFlow=0,comparisonAnchor=null;
-let referenceSelection={asset:false,benchmark:false};
+let referenceSelection={asset:false,benchmark:false},realModeReturn=null;
 let mainMetricSort={key:null,direction:'desc'};
 // Enable only against a qualified saved-executions serving handoff.
 const EXECUTIONS_RUNTIME_READY=true; // Qualified ef73b9f serving receipt, 2026-11-12T06:51Z.
@@ -78,7 +78,7 @@ function historyWindow(context,rangeId,previous,explicit){
   const first=context.instrument?.first_date,last=context.instrument?.last_date;if(!historyDate(first)||!historyDate(last))return null;
   const end=historyDayAfter(last);let start=first,finish=end;
   if(explicit){start=explicit.start;finish=explicit.end_exclusive;}
-  else if(rangeId==='Custom'&&previous.first&&previous.last){start=previous.first;finish=historyDayAfter(previous.last);}
+  else if(rangeId==='Custom'&&historyDate(previous.first)&&historyDate(previous.last)){start=previous.first;finish=historyDayAfter(previous.last);}
   else if(rangeId!=='All'){
     const d=new Date(last+'T00:00:00Z');if(rangeId==='1W')d.setUTCDate(d.getUTCDate()-7);else d.setUTCMonth(d.getUTCMonth()-({'1M':1,'3M':3,'6M':6,'12M':12}[rangeId]||1));start=d.toISOString().slice(0,10);
   }
@@ -310,9 +310,10 @@ function indicatorCard(parent,key,title,shortName,period){
 }
 function setDataMode(mode){
   if(mode===state.dataMode)return;clearTimeout(historyViewportTimer);pendingSeriesBuffer=null;
+  if(mode==='retained-test'&&historyContext?.revision&&historyDisplayed())realModeReturn={datasetId:historyContext.revision.dataset_id,revision:historyContext.revision.dataset_revision,instrumentId:historyContext.instrument.instrument_id,rangeId:state.rangeId,window:visibleHistoryWindow()};
   state.dataMode=mode;loadError=null;
   if(mode==='retained-test'){keepScroll(renderRail);const [asset,run]=urlSelection();loadSelection(run?asset:null,run||null,{catalogPage:0});}
-  else loadHistorySelection({});
+  else loadHistorySelection(realModeReturn||{rangeId:'3M'});
 }
 async function loadExecutions(offset=0){
   const current=++executionFlow,focusId=document.activeElement?.id,saved=selectedMainResearch();executionClient.cancel();if(!saved){executions={resultId:null,page:null,loading:false,error:null};selectedExecutionId=null;keepScroll(()=>{renderRail();renderChart();});return;}
