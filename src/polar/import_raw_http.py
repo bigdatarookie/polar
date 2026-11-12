@@ -19,8 +19,9 @@ def main():
     exact(value,('request','cursor','timeout_seconds','credential_reference',*(['adapter'] if adjusted else [])))
     validator=request
     if adjusted:
-        from .import_adjusted_sip import request as validator,ADAPTER
-        require(value['adapter']==ADAPTER,'IMPORT_POLICY_MISMATCH')
+        from .import_adjusted_sip import request as validator,ADAPTER,SELECTED_ADAPTER,selected_request
+        require(value['adapter'] in (ADAPTER,SELECTED_ADAPTER),'IMPORT_POLICY_MISMATCH')
+        if value['adapter']==SELECTED_ADAPTER:validator=selected_request
     req=validator(value['request'])
     require(value['credential_reference']==str(CREDENTIAL),'IMPORT_CREDENTIAL_REFERENCE')
     require(type(value['timeout_seconds']) in (int,float) and 0<value['timeout_seconds']<=45)

@@ -141,13 +141,17 @@ class Service:
         store = DescriptiveStore(self.artifacts.root, self.artifacts.limit-db_bytes-1024**2)
         return DescriptiveService(self.history_registry, self.history_calendar_dir, store).run(config)
 
-    def _imports(self, fixture=False, raw_sip=False, raw_profile='first-unit'):
+    def _imports(self, fixture=False, raw_sip=False, raw_profile='first-unit', selected_scope_sha256=None):
         from .import_service import ImportService
         from .import_store import ImportStore
         return ImportService(ImportStore(self.artifacts.root,self.artifacts.limit,fixture=fixture,
-                                        raw_sip=raw_sip,raw_profile=raw_profile))
+                                        raw_sip=raw_sip,raw_profile=raw_profile,selected_scope_sha256=selected_scope_sha256))
 
     def _import_plan_service(self,plan_id):
+        if plan_id.startswith(('adjustedsipselected-','adjustedsipselectedfixture-')):
+            from .import_service import selected_plan_scope
+            return self._imports(plan_id.startswith('adjustedsipselectedfixture-'),True,
+                                 'all-adjusted-selected',selected_plan_scope(plan_id))
         if plan_id.startswith(('adjustedsip100-','adjustedsip100fixture-')):
             return self._imports(plan_id.startswith('adjustedsip100fixture-'),True,'all-adjusted100')
         if plan_id.startswith(('rawsipaggregate-','rawsipaggregatefixture-')):
@@ -156,6 +160,9 @@ class Service:
                              plan_id.startswith(("rawsip-","rawsipfixture-")))
 
     def import_plan(self, config):
+        if config.get('adapter')=='alpaca-all-adjusted-sip-selected/1':
+            return self._imports(config.get('mode')=='fixture',True,'all-adjusted-selected',
+                                 config.get('scope_ref',{}).get('sha256')).plan(config)
         if config.get('adapter')=='alpaca-all-adjusted-sip-broad100/1':
             return self._imports(config.get('mode')=='fixture',True,'all-adjusted100').plan(config)
         if config.get('adapter')=='alpaca-raw-sip-remaining/1':
