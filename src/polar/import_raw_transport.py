@@ -38,7 +38,9 @@ class RawHttpTransport:
             output,_=child.communicate(canonical({'request':start['request'],
                 'cursor':start['request_cursor'],'timeout_seconds':timeout,
                 'credential_reference':self.credential_reference,
-                **({'adapter':'alpaca-all-adjusted-sip-broad100/1'} if self.profile=='all-adjusted100' else {})}),timeout=timeout)
+                **({'adapter':('alpaca-all-adjusted-sip-selected/1' if self.profile=='all-adjusted-selected'
+                              else 'alpaca-all-adjusted-sip-broad100/1')}
+                   if self.profile in ('all-adjusted100','all-adjusted-selected') else {})}),timeout=timeout)
         except subprocess.TimeoutExpired:
             child.kill()
             try:child.communicate(timeout=2)

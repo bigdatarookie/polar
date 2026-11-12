@@ -115,6 +115,8 @@ def normalized_partitions(service, plan, prefix, *, deadline):
                           'source_plan_job_id':job['relation']['job_id'],
                           'population_record_id':job['relation']['population_record_id'],
                           **({'source_record_ids':job['relation']['source_record_ids']} if all_adjusted else {}),
+                          **({'source_target_id':job['relation']['source_target_id']}
+                             if store.raw_profile=='all-adjusted-selected' else {}),
                           'request':job['request'],'transport_state':raw_state,'reason':state['reason'],
                           'first_partition':first_part,'last_partition':part,'rows':emitted})
     flush()

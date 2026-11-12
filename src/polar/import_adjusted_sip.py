@@ -68,3 +68,81 @@ def source_row(row):
       investor_total_return='NOT_ESTABLISHED',corporate_action_completeness='UNKNOWN',
       supplemental_reasons=['SOURCE_FITNESS_UNRESOLVED','VENDOR_ADJUSTMENT_MODEL_UNVERIFIED'])
     return row
+
+
+# A separate declarative profile, never a broad100 override or issuer allowlist.
+SELECTED_PROFILE='all-adjusted-selected'
+SELECTED_ADAPTER='alpaca-all-adjusted-sip-selected/1'
+
+
+def selected_request(value):
+    from datetime import date
+    from .import_contract import seconds
+    exact(value,tuple(TEMPLATE))
+    fixed={k:v for k,v in TEMPLATE.items() if k not in ('symbols','asof','start','end')}
+    require(all(value[k]==v for k,v in fixed.items()) and type(value['limit']) is int,
+            'IMPORT_REQUEST_SEMANTICS')
+    require(type(value['symbols']) is str and re.fullmatch(r'[A-Za-z0-9._-]{1,40}',value['symbols']),
+            'IMPORT_REQUEST_SEMANTICS')
+    require(all(type(value[k]) is str and re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z',value[k])
+                for k in ('start','end')) and seconds(value['start'])<seconds(value['end']),
+            'IMPORT_REQUEST_SEMANTICS')
+    try:
+        require(type(value['asof']) is str and date.fromisoformat(value['asof']).isoformat()==value['asof'],
+                'IMPORT_REQUEST_SEMANTICS')
+    except (ValueError,TypeError):require(False,'IMPORT_REQUEST_SEMANTICS')
+    return value
+
+
+def selected_policy(jobs):
+    # Existing per-request/page bounds; scale only the declared finite operation.
+    require(type(jobs) is int and 0<jobs<=POLICY['jobs'],'IMPORT_SCOPE_MISMATCH')
+    gets=jobs*POLICY['pages']
+    reserve=POLICY['terminal_reserve_bytes']
+    return {**POLICY,'schema':'polar.adjusted-sip-selected-policy/1',
+        'basis':'OWNER_SELECTED_ALL_ADJUSTED_REFERENCE','jobs':jobs,'gets':gets,
+        'total_bytes':gets*POLICY['body_bytes'],
+        'wall_seconds':min(POLICY['wall_seconds'],gets*(POLICY['request_seconds']+POLICY['spacing_seconds'])
+                           +POLICY['materialization_reserve_seconds']+4),
+        'additional_bytes':min(POLICY['additional_bytes'],max(2*reserve,
+             (jobs*POLICY['additional_bytes']+POLICY['jobs']-1)//POLICY['jobs']))}
+
+
+def selected_unit(value,fixture):
+    from .import_service import bound_file
+    exact(value,('schema','adapter','mode','scope_ref','seed_refs'))
+    require(value['schema']=='polar.selected-adjusted-sip-import-config/1'
+            and value['adapter']==SELECTED_ADAPTER,'IMPORT_POLICY_MISMATCH')
+    raw=bound_file(value['scope_ref']);scope=decode(raw)
+    exact(scope,('schema','targets','request_template','policy','selection_ref'))
+    require(scope['schema']=='polar.selected-adjusted-sip-scope/1','IMPORT_SCOPE_MISMATCH')
+    targets=scope['targets'];template=scope['request_template']
+    require(type(targets) is list and bool(targets) and all(type(t) is str for t in targets)
+            and len(set(targets))==len(targets),'IMPORT_SCOPE_MISMATCH')
+    policy=selected_policy(len(targets));require(canonical(scope['policy'])==canonical(policy),'IMPORT_POLICY_MISMATCH')
+    require(type(template) is dict and template.get('symbols')==TEMPLATE['symbols'],'IMPORT_SCOPE_MISMATCH')
+    owner=decode(bound_file(scope['selection_ref']))
+    require(type(owner) is dict and owner.get('schema')=='polar.quant-selected-source-operation/1'
+            and owner.get('fixed_targets')==targets,'IMPORT_SCOPE_MISMATCH')
+    owner_request=owner.get('request_profile')
+    require(type(owner_request) is dict and type(owner_request.get('limit')) in (int,str)
+            and owner_request.get('limit') in (10000,'10000'),
+            'IMPORT_SCOPE_MISMATCH')
+    # Owner metadata accepts the explicit URL limit spelling; wire stays typed.
+    owner_request={**owner_request,'symbols':TEMPLATE['symbols'],'limit':10000}
+    require(owner_request==template,'IMPORT_SCOPE_MISMATCH')
+    jobs=[]
+    for ordinal,target in enumerate(targets):
+        req=selected_request({**template,'symbols':target})
+        jobs.append({'job_id':'selected-source-request-'+digest(req),'request':req,
+          'population_record_id':None,'frozen_alias_ordinal':ordinal,
+          'source_target_id':'selected-source-target-'+digest({'scope_sha256':sha(raw),'symbol':target}),
+          'source_records':[],'source_record_ids':[],
+          'identity_basis':'OWNER_SELECTED_LITERAL_SOURCE_ONLY',
+          'economic_identity_admission':'NOT_ISSUED'})
+    return {'jobs':jobs,'scope_sha256':sha(raw),'scope_ref':value['scope_ref'],
+      'selection_ref':scope['selection_ref'],'policy':policy,
+      'lineage':{'new_adjustment_namespace':True,'raw_request_cache_equivalent':False,
+        'broad100_request_cache_equivalent':False,'prior_attempts_preserved':True},
+      'credentials':{'reference':CREDENTIAL},
+      'basis':'VENDOR_ALL_ADJUSTED_REFERENCE_NEVER_RAW_SHARES_OR_CERTIFIED_TOTAL_RETURN'}

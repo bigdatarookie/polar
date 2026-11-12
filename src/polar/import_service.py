@@ -38,10 +38,26 @@ def code_projection():
     return {name:sha(path.read_bytes()) for name,path in sorted(paths.items())}
 
 
+def plan_hash(value):
+    require(type(value) is str,'IMPORT_INVALID_ID')
+    if value.startswith(('adjustedsipselected-','adjustedsipselectedfixture-')):
+        parts=value.split('-')
+        require(len(parts)==3,'IMPORT_INVALID_ID')
+        hash_value(parts[1]);return hash_value(parts[2])
+    return hash_value(value.split('-',1)[1])
+
+
+def selected_plan_scope(value):
+    require(type(value) is str and value.startswith(('adjustedsipselected-','adjustedsipselectedfixture-')),
+            'IMPORT_INVALID_ID')
+    plan_hash(value);return value.split('-')[1]
+
+
 def plan_name(value):
     require(type(value) is str and value.startswith(("fixture-","import-","rawsip-","rawsipfixture-",
-                "rawsipaggregate-","rawsipaggregatefixture-","adjustedsip100-","adjustedsip100fixture-")),"IMPORT_INVALID_ID")
-    hash_value(value.split("-",1)[1]);return value
+                "rawsipaggregate-","rawsipaggregatefixture-","adjustedsip100-","adjustedsip100fixture-",
+                "adjustedsipselected-","adjustedsipselectedfixture-")),"IMPORT_INVALID_ID")
+    plan_hash(value);return value
 
 
 def attempt_name(value):
@@ -90,9 +106,14 @@ class ImportService:
     def load(self,pid):
         plan_name(pid)
         value = self.store.read("plans/"+pid+".json")
-        require(value["plan_id"]==pid and pid.split("-",1)[1]==digest({k:v for k,v in value.items() if k!="plan_id"}),
+        require(value["plan_id"]==pid and plan_hash(pid)==digest({k:v for k,v in value.items() if k!="plan_id"}),
                 "IMPORT_PLAN_HASH")
         require(value["scope"]==self.store.base,"IMPORT_SCOPE_MISMATCH")
+        if self.store.raw_profile=='all-adjusted-selected':
+            from .import_adjusted_sip import selected_policy
+            require(value['policy']==selected_policy(len(value['jobs'])) and
+                    value['unit']['scope_sha256']==self.store.selected_scope_sha256,'IMPORT_SCOPE_MISMATCH')
+            self.store.scope_policy=value['policy']
         return value
 
     def request_records(self):
