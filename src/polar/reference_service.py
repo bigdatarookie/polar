@@ -77,6 +77,9 @@ class ReferenceResearchService:
         self.store=HistoryStore(root,limit);self.results=ResearchResults(root,limit)
 
     def prepare(self,config):
+        if config.get('schema') == 'polar.raw-action-config/1':
+            from .raw_action_service import prepare
+            return prepare(self, config)
         if config.get('schema') == 'polar.scheduled-reference-config/1':
             from .scheduled_service import prepare
             return prepare(self, config)
@@ -143,6 +146,9 @@ class ReferenceResearchService:
         return market,calendar,tz,fit_event
 
     def preflight(self,config):
+        if config.get('schema') == 'polar.raw-action-config/1':
+            from .raw_action_service import preflight
+            return preflight(self, config)
         if config.get('schema') == 'polar.scheduled-reference-config/1':
             from .scheduled_service import preflight
             return preflight(self, config)
@@ -176,6 +182,9 @@ class ReferenceResearchService:
         return authority
 
     def run(self,config):
+        if config.get('schema') == 'polar.raw-action-config/1':
+            from .raw_action_service import run
+            return run(self, config)
         if config.get('schema') == 'polar.scheduled-reference-config/1':
             from .scheduled_service import run
             return run(self, config)
@@ -275,6 +284,9 @@ class ReferenceResearchService:
             'evidence_level':'RETAINED_DESCRIPTIVE' if config['namespace']=='RETAINED' else 'INVENTED_CONTROL'}
 
     def recompute(self,semantic_id):
+        if semantic_id.startswith('raw-action-experiment-'):
+            from .raw_action_service import recompute
+            return recompute(self, semantic_id)
         if semantic_id.startswith('scheduled-reference-experiment-'):
             from .scheduled_service import recompute
             return recompute(self, semantic_id)
