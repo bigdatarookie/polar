@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import ValidationError
 
 from .codec import digest
-from .history_bundle import canonical, sha
+from .history_bundle import HistoryError, canonical, sha
 from .research_results import (Closed, Hash, MAX_RESULT, ResearchError,
                                ResearchReview, public_text, validate_result)
 
@@ -79,6 +79,8 @@ def deliver_once(registry, results):
             state, code = "WAITING_FOR_RESULT", "RESEARCH_NOT_FOUND"
         else:
             state, code = "REJECTED", exc.code
+    except HistoryError:
+        receipt, state, code = None, "REJECTED", "RESEARCH_INTEGRITY_ERROR"
     # OSError/DB/process loss deliberately does not complete/reject the lease.
     return delivery_status(registry.finish_research_delivery(
         row["id"], row["lease_token"], state, receipt, code))

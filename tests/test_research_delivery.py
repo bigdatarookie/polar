@@ -59,7 +59,10 @@ def test_api_saved_delivery_restart_out_of_order_review_and_duplicate(registry, 
     assert preliminary['assessment']['financial'] == 'NOT_REVIEWED'
     with reg.connect() as db:
         db.execute("UPDATE research_deliveries SET lease_until=now()-interval '1 second' WHERE id=%s", (rid,))
-    resumed = deliver_once(reg, ResearchResults(reg.settings.artifacts, reg.settings.storage_bytes))
+    import polar.worker as worker
+    monkeypatch.setattr(worker, 'Registry', lambda settings: reg)
+    monkeypatch.setattr(worker, 'calculate', lambda *a, **k: pytest.fail('scientific calculate called'))
+    resumed = worker.work_research_delivery_once(reg.settings)
     assert resumed['id'] == rid and resumed['state'] == 'DELIVERED'
     with reg.connect() as db:
         db.execute("UPDATE research_deliveries SET not_before=now()-interval '1 second' WHERE id=%s", (aid,))
@@ -113,3 +116,27 @@ def test_revision_ignores_partial_and_rejects_symlink(tmp_path):
     assert store.revision() == before
     (parent/('research-'+'0'*64)).symlink_to(tmp_path, target_is_directory=True)
     with pytest.raises(ResearchError, match='RESEARCH_UNSAFE_DIRECTORY'): store.revision()
+
+
+@pytest.mark.postgres
+def test_damaged_existing_subject_is_rejected_not_waiting(registry):
+    reg = registry; reg.migrate()
+    svc = Service(reg.settings); svc.registry = reg
+    result = invented_result()
+    published = svc.research_publish(result)
+    path = reg.settings.artifacts/'research-results'/published['result_id']/'result.json'
+    path.chmod(0o600); path.write_text('{}')
+    row = svc.research_delivery_submit(envelope(review(result), 'ASSESSMENT'))
+    done = deliver_once(reg, svc._research())
+    assert done['id'] == row['id'] and done['state'] == 'REJECTED'
+    assert done['error_code'] == 'RESEARCH_CONTENT_MISMATCH'
+    assert deliver_once(reg, svc._research()) is None
+
+
+def test_missing_payload_in_existing_subject_is_integrity_failure(tmp_path):
+    store = ResearchResults(tmp_path, 64*1024**3)
+    rid = store.publish(invented_result())['result_id']
+    path = tmp_path/'research-results'/rid/'result.json'
+    path.unlink()
+    from polar.history_bundle import HistoryError
+    with pytest.raises(HistoryError): store.read(rid)
