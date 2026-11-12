@@ -14,6 +14,9 @@ from .research_native_money import native_types
 
 
 def simulate(plan, diagnostics=None):
+    if plan.get('profile', {}).get('kind') == 'RAW_ACTION_REINVEST':
+        from .raw_action_native import simulate as raw_simulate
+        return raw_simulate(plan, diagnostics)
     cost_profile = plan.get('cost_profile')
     require('cost_profile' not in plan or cost_profile is not None, 'COST_PROFILE')
     fee_cents(0, 1, cost_profile=cost_profile)  # Closed profile admission before native setup.
