@@ -180,3 +180,10 @@ test('deferred DOM restoration never undoes a newer user list or workspace scrol
  node('#strategy-list').scrollTop=144;node('#workspace').scrollTop=63;frame();assert.equal(node('#strategy-list').scrollTop,144);assert.equal(node('#workspace').scrollTop,63);
  vm.runInContext("keepScroll(()=>{document.querySelector('#strategy-list').scrollTop=0;})",ctx);frame();assert.equal(node('#strategy-list').scrollTop,144);
 });
+test('named price references remain independent, preserve saved benchmark, and share only transport demand',()=>{
+ const {context:ctx,stored}=appContext(async()=>{throw Error('no request');});let refreshes=0;ctx.refreshHistoryOverlays=()=>refreshes++;
+ vm.runInContext("comparisonBenchmark=false;toggleHistoryReference('asset',true)",ctx);assert.equal(refreshes,1);assert.deepEqual(Array.from(vm.runInContext('[referenceSelection.asset,referenceSelection.benchmark,state.benchmark,comparisonBenchmark]',ctx)),[true,false,true,false]);
+ const saved=JSON.parse(stored.get('polar-retained-workspace-v1'));assert.deepEqual(saved.history_reference_selection,{asset:true,benchmark:false});assert.equal(saved.research_benchmark,false);
+ vm.runInContext("toggleHistoryReference('benchmark',true);toggleHistoryReference('asset',false)",ctx);assert.equal(refreshes,1);assert.deepEqual(Array.from(vm.runInContext('[referenceSelection.asset,referenceSelection.benchmark,state.benchmark]',ctx)),[false,true,true]);
+ vm.runInContext("toggleHistoryReference('benchmark',false)",ctx);assert.equal(refreshes,2);assert.equal(vm.runInContext('state.benchmark',ctx),false);
+});

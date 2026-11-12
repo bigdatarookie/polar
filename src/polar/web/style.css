@@ -155,3 +155,29 @@
  .workspace:has(#main-strategy-head:not([hidden]))>.rail{position:sticky;top:0;align-self:start;height:calc(100dvh - 84px)}
 }
 .strategy-section>.list-heading,.strategy-section>.record-pagination{flex-shrink:0}
+
+/* User vertical-space amendment: one working toolbar, detail/legends in Overlays. */
+.chart-card>.chart-legend,.chart-card>.index-title{display:none}
+.rail-heading{display:none}
+.mode-bar{height:78px;min-height:78px;flex-shrink:0;margin:0;padding:9px 8px;border-bottom:1px solid var(--rule)}
+.plot-toolbar{display:flex;align-items:flex-end;flex-wrap:wrap;gap:10px;min-height:78px;padding:10px 18px;border-bottom:1px solid var(--rule);flex-shrink:0}
+.plot-toolbar .asset-field{flex:1 1 190px;width:auto;max-width:300px;min-width:0}
+.plot-toolbar .granularity-control{flex:0 1 100px;min-width:80px}
+.plot-toolbar .source-control{flex:1 1 150px;max-width:220px;min-width:0}
+.plot-toolbar label,.volume-control{font-size:11px;line-height:1.35}
+.plot-toolbar .granularity-control,.plot-toolbar .source-control,.volume-control{display:flex;flex-direction:column;gap:4px}
+.plot-toolbar #asset-search,.plot-toolbar select,.plot-toolbar #volume-toggle{height:36px;min-width:0;margin:0;padding:5px 8px;border:1px solid var(--edge);border-radius:4px;background:var(--surface);font-size:12px}
+.volume-control{flex:0 0 62px;min-width:0}.volume-control #volume-toggle{width:100%;text-align:left}.volume-control #volume-toggle[aria-pressed=true]{color:var(--action)}
+.plot-toolbar .periods{flex:0 0 auto;margin:0;align-self:flex-end}.plot-toolbar .periods button{height:36px;padding:5px 8px}
+.strategy-section .list-heading{min-height:36px;padding:6px 16px}.strategy-section .list-heading p{display:none}.strategy-section .list-heading h2{font-size:14px;line-height:1.4}.strategy-section .list-heading h2 span{font-size:10px}
+.portfolio-overlays h4{font-size:12px;margin-bottom:7px}.portfolio-overlays .comparison-actions{display:flex;flex-wrap:wrap;gap:5px;margin:12px 0}.portfolio-overlays .comparison-actions button{font-size:10px;padding:5px}.portfolio-overlays .overlay-choice b{font-size:11px}.portfolio-overlays .overlay-choice small{font-size:10px}
+.portfolio-overlays details{font-size:10px;color:var(--muted);margin-top:10px}.portfolio-overlays details p{overflow-wrap:anywhere;margin-top:7px}.portfolio-overlays summary{cursor:pointer}
+@media(max-width:700px){
+ .mobile-open .rail-heading{display:flex;height:36px;min-height:36px;justify-content:flex-end;padding:4px 10px}.mode-bar{height:70px;min-height:70px}
+ .plot-toolbar{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:7px 8px;padding:10px 12px;min-height:0;align-items:end}
+ .plot-toolbar .asset-field{grid-column:1/4;grid-row:1;max-width:none;width:auto;min-width:0}.plot-toolbar .granularity-control{grid-column:4/6;grid-row:1;width:auto;min-width:0}.plot-toolbar .volume-control{grid-column:6;grid-row:1;min-width:0}
+ .plot-toolbar .periods{grid-column:1/5;grid-row:2;min-width:0;width:auto;gap:1px;margin:0;display:flex;align-self:end}.plot-toolbar .periods button{font-size:10px;padding:3px 2px;min-width:0;flex:1;height:32px;min-height:32px}
+ .plot-toolbar .source-control{grid-column:5/7;grid-row:2;display:flex;width:auto;min-width:0;max-width:none}
+ .plot-toolbar label{font-size:9px}.plot-toolbar #asset-search,.plot-toolbar select,.plot-toolbar #volume-toggle{height:32px;font-size:10px;padding:4px}.volume-control #volume-toggle{min-height:32px}
+ .strategy-section .list-heading{padding:6px 10px}.strategy-section .list-heading h2{font-size:12px}
+}
