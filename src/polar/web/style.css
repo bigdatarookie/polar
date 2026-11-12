@@ -184,3 +184,4 @@
 
 .chart-card>.data-diagnostics{order:3}
 #selection-state[data-mode=retained-test] #selection-context{position:static;width:auto;height:auto;clip-path:none;white-space:normal}
+.selection-state[hidden]{display:none}
