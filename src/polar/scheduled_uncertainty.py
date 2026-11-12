@@ -226,7 +226,7 @@ def _interval(values, invalid_reasons, samples):
             'lower_order_index': lower, 'upper_order_index': upper}
 
 
-def bootstrap(simulation, primary_id, benchmark_ids):
+def bootstrap(simulation, primary_id, benchmark_ids, *, seed=SEED):
     """Fixed1000 paired circular63 draws from ONLY the three saved BASE legs.
 
     Legs may have native positive integer-cent ``nav`` rows, or ``returns`` with
@@ -234,6 +234,8 @@ def bootstrap(simulation, primary_id, benchmark_ids):
     invented pure callers). Floats and mismatched/missing observations are never
     substituted or silently dropped. This function does not decide robustness.
     """
+    if type(seed) is not int or seed not in (37001,37002):
+        raise ValueError('BOOTSTRAP_SEED')
     legs = simulation.get('legs') if isinstance(simulation, dict) else None
     if (not isinstance(legs, list) or len(legs) != 3 or not isinstance(benchmark_ids, (list, tuple))
             or type(primary_id) is not str or len(benchmark_ids) != 2
@@ -254,7 +256,7 @@ def bootstrap(simulation, primary_id, benchmark_ids):
         tables[leg_id] = _moment_table(vector) if not reason and n >= 2 else None
     valid = {b: {s: [] for s in STATISTICS} for b in benchmark_ids}
     reasons = {b: {s: Counter() for s in STATISTICS} for b in benchmark_ids}
-    rng = random.Random(SEED)
+    rng = random.Random(seed)
     sequence_hash = sha256()
     replicates = []
     keys = {'sr_delta': 'sr', 'growth_delta': 'growth', 'drawdown_delta': 'drawdown'}
@@ -283,7 +285,7 @@ def bootstrap(simulation, primary_id, benchmark_ids):
     return {'schema': 'polar.scheduled-paired-bootstrap/1', 'status': 'COMPLETE' if all_valid else 'INSUFFICIENT',
             'reason': None if all_valid else 'REQUIRED_COMPONENT_REPLICATES_INVALID',
             'primary_id': primary_id, 'benchmark_ids': list(benchmark_ids), 'n': n,
-            'samples': SAMPLES, 'block_length': BLOCK_LENGTH, 'seed': SEED,
+            'samples': SAMPLES, 'block_length': BLOCK_LENGTH, 'seed': seed,
             'integer_bit_limit': BIT_LIMIT, 'index_sequence_sha256': sequence_hash.hexdigest(),
             'index_hash_encoding': 'EACH_ORDERED_INTEGER_INDEX_ARRAY_COMPACT_JSON_PLUS_LF_IN_DRAW_ORDER',
             'all_components_valid': all_valid, 'comparisons': comparisons, 'replicates': replicates,

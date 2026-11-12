@@ -117,3 +117,21 @@ def sma_fixture(tmp_path, monkeypatch):
     cfg={**old,'profile_ref':pp,'calendar_ref':cp,'candidate_id':'INVENTED-SMA-DAILY',
          'experiment_id':'INVENTED-SMA-DAILY-ORIGINAL'}
     return root,cfg,profile,calendar
+
+
+def gmv_fixture(tmp_path, monkeypatch):
+    root, old, profile, calendar = inverse_fixture(tmp_path,monkeypatch)
+    profile.update(schema='polar.scheduled-reference-profile/4',protocol_id='INVENTED-SHRUNK-GMV-V1',
+        policy={'kind':'SHRUNK_GMV_COMMON_RISK','lookback':60,'annual_cap':'0.10','shrinkage':[1,2],'solver':'EXACT_ALL15_KKT'})
+    profile['uncertainty']['seed']=37002
+    profile['primary_strategy']='GMV'
+    for leg in profile['legs']:
+        if leg['id']=='INVVOL':leg.update(id='GMV',rule='SHRUNK_GMV',label='Shrunk covariance minimum variance')
+        elif leg['id']=='MOM':leg.update(id='INV',rule='INVERSE_VOL',label='Inverse standard deviation')
+    for criterion in profile['criteria']:
+        criterion['left_id']='GMV'
+        if criterion.get('right_id')=='MOM':criterion['right_id']='INV'
+    profile.update(question_label='Invented covariance-aware allocation',
+        question_summary='Fixed shrunk covariance GMV and two controls at common risk, base and true double cost.')
+    pp=write(tmp_path/'gmv-profile.json',profile)
+    return root,{**old,'profile_ref':pp,'candidate_id':'INVENTED-GMV','experiment_id':'INVENTED-GMV-ORIGINAL'},profile,calendar

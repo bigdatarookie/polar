@@ -154,3 +154,44 @@ still apply; a public invented author check grants no retained run or financial
 acceptance. Run selected invented SMA/policy/service tests using the shared
 `scripts/ci.sh --test ... --reports EMPTY_DIRECTORY` path. Immutable records,
 stored-only verification and legacy profile/1 and profile/2 remain unchanged.
+
+## Exact shrunk GMV with saved certificates (profile/4)
+
+The existing config/CLI accepts a closed `polar.scheduled-reference-profile/4`:
+`policy` is exactly `{"kind":"SHRUNK_GMV_COMMON_RISK","lookback":60,
+"annual_cap":"0.10","shrinkage":[1,2],"solver":"EXACT_ALL15_KKT"}`.
+Four symbols, one-second decision delay, three scale-one rules SHRUNK_GMV,
+EQUAL_WEIGHT and INVERSE_VOL, and the existing BASE/COST_STRESS fee profiles are
+required. `uncertainty` retains paired circular63/1000 but binds seed37002;
+profile/2 retains37001 unchanged. The same monthly date-only calendar and
+reference input rights/clock/authority checks apply. All nonformation dates HOLD.
+
+Each formation estimates60 ordered simple binary64 returns and sample covariance
+from61 eligible closes. Exact dyadic Q is shrunk to S with unchanged diagonal
+and half off-diagonal. Exact positive LDL pivots and all15 ascending-mask
+Gauss-Jordan supports produce complete rational feasibility, KKT, objective,
+zero-active and guard certificates; no tolerance, clipping, fallback or numerical
+solver backend is used. All accepted supports must agree on the full vector.
+Every rational intermediate is bounded to1000000 numerator/denominator bits.
+GMV, equal weight and inverse standard deviation are all risk-scaled using this
+same S, then FLOOR-projected to12 decimal places with the existing risk-spread
+check. The profile declares parameters, never arbitrary expressions or code.
+
+Actual covariance/SPD/portfolio/subsolve counts are saved in every signal and
+the original finish;47 complete formations mean47 estimates,47 certifications,
+47 optimizations and705 support attempts. Zero fits/predictions does not mean
+zero optimization. FIRST_START precedes source/optimizer work; failures retain
+completed signals and the failed partial certificate/counters without refund or
+retry. The stress account set reuses the one saved weight/time plan and executes
+its own quantities, cash feasibility and true native fees. Public records carry
+optimizer provenance and bounded accounting limitations, not private quotes or
+full matrix certificates.
+
+Stored-only reproduction checks all saved certificate identities and risk/weight
+projection arithmetic without covariance estimation, policy evaluation, LDL,
+Gauss-Jordan, source access, native execution or writes. It binds saved target
+instructions to those weights and verifies BASE/stress share the original plan.
+Its optimization and solve counters are zero. Certificates and accounting prove
+technical execution only; neither implies independent financial support or
+prospective robustness. The existing tail, recovery, exposure and BASE-carried
+subperiod diagnostics and conditional bootstrap reuse saved ledgers unchanged.
