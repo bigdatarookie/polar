@@ -172,3 +172,11 @@ test('minimal accepted INVALID report keeps unavailable portfolio and actual dia
   ctx.document.querySelectorAll=()=>[];vm.runInContext("state.infoId='run-1'",ctx);ctx.renderRecord();
   assert(env.node('#record-detail').textContent.includes('financial verdict INVALID'));assert(!env.node('#record-detail').textContent.includes('financial evaluation NOT_RUN'));
 });
+
+test('deferred DOM restoration never undoes a newer user list or workspace scroll',()=>{
+ const {context:ctx,node}=appContext(async()=>{throw Error('no request');});let frame;ctx.requestAnimationFrame=fn=>{frame=fn;return 1;};
+ node('#strategy-list').scrollTop=12;node('#workspace').scrollTop=0;
+ vm.runInContext("keepScroll(()=>{document.querySelector('#strategy-list').scrollTop=0;})",ctx);assert.equal(node('#strategy-list').scrollTop,12);
+ node('#strategy-list').scrollTop=144;node('#workspace').scrollTop=63;frame();assert.equal(node('#strategy-list').scrollTop,144);assert.equal(node('#workspace').scrollTop,63);
+ vm.runInContext("keepScroll(()=>{document.querySelector('#strategy-list').scrollTop=0;})",ctx);frame();assert.equal(node('#strategy-list').scrollTop,144);
+});
