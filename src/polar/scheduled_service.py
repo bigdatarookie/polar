@@ -267,8 +267,8 @@ def run(service, config):
             else:
                 project_diagnostics(record, diagnostics[phase])
             if profile['schema'].endswith('/8'):
-                record['limitations'].append({'code':'FIXED_COST_POINT_SCREEN_ONLY',
-                    'text':'Fixed annual BASE and actual doubled-cost accounts are descriptive point screens. No bootstrap, confidence interval or calibrated post-selection inference; robustness and adoption remain INSUFFICIENT_EVIDENCE regardless of point outcomes.'})
+                record['limitations'].append({'code':'FIXED_COST_POINT_SCREEN_ONLY','scope':'Full phase and declared BASE eras',
+                    'text':'Fixed annual BASE and actual doubled-cost accounts are descriptive point screens. BASE carried eras only; stress era diagnostics NOT_REQUESTED. No bootstrap, confidence interval or calibrated post-selection inference; robustness and adoption remain INSUFFICIENT_EVIDENCE regardless of point outcomes.'})
             if profile['schema'] == 'polar.scheduled-reference-profile/3':
                 project_gate_accounting(record, data['plan'], data['simulation'])
             if uncertainty is not None:

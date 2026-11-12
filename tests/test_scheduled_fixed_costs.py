@@ -55,6 +55,9 @@ def test_ten_account_actual_cost_reexecution_and_saved_only_no_bootstrap(tmp_pat
         assert all(i['kind']=='EXIT' for i in data['plan']['decisions'][-1]['instructions'].values())
         record=ResearchResults(root,128*1024**2).read(result['results'][phase]['result_id'])
         assert len(record['record']['series'])==5 and record['assessment']['financial']=='NOT_REVIEWED'
+        limits={x['code']:x for x in record['record']['limitations']}
+        assert 'stress era diagnostics NOT_REQUESTED' in limits['FIXED_COST_POINT_SCREEN_ONLY']['text']
+        assert limits['FIXED_COST_POINT_SCREEN_ONLY']['scope']=='Full phase and declared BASE eras'
     assert phases['FINAL']['plan']['decisions']==phases['FINAL_COST_STRESS']['plan']['decisions']
     base=snapshot(root)
     for name in ('load_reference','plan_phase','bounded_native'):monkeypatch.setattr(m,name,forbidden)
