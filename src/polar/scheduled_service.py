@@ -287,7 +287,7 @@ def recompute(service, semantic_id):
             require(data['plan'].get('gate_accounting') == gate_accounting(data['plan']), 'SCHEDULED_GATE_ACCOUNTING_RECOMPUTE')
         require(canonical(evaluate_policy(data['simulation'], profile, data.get('reference_phase', phase))) == canonical(data['evaluation']), 'SCHEDULED_RECOMPUTE_MISMATCH')
         schedule = calendar['source_schedule_rows']
-        expected_diagnostics[phase] = {t['id']: diagnose_phase(t, schedule, profile, plan,
+        expected_diagnostics[phase] = {t['id']: diagnose_phase(t, schedule, profile, data['plan'],
             subperiods=profile['subperiods'] if data.get('reference_phase', phase) == 'FINAL' and data.get('cost_scenario',{}).get('id','BASE') == 'BASE' else ()) for t in data['simulation']['legs']}
     require(canonical(expected_diagnostics) == canonical(files['diagnostics.json']), 'SCHEDULED_DIAGNOSTIC_RECOMPUTE')
     if 'uncertainty.json' in files:
