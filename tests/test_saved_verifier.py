@@ -108,7 +108,7 @@ def toy_subject(mutation=None):
     return saved
 
 
-def write_packet(root, mutation=None, calendar_kind="monthly", calendar_mutation=None):
+def write_packet(root, mutation=None, calendar_kind="monthly", calendar_mutation=None, public_mutation=None):
     saved = toy_subject(mutation)
     symbols = CONTROLS["complete_ledger"]["symbols"]
     days = list(CONTROLS["complete_ledger"]["prices_micro"])
@@ -158,6 +158,8 @@ def write_packet(root, mutation=None, calendar_kind="monthly", calendar_mutation
                                  "values": [value(Fraction(n["nav_cents"], 100)) for n in leg["nav"]], "ledger": ledger})
     for key in saved["evaluation"]["legs"][0]["metrics"]:
         public["metrics"].append({"id": checker.ALIASES.get(key, key), "values": {v["id"]: v["metrics"][key] for v in saved["evaluation"]["legs"]}})
+    if public_mutation:
+        public_mutation(public)
     written = {"semantic/" + n: raw for n, raw in raw_members.items()}
     written["semantic/manifest.json"] = manifest_raw
     written["public-FINAL/result.json"] = pack(public)
@@ -350,3 +352,54 @@ def test_cli_and_no_producer_imports(tmp_path):
                 assert node.module == "saved_verifier_math"
             if isinstance(node, ast.Import):
                 assert not any(n.name.startswith(("polar", "numpy", "torch", "nautilus", "subprocess", "socket")) for n in node.names)
+
+
+def public_fixed_cents(public):
+    # An independent public-wire fixture: USD amounts have two decimal places.
+    for series in public["series"]:
+        for row in series["values"]:
+            row["value"] = format(Decimal(row["value"]), ".2f")
+        for row in series["ledger"]:
+            for field in ("cash", "exposure", "cumulative_flat_fees", "cumulative_bps_fees"):
+                row[field] = format(Decimal(row[field]), ".2f")
+
+
+def test_public_fixed_cent_wire_values_match_exact_saved_cents_after_rehash(tmp_path):
+    packet = write_packet(tmp_path, calendar_kind="daily", public_mutation=public_fixed_cents)
+    report = checker.verify(packet)
+    assert report["checks"]["public_correspondence"]["status"] == "PASS", report["checks"]
+    assert report["covered_verdict"] == "PASS"
+
+
+@pytest.mark.parametrize("target", ["nav", "cash", "exposure", "cumulative_flat_fees", "cumulative_bps_fees"])
+@pytest.mark.parametrize("bad", ["10.01", "10.0000000000000000000001", 10, 10.0, True, None,
+                                  "1e1", "NaN", "Infinity", " 10.00", "+10.00", "010.00"])
+def test_public_money_wrong_or_invalid_token_fails_after_rehash(tmp_path, target, bad):
+    def change(public):
+        public_fixed_cents(public)
+        if target == "nav":
+            public["series"][0]["values"][0]["value"] = bad
+        else:
+            public["series"][0]["ledger"][0][target] = bad
+    report = checker.verify(write_packet(tmp_path, public_mutation=change))
+    assert report["checks"]["public_correspondence"]["status"] == "FAIL"
+    assert report["covered_verdict"] == "FAIL"
+
+
+@pytest.mark.parametrize("field,bad", [("status", "UNAVAILABLE"), ("reason", "ALTERED"), ("extra", "value")])
+def test_public_money_value_record_keeps_exact_status_reason_and_shape(tmp_path, field, bad):
+    def change(public):
+        public_fixed_cents(public)
+        public["series"][0]["values"][0][field] = bad
+    report = checker.verify(write_packet(tmp_path, public_mutation=change))
+    assert report["checks"]["public_correspondence"]["status"] == "FAIL"
+
+
+def test_public_money_equivalent_decimal_zeroes_are_exact_not_tolerance(tmp_path):
+    def change(public):
+        public_fixed_cents(public)
+        public["series"][0]["values"][0]["value"] = "10.0000"
+        public["series"][0]["ledger"][0]["cash"] = "10.0"
+        public["series"][0]["ledger"][0]["exposure"] = "0.00"
+    report = checker.verify(write_packet(tmp_path, public_mutation=change))
+    assert report["covered_verdict"] == "PASS", report["checks"]
