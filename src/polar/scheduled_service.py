@@ -378,6 +378,8 @@ def project_diagnostics(record, diagnostics):
             scalar = lambda section, key: (segment.get(section, {}).get(key) or {}).get('value', 'unavailable')
             record['limitations'].append({'code': f'SEGMENT_{index}_'+series['id'], 'scope': series['label'],
                 'text': (f"Saved subperiod {index+1}: {segment.get('first_return_date')} through {segment.get('last_return_date')}, "
+                         +(f"requested saved NAV anchor {segment['requested_initial_anchor']}; mapping {segment['status']}/{segment.get('reason') or 'OK'}. "
+                           if 'requested_initial_anchor' in segment else '')+
                          f"preceding-close anchor {segment.get('initial_date')}; {segment.get('intervals')} returns. "
                          f"Normalization initial NAV cents {segment.get('costs', {}).get('normalization_initial_nav_cents')}. "
                          f"CAGR {scalar('metrics', 'net_cagr_act36525')}, annual volatility {scalar('metrics', 'annual_vol_252')}; "
@@ -493,18 +495,10 @@ def diagnose_phase(tape,schedule,profile,plan,*,subperiods=()):
     if profile['schema'].endswith('/5'):
         from .scheduled_fixed import diagnose_fixed
         return diagnose_fixed(tape,schedule,plan['prices'],subperiods=subperiods)
-    result=diagnose(tape,schedule,subperiods=subperiods)
     if profile['schema'].endswith('/6'):
-        from .scheduled_diagnostics import _nav,_drawdown
-        nav,reason=_nav(tape)
-        if not reason:
-            result['schema']='polar.temporal-saved-diagnostics/1'
-            result['drawdown']=_drawdown(nav,latest_equal_peak=True)
-            for segment in result['subperiods']:
-                if segment['status']=='OK':
-                    selected=[r for r in nav if segment['initial_date']<=r['date']<=segment['last_return_date']]
-                    segment['drawdown']=_drawdown(selected,latest_equal_peak=True)
-    return result
+        from .scheduled_diagnostics import diagnose_temporal_anchors
+        return diagnose_temporal_anchors(tape,schedule,subperiods=subperiods)
+    return diagnose(tape,schedule,subperiods=subperiods)
 
 
 def project_estimation(record,counts):
