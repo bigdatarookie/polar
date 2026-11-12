@@ -325,6 +325,15 @@ class ResearchResults(HistoryStore):
                 "content_sha256": sha(raw), "record": record,
                 "assessment": assessment}
 
+    def executions(self, result_id, series_id=None, limit=100, offset=0):
+        from .research_executions import project
+        try:
+            return project(self, result_id, series_id, limit, offset)
+        except (KeyError, TypeError, ValueError, AttributeError, IndexError, OverflowError):
+            raise ResearchError("RESEARCH_EXECUTION_INVALID_TAPE", 409) from None
+        except OSError:
+            raise ResearchError("RESEARCH_EXECUTION_UNAVAILABLE", 503) from None
+
     def review(self, value):
         try:
             review = ResearchReview.model_validate(value).model_dump(mode="json")

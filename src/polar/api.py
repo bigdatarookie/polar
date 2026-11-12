@@ -38,6 +38,11 @@ def create_app(service=None):
     def research_result(result_id: str):
         return svc().research_result(result_id)
 
+    @app.get("/v1/research/results/{result_id}/executions")
+    def research_executions(result_id: str, series_id: str | None = Query(None, max_length=128),
+                            limit: int = Query(100, ge=1, le=100), offset: int = Query(0, ge=0, le=100000)):
+        return svc().research_executions(result_id, series_id, limit, offset)
+
     @app.middleware("http")
     async def bounded_body(request,call_next):
         if request.method == "POST" and request.url.path in {"/v1/datasets","/v1/runs"}:

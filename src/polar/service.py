@@ -86,6 +86,9 @@ class Service:
     def research_result(self, result_id):
         return self._research_call("read", result_id)
 
+    def research_executions(self, result_id, series_id=None, limit=100, offset=0):
+        return self._research_call("executions", result_id, series_id, limit, offset)
+
     def _research_call(self, operation, *args):
         from .history_bundle import HistoryError
         from .research_results import ResearchError
