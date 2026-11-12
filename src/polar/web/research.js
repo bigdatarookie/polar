@@ -90,6 +90,33 @@ function researchDecimalDisplay(value,places=2){
   const tail=fraction.slice(places);if(tail[0]>'5'||tail[0]==='5'&&(/[1-9]/.test(tail.slice(1))||scaled%2n===1n))scaled++;
   const digits=scaled.toString().padStart(places+1,'0');return (negative&&scaled!==0n?'−':'')+digits.slice(0,-places)+'.'+digits.slice(-places);
 }
+// Supplied full-period strategy metrics: display conversion only, never recompute finance.
+const RESEARCH_ROW_METRICS={sharpe:['sharpe_252_rf0','sharpe'],drawdown:['max_drawdown'],annualized:['adjusted_reference_cagr_after_costs','price_cagr_after_costs','net_cagr_act36525','annualized_return','cagr']};
+function researchRowMetric(detail,key){
+  const leg=detail.record.series.find(s=>s.role==='STRATEGY');
+  const metric=RESEARCH_ROW_METRICS[key]?.map(id=>detail.record.metrics.find(m=>m.id===id)).find(Boolean);
+  const point=metric?.values[leg?.id],unit=key==='sharpe'?'ratio':'fraction';
+  const available=metric?.unit===unit&&point?.status==='OK'&&RESEARCH_DECIMAL.test(point.value);
+  let display='Unavailable';
+  if(available){let token=point.value;if(unit==='fraction'){
+    const negative=token.startsWith('-'),[whole,fraction='']=token.replace(/^-/, '').split('.');
+    const digits=whole+fraction.padEnd(2,'0');token=(negative?'-':'')+(digits.slice(0,whole.length+2).replace(/^0+(?=\d)/,'')||'0')+(fraction.length>2?'.'+fraction.slice(2):'');
+  }display=researchDecimalDisplay(token,2)+(unit==='fraction'?'%':'');}
+  return {available,value:available?point.value:null,display,label:metric?.label||'Not supplied',reason:available?null:point?.reason||(metric?'Unsupported metric unit':'Not supplied'),unit:metric?.unit||null};
+}
+function researchDecimalCompare(a,b){
+  const parts=x=>{const [w,f='']=x.replace(/^-/, '').split('.');return {negative:x.startsWith('-')&&/[1-9]/.test(w+f),w,f};};
+  const x=parts(a),y=parts(b);if(x.negative!==y.negative)return x.negative?-1:1;
+  const size=Math.max(x.f.length,y.f.length),xf=x.f.padEnd(size,'0'),yf=y.f.padEnd(size,'0');
+  const cmp=x.w.length-y.w.length||(x.w<y.w?-1:x.w>y.w?1:0)||(xf<yf?-1:xf>yf?1:0);return x.negative?-cmp:cmp;
+}
+function researchSortRows(details,key,direction='desc'){
+  if(!key)return details.slice();
+  return details.map((detail,index)=>({detail,index,metric:researchRowMetric(detail,key)})).sort((a,b)=>{
+    if(a.metric.available!==b.metric.available)return a.metric.available?-1:1;
+    return (a.metric.available?researchDecimalCompare(a.metric.value,b.metric.value)*(direction==='asc'?1:-1):0)||a.index-b.index;
+  }).map(x=>x.detail);
+}
 // Display-only common-date normalization. Source strings, metrics and ledgers stay intact.
 function researchNormalize(value,base){
   const n=typeof value==='string'?researchPlotValue({status:'OK',value}):null;
@@ -108,4 +135,4 @@ function researchComparison(detail,bars){
 }
 function researchReadable(value){return String(value||'Not supplied').replaceAll('_',' ').replace(/\s+/g,' ').trim();}
 function researchPhase(record){return record.question.label.match(/\b(?:FINAL|VALIDATION|TRAIN|TEST|DEVELOPMENT)\b/)?.[0]||'Saved interval';}
-if(typeof module!=='undefined')module.exports={createResearchClient,validateResearchDetail,validateResearchCatalog,researchValue,researchPlotValue,researchDecimalDisplay,researchHistoryCompatibility,researchNormalize,researchComparison,researchReadable,researchPhase};
+if(typeof module!=='undefined')module.exports={createResearchClient,validateResearchDetail,validateResearchCatalog,researchValue,researchPlotValue,researchDecimalDisplay,researchRowMetric,researchDecimalCompare,researchSortRows,researchHistoryCompatibility,researchNormalize,researchComparison,researchReadable,researchPhase};

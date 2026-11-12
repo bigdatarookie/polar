@@ -108,3 +108,14 @@ test('no overlap, ambiguous date samples and renderer unsafe baselines explain u
  f.detail.record.grid[1]='2024-01-02T22:00:00Z';assert.match(researchComparison(f.detail,[]).reason,/Multiple supplied samples/);
  assert.equal(researchNormalize('0.'+'0'.repeat(1000)+'1',100),null);assert.equal(researchNormalize('10',0),null);assert.equal(researchNormalize('0',100),0);
 });
+test('row metrics use only strategy full-period producer fields, decimal HALF_EVEN and percent units',()=>{
+ const {researchRowMetric}=require('../src/polar/web/research.js'),f=fixture().detail;
+ f.record.metrics=[{id:'sharpe_252_rf0',label:'Supplied Sharpe',unit:'ratio',values:{'leg-0':ok('1.225'),'leg-1':ok('99')}},{id:'max_drawdown',label:'Supplied drawdown',unit:'fraction',values:{'leg-0':ok('0.00125')}},{id:'net_cagr_act36525',label:'Supplied CAGR',unit:'fraction',values:{'leg-0':ok('-0.10005')}}];
+ assert.equal(researchRowMetric(f,'sharpe').display,'1.22');assert.equal(researchRowMetric(f,'drawdown').display,'0.12%');assert.equal(researchRowMetric(f,'annualized').display,'−10.00%');
+ f.record.metrics[0].values['leg-0']=missing('UNDEFINED');assert.equal(researchRowMetric(f,'sharpe').available,false);
+});
+test('exact metric sorting keeps unavailable last both ways, stable ties and sub-double precision',()=>{
+ const {researchSortRows}=require('../src/polar/web/research.js');
+ const rows=['1.000000000000000000002','1.000000000000000000001','1.000000000000000000001',null].map((v,i)=>{const f=fixture().detail;f.result_id=String(i);f.record.metrics=[{id:'sharpe',label:'Sharpe',unit:'ratio',values:{'leg-0':v===null?missing():ok(v)}}];return f;});
+ assert.deepEqual(researchSortRows(rows,'sharpe','asc').map(x=>x.result_id),['1','2','0','3']);assert.deepEqual(researchSortRows(rows,'sharpe','desc').map(x=>x.result_id),['0','1','2','3']);
+});
