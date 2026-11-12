@@ -58,3 +58,9 @@ Stored reproduction requires both phases, exact scenario/plan/simulation cost
 bindings and identical shared decisions, then rechecks saved metrics/diagnostics
 without input source, policy, native or writes. This is a scoped saved-output
 reproduction, not a new scientific run or an independent financial verdict.
+
+Profile/8 retained authority also binds allowed_score_calls, allowed_rank_calls,
+allowed_estimator_calls, allowed_optimizer_calls and allowed_bootstrap_samples
+all exactly0. The existing source/runtime/method/reservation/root/CI/native bounds
+remain required. Its extra point-screen limitation consumes one common-wire
+limitation slot; choose compact accurate public text within existing bounds.

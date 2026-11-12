@@ -141,6 +141,10 @@ def authority_for(service, config, profile, grids):
             authority.get('binding_sha256') == sha(canonical(binding(config))) and
             authority.get('allowed_fit_calls') == 0 and authority.get('allowed_predict_calls') == 0 and
             authority.get('allowed_native_accounts') == account_count(profile, grids), 'SCHEDULED_OPERATION_NOT_BOUND')
+    if profile['schema'].endswith('/8'):
+        require(all(authority.get(key)==0 for key in ('allowed_score_calls','allowed_rank_calls',
+                'allowed_estimator_calls','allowed_optimizer_calls','allowed_bootstrap_samples')),
+                'SCHEDULED_FIXED_COST_OPERATION_BOUND')
     if profile['schema'].endswith('/7'):
         from .scheduled_relative import expected_counts
         require(authority.get('allowed_signal_counts')==expected_counts(sum(len(g['decisions']) for g in grids.values())) and
@@ -262,6 +266,9 @@ def run(service, config):
                 project_relative_diagnostics(record,diagnostics[phase],data['plan'])
             else:
                 project_diagnostics(record, diagnostics[phase])
+            if profile['schema'].endswith('/8'):
+                record['limitations'].append({'code':'FIXED_COST_POINT_SCREEN_ONLY',
+                    'text':'Fixed annual BASE and actual doubled-cost accounts are descriptive point screens. No bootstrap, confidence interval or calibrated post-selection inference; robustness and adoption remain INSUFFICIENT_EVIDENCE regardless of point outcomes.'})
             if profile['schema'] == 'polar.scheduled-reference-profile/3':
                 project_gate_accounting(record, data['plan'], data['simulation'])
             if uncertainty is not None:
@@ -330,9 +337,6 @@ def recompute(service, semantic_id):
     expected_members = MEMBERS | ({'uncertainty.json'} if profile['schema'].endswith(('/2','/4','/6','/7')) else set())
     require(set(files) == expected_members, 'SCHEDULED_PROFILE_MEMBER_SET')
     require(files['bindings.json']['code'] == code_binding(), 'SCHEDULED_REPRODUCTION_CODE_BINDING')
-    if profile['schema'].endswith(('/4','/6','/7','/8')):
-        base=files['phases.json']['FINAL']['plan'];stress=files['phases.json']['FINAL_COST_STRESS']['plan']
-        require({k:v for k,v in base.items() if k!='cost_profile'}=={k:v for k,v in stress.items() if k!='cost_profile'},'SCHEDULED_GMV_STRESS_SHARED_PLAN')
     if profile['schema'].endswith('/8'):
         expected={'FINAL':profile['cost_scenarios'][0], 'FINAL_COST_STRESS':profile['cost_scenarios'][1]}
         require(set(files['phases.json'])==set(expected),'SCHEDULED_FIXED_COST_PHASES')
@@ -341,6 +345,9 @@ def recompute(service, semantic_id):
             require(data.get('reference_phase')=='FINAL' and data.get('cost_scenario')==scenario and
                     data['plan'].get('cost_profile')==data['simulation'].get('cost_profile')==scenario['cost_profile'],
                     'SCHEDULED_FIXED_COST_BINDING')
+    if profile['schema'].endswith(('/4','/6','/7','/8')):
+        base=files['phases.json']['FINAL']['plan'];stress=files['phases.json']['FINAL_COST_STRESS']['plan']
+        require({k:v for k,v in base.items() if k!='cost_profile'}=={k:v for k,v in stress.items() if k!='cost_profile'},'SCHEDULED_GMV_STRESS_SHARED_PLAN')
     expected_diagnostics = {}
     # Only saved output arrays are used; no source, policy feature, model or native call.
     calendar = files['calendar.json']
