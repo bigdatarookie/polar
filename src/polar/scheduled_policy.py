@@ -130,7 +130,9 @@ def profile_value(p):
         if c['kind'] in ('DRAWDOWN_SCALED_LE','TERMINAL_SCALED_GE','VOL_SCALED_LE'):
             require(type(c['factor']) is list and len(c['factor']) == 2 and all(type(v) is int for v in c['factor']) and
                     0 <= c['factor'][0] <= 1000000 and 0 < c['factor'][1] <= 1000000 and
-                    (c['factor'][0] <= c['factor'][1] or version9 and c['kind']=='TERMINAL_SCALED_GE'), 'SCHEDULED_CRITERION_FACTOR')
+                    (c['factor'][0] <= c['factor'][1] or
+                     p['schema']=='polar.scheduled-reference-profile/5' or
+                     version9 and c['kind']=='TERMINAL_SCALED_GE'), 'SCHEDULED_CRITERION_FACTOR')
         if c['kind']=='VOL_SCALED_LE':
             # Preserve the prospective canonical-D50 operation; nonterminating
             # factors would add an undeclared preliminary rounding step.
