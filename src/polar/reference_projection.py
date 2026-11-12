@@ -61,7 +61,7 @@ def public_reference(config, simulation, evaluation, *, semantic_id, semantic_ha
             ('EXPOSED_RETROSPECTIVE_INTERVAL','Chronological evaluation does not establish pristine process holdout or unseen history.'),
             ('MODELED_EXECUTION_COSTS','Whole reference units, exact-cent modeled costs, frozen decision quantities and next-close cash clipping; no calibrated capacity proof.'),
             ('UNMODELED_MARKET_EFFECTS','Spread, additional slippage, market impact, tax and financing are not estimated, not evidenced zero.'),
-            ('TRAIN_DEVELOPMENT_TEST',config['partition_description']),
+            config.get('partition_limitation', ('TRAIN_DEVELOPMENT_TEST',config['partition_description'])),
             ('PHASE_AND_FRESH_CAPITAL',phase+' uses a separate fresh model USD100000 portfolio; phases do not roll wealth forward.'),
             ('RISK_AND_POLICY_CLASS','Exposure and concentration may differ across controls. Point differences do not isolate causal alpha or risk-matched utility.'),
             ('NO_INFERENTIAL_ADOPTION','No calibrated significance, general alpha, prospective profit, original-hypothesis validation or adoption claim.')]
