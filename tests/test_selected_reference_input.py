@@ -10,8 +10,8 @@ from polar.research_reference import load_reference
 from polar.selected_reference_input import PROFILE
 
 
-def selected_fixture(tmp_path,mutate=None):
-    targets=['BBB','AAA'];template={**TEMPLATE,'start':'2024-01-31T00:00:00Z','end':'2024-02-03T00:00:00Z','asof':'2024-02-02'}
+def selected_fixture(tmp_path,mutate=None,*,targets=None):
+    targets=targets or ['BBB','AAA'];template={**TEMPLATE,'start':'2024-01-31T00:00:00Z','end':'2024-02-03T00:00:00Z','asof':'2024-02-02'}
     ref=lambda p:{k:p[k] for k in ('path','sha256')}
     owner=put(tmp_path/'selected-owner.json',{'schema':'polar.quant-selected-source-operation/1',
         'fixed_targets':targets,'request_profile':{k:v for k,v in template.items() if k!='symbols'}})
@@ -172,3 +172,10 @@ def test_frozen_parent_calendar_requires_exact_lossless_derived_clock_grid(tmp_p
     # Rehashed, otherwise valid metadata is still not the frozen parent's projection.
     manifest['schedule']=put(tmp_path/'substituted-clock-schedule.json',projected)
     assert not schedule_binding_matches(manifest,cfg['schedule'])
+
+
+def test_selected_reference_symbol_domain_rejected_before_payload_read(tmp_path):
+    store,cfg,_,_=selected_fixture(tmp_path,targets=['aaa','BBB'])
+    for p in (tmp_path/'source').rglob('bars.ndjson'):p.unlink()
+    with pytest.raises(ValueError,match='REFERENCE_CONVERSION_SYMBOLS'):prepare_input(cfg,store,10**8)
+    assert not (store/'reference-inputs').exists()

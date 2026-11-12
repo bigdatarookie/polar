@@ -20,6 +20,9 @@ def metadata(config):
     require(source_config.get('mode')==('fixture' if invented else 'provider'),'REFERENCE_SELECTED_SOURCE_MODE')
     unit=selected_unit(source_config,invented)  # Pure metadata validation; no plan or credential/provider call.
     targets=[j['request']['symbols'] for j in unit['jobs']]
+    import re
+    require(all(type(s) is str and re.fullmatch('[A-Z][A-Z0-9.]{0,31}',s) for s in targets),
+            'REFERENCE_CONVERSION_SYMBOLS')
     require(purpose['acquisition_order']==targets and purpose['portfolio_symbol_order']==sorted(targets),
             'REFERENCE_SELECTED_TARGET_ORDER')
     prefix='adjustedsipselectedfixture-' if invented else 'adjustedsipselected-'
