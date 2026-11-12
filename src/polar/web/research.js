@@ -116,6 +116,17 @@ function validateResearchExecutions(body,saved,offset=0){
     const binding=event.instrument;researchRequire(binding?.status==='BOUND'?['dataset_id','dataset_revision','instrument_id','source_symbol','source_member_sha256','evidence_sha256','input_sha256'].every(k=>typeof binding[k]==='string')&&binding.mapping_status==='DECLARED_CURRENT_ONLY':binding?.status==='UNRESOLVED'&&typeof binding.reason==='string'&&binding.instrument_id===null,'EXECUTION_INSTRUMENT_INVALID');
   }return body;
 }
+async function researchLoadAllExecutions(client,saved,isCurrent=()=>true){
+  let first=null,offset=0;const allItems=[],seen=new Set();let previous=null;
+  do{const page=await client.load(saved,offset);if(!page||!isCurrent())return null;if(!first)first=page;
+    researchRequire(page.total===first.total&&['phase','quote_basis','quantity_unit','price_unit','semantic_manifest_sha256','member_sha256','binding_sha256'].every(k=>page[k]===first[k]),'EXECUTION_TAPE_CHANGED');
+    if(page.status==='UNAVAILABLE')return {page,allItems:[]};
+    researchRequire(page.total<=100000,'EXECUTION_TAPE_LIMIT');
+    for(const event of page.items){researchRequire(!seen.has(event.order_id),'EXECUTION_TAPE_CHANGED');seen.add(event.order_id);if(previous)researchRequire(BigInt(event.timestamp_ns)>BigInt(previous.timestamp_ns)||event.timestamp_ns===previous.timestamp_ns&&event.order_id>previous.order_id,'EXECUTION_ORDER_INVALID');previous=event;allItems.push(event);}
+    offset=page.next_offset;
+  }while(offset!==null);
+  researchRequire(allItems.length===first.total,'EXECUTION_TAPE_CHANGED');return {page:first,allItems};
+}
 function createResearchExecutionClient(fetcher){let ticket=0,controller;return {cancel(){ticket++;controller?.abort();},async load(saved,offset=0){const current=++ticket;controller?.abort();controller=new AbortController();const series=saved.record.series.find(s=>s.role==='STRATEGY');const response=await fetcher('/v1/research/results/'+encodeURIComponent(saved.result_id)+'/executions?series_id='+encodeURIComponent(series.id)+'&limit=100&offset='+offset,{signal:controller.signal});if(current!==ticket)return null;if(!response.ok)throw Error('EXECUTIONS_HTTP_'+response.status);const body=await response.json();if(current!==ticket)return null;return validateResearchExecutions(body,saved,offset);}};}
 // Supplied full-period strategy metrics: display conversion only, never recompute finance.
 const RESEARCH_ROW_METRICS={sharpe:['sharpe_252_rf0','net_sharpe','sharpe'],drawdown:['max_drawdown'],annualized:['adjusted_reference_cagr_after_costs','price_cagr_after_costs','net_cagr_act36525','annualized_return','cagr']};
@@ -162,4 +173,4 @@ function researchComparison(detail,bars){
 }
 function researchReadable(value){return String(value||'Not supplied').replaceAll('_',' ').replace(/\s+/g,' ').trim();}
 function researchPhase(record){return record.question.label.match(/\b(?:FINAL|VALIDATION|TRAIN|TEST|DEVELOPMENT)\b/)?.[0]||'Saved interval';}
-if(typeof module!=='undefined')module.exports={createResearchClient,validateResearchDetail,validateResearchCatalog,researchValue,researchPlotValue,researchDecimalDisplay,executionScaledToken,validateResearchExecutions,createResearchExecutionClient,researchLoadAll,researchRowMetric,researchDecimalCompare,researchSortRows,researchHistoryCompatibility,researchNormalize,researchComparison,researchReadable,researchPhase};
+if(typeof module!=='undefined')module.exports={createResearchClient,validateResearchDetail,validateResearchCatalog,researchValue,researchPlotValue,researchDecimalDisplay,researchLoadAllExecutions,executionScaledToken,validateResearchExecutions,createResearchExecutionClient,researchLoadAll,researchRowMetric,researchDecimalCompare,researchSortRows,researchHistoryCompatibility,researchNormalize,researchComparison,researchReadable,researchPhase};

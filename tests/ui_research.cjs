@@ -143,3 +143,12 @@ test('global row sorting reads every ten-item API page and retains research sour
  assert.equal(await researchLoadAll(client,()=>false),null);
  await assert.rejects(()=>researchLoadAll({load:async offset=>({catalog:{total:offset===0?2:3,next_offset:offset===0?1:null},details:[offset===0?a:b]})}),/RESEARCH_CATALOG_CHANGED/);
 });
+test('full tape loading includes recent second-page fill independent of card pagination and rejects drift/duplicates',async()=>{
+ const {createResearchExecutionClient,researchLoadAllExecutions}=require('../src/polar/web/research.js'),saved=fixture().detail;
+ const events=Array.from({length:101},(_,i)=>({order_id:'order-'+String(i).padStart(3,'0'),symbol:'TEST',side:'BUY',timestamp_ns:String(1704229200000000000n+BigInt(i)),timestamp:'2024-01-02T21:00:00Z',session_date:i===100?'2024-01-03':'2024-01-02',timestamp_semantics:'NATIVE_ORDER_SUBMISSION_AND_MATCHED_FILL',intended_quantity:'1',routed_quantity:'1',filled_quantity:'1',status:'FILLED',price_micro:'100000000',fee_cents:'0',settled_notional_cents:'10000',instrument:{status:'UNRESOLVED',reason:'NOT_BOUND',instrument_id:null}}));
+ const envelope=offset=>({schema_version:'polar.research-executions/1',result_id:saved.result_id,content_sha256:saved.content_sha256,series_id:'leg-0',status:'OK',total:101,limit:100,offset,next_offset:offset===0?100:null,items:events.slice(offset,offset+100),price_unit:'USD_PER_MODELED_SHARE',quote_basis:'MODELED_RAW_SHARE_PRICE',quantity_unit:'WHOLE_SHARE',raw_ohlc_overlay_compatible:false});
+ const offsets=[],client=createResearchExecutionClient(async url=>{const offset=Number(new URL(url,'http://invented').searchParams.get('offset'));offsets.push(offset);return {ok:true,json:async()=>envelope(offset)};});
+ const loaded=await researchLoadAllExecutions(client,saved);assert.deepEqual(offsets,[0,100]);assert.equal(loaded.page.items.length,100);assert.equal(loaded.allItems.length,101);assert.equal(loaded.allItems.at(-1).session_date,'2024-01-03');
+ await assert.rejects(()=>researchLoadAllExecutions({load:async(_,offset)=>({...envelope(offset),total:offset?102:101})},saved),/EXECUTION_TAPE_CHANGED/);
+ await assert.rejects(()=>researchLoadAllExecutions({load:async(_,offset)=>({...envelope(offset),items:offset?[events[0]]:events.slice(0,100)})},saved),/EXECUTION_TAPE_CHANGED/);
+});
