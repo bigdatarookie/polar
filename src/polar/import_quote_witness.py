@@ -70,10 +70,21 @@ def prepare(seed,store):
     require(re.fullmatch('[a-f0-9]{40}',seed['code_revision']) and re.fullmatch('sha256:[a-f0-9]{64}',seed['runtime_image_id']),
             'QUOTE_SOURCE_RUNTIME')
     if seed['mode']=='RETAINED':
-        qualification=decode(read_ref(seed['qualification_ref']));read_ref(seed['review_ref'])
+        qualification_raw=read_ref(seed['qualification_ref']);qualification=decode(qualification_raw)
         require(qualification.get('schema')=='polar.ci-result/1' and qualification.get('status')=='PASS' and
                 qualification.get('candidate_sha')==seed['code_revision'] and qualification.get('selection')==['tests'],
                 'QUOTE_QUALIFICATION_BINDING')
+        review=decode(read_ref(seed['review_ref']))
+        require(type(review) is dict and set(review)=={'schema','disposition','role','independent','author_id','reviewer_id',
+                'candidate_sha','scope_sha256','qualification_sha256','report_ref'},'QUOTE_REVIEW_SCHEMA')
+        require(review['schema']=='polar.quote-witness-technical-disposition/1' and review['disposition']=='PASS' and
+                review['role']=='INDEPENDENT_TECHNICAL_QA' and review['independent'] is True and
+                review['author_id']=='platform-engineer@polar-rig' and type(review['reviewer_id']) is str and
+                re.fullmatch(r'[A-Za-z0-9._-]+@[A-Za-z0-9._-]+',review['reviewer_id']) and
+                review['reviewer_id']!=review['author_id'],'QUOTE_INDEPENDENT_REVIEW_REQUIRED')
+        require(review['candidate_sha']==seed['code_revision'] and review['scope_sha256']==seed['scope_ref']['sha256'] and
+                review['qualification_sha256']==sha(qualification_raw),'QUOTE_REVIEW_BINDING')
+        read_ref(review['report_ref'])
     return {**seed,'schema':'polar.quote-witness-config/1','code':code_binding(),'artifact_root_identity':root_identity(store.root)}
 
 

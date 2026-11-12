@@ -117,3 +117,32 @@ def test_complex_schema_fails_observation_without_losing_raw(tmp_path):
     reply=execute(cfg,store,Mock(body));saved=json.loads(Path(reply['result_path']).read_bytes())
     assert saved['status']=='SCHEMA_UNEXPECTED_NO_RETRY' and saved['observation']['schema_observation']=='UNAVAILABLE'
     assert (store.root/saved['raw_body_path']).read_bytes()==body
+
+
+@pytest.mark.parametrize('change',[None,'malformed','schema','disposition','candidate_sha','scope_sha256',
+                                   'qualification_sha256','independent','self_review'])
+def test_retained_prepare_requires_exact_independent_positive_review(tmp_path,change):
+    store,cfg,_=fixture(tmp_path)
+    seed={k:v for k,v in cfg.items() if k not in ('code','artifact_root_identity')}
+    seed.update(schema='polar.quote-witness-seed/1',mode='RETAINED')
+    qualification=ref(tmp_path/'INVENTED-qualification.json',{'schema':'polar.ci-result/1','status':'PASS',
+        'candidate_sha':seed['code_revision'],'selection':['tests']})
+    report=ref(tmp_path/'INVENTED-report.json',{'scope':'INVENTED mocked review fixture, no actual qualification'})
+    review={'schema':'polar.quote-witness-technical-disposition/1','disposition':'PASS','role':'INDEPENDENT_TECHNICAL_QA',
+        'independent':True,'author_id':'platform-engineer@polar-rig','reviewer_id':'invented-qa@public-test',
+        'candidate_sha':seed['code_revision'],'scope_sha256':seed['scope_ref']['sha256'],
+        'qualification_sha256':qualification['sha256'],'report_ref':report}
+    if change=='schema':review['schema']='OTHER'
+    elif change=='disposition':review['disposition']='FAIL'
+    elif change=='independent':review['independent']=False
+    elif change=='self_review':review['reviewer_id']=review['author_id']
+    elif change in ('candidate_sha','scope_sha256','qualification_sha256'):review[change]='f'*len(review[change])
+    review_ref=ref(tmp_path/'INVENTED-review.json',review)
+    if change=='malformed':
+        path=Path(review_ref['path']);path.write_bytes(b'not a review');review_ref={'path':str(path),'bytes':12,'sha256':sha(path.read_bytes())}
+    seed.update(qualification_ref=qualification,review_ref=review_ref)
+    if change is None:
+        result=prepare(seed,store);assert result['mode']=='RETAINED' and result['review_ref']==review_ref
+    else:
+        with pytest.raises(ImportError):prepare(seed,store)
+    assert not list(store.root.glob('imports-quote-witness-*'))
