@@ -85,7 +85,7 @@ test('ordinary history compact rows select actual saved comparison and retain a 
     basis:{wealth_basis:'SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT',cost_basis:'NET',currency:'USD'},grid:['2024-01-02T21:00:00Z'],
     series:[{id:'model',role:'STRATEGY',ledger:[{positions:{AAPL:1,AMZN:0}}]}],metrics:[{id:'sharpe_252_rf0',label:'Sharpe',unit:'ratio',values:{model:{value:'0.8123',status:'OK',reason:null}}}],provenance:[]}};
   ctx.opened=null;ctx.fakeWorkspace={openResult:(...args)=>ctx.opened=args};
-  vm.runInContext("state.dataMode='real';researchWorkspace=fakeWorkspace;mainResearch.page={catalog:{items:[saved],total:1,offset:0,next_offset:null},details:[saved]};historyContext={revision:{dataset_revision:'raw-history',manifest_sha256:'b'.repeat(64),basis:{ohlc_basis:'VENDOR_RAW_UNADJUSTED'}},instrument:{instrument_id:'raw-id',source_symbol:'AAPL'}};renderRows()",ctx);
+  vm.runInContext("state.dataMode='real';researchWorkspace=fakeWorkspace;mainResearch.page={catalog:{items:[saved],total:1,offset:0,next_offset:null},details:[saved],offsets:{[saved.result_id]:0}};historyContext={revision:{dataset_revision:'raw-history',manifest_sha256:'b'.repeat(64),basis:{ohlc_basis:'VENDOR_RAW_UNADJUSTED'}},instrument:{instrument_id:'raw-id',source_symbol:'AAPL'}};renderRows()",ctx);
   const list=env.node('#strategy-list');assert.match(list.textContent,/Real <b>label<\/b>/);assert.match(list.textContent,/NOT SUPPORTED/);
   const compatibility=vm.runInContext('researchHistoryCompatibility(saved,historyContext)',ctx);assert.match(compatibility.label,/Not attributed to AAPL history/);assert.match(compatibility.reasons.join(' '),/Different data binding/);
   assert(!list.textContent.includes('NO_STRATEGY_RESULT'));assert.equal(env.node('.table-head').hidden,true);
