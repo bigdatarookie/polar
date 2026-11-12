@@ -109,6 +109,14 @@ def project(results, result_id, series_id=None, limit=100, offset=0):
     else:
         return {**base,'status':'UNAVAILABLE','reason':'SAVED_EXECUTION_SCHEMA_UNSUPPORTED','phase':None,
                 'total':None,'next_offset':None,'items':[]}
+    binding,binding_hash=member('bindings.json')
+    public_binding=r['bindings']
+    require(binding['code_revision']==public_binding['code_revision'] and binding['runtime_image_id']==public_binding['runtime_id'])
+    if schema=='polar.ci-research-semantic-manifest/1':
+        require(binding['pins']['input_sha256']==public_binding['data_sha256'] and binding['pins']['protocol_sha256']==public_binding['protocol_sha256'])
+    else:
+        require(binding['input_ref']['sha256']==public_binding['data_sha256'] and binding['protocol_ref']['sha256']==public_binding['protocol_sha256'] and
+                binding['candidate_id']==public_binding['candidate_id'] and binding['experiment_id']==public_binding['experiment_id'])
     require(simulation.get('schema')=='polar.ci-research-simulation/1')
     legs=simulation.get('legs');require(type(legs) is list and len(legs)==len(r['series']))
     require(len({x['id'] for x in legs})==len(legs) and {x['id'] for x in legs}=={x['id'] for x in r['series']})
@@ -150,7 +158,7 @@ def project(results, result_id, series_id=None, limit=100, offset=0):
     events.sort(key=lambda x:(int(x['timestamp_ns']),x['order_id']))
     end=offset+limit
     return {**base,'status':'OK','reason':None,'phase':phase,'semantic_id':sid,
-        'semantic_manifest_sha256':h,'member':member_name,'member_sha256':member_hash,
+        'semantic_manifest_sha256':h,'member':member_name,'member_sha256':member_hash,'binding_sha256':binding_hash,
         'quote_basis':'SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT' if synthetic else 'MODELED_RAW_SHARE_PRICE',
         'quantity_unit':simulation.get('quantity_unit','WHOLE_SHARE'),
         'price_unit':'USD_PER_SYNTHETIC_REFERENCE_UNIT' if synthetic else 'USD_PER_MODELED_SHARE',

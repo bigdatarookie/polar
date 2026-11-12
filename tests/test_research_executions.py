@@ -31,8 +31,12 @@ def fixture(tmp_path, kind='scheduled', *, cash=False, clipped=False):
     elif kind=='ppo':name='final.json';data={'simulation':simulation};schema='polar.reference-ppo-semantic-manifest/1';prefix='reference-experiment-';parent='reference-research-experiments'
     else:
         name='phases.json';data={'FINAL':{'simulation':simulation}};schema='polar.'+('scheduled-reference' if kind=='scheduled' else 'reference')+'-semantic-manifest/1';prefix=('scheduled-reference' if kind=='scheduled' else 'reference')+'-experiment-';parent='reference-research-experiments'
-    body=canonical(data);manifest={'schema':schema,'files':{name:{'sha256':sha(body),'bytes':len(body)}}};raw=canonical(manifest);sid=prefix+sha(raw)
-    with results.locked():results._publish(parent,sid,{name:body,'manifest.json':raw},file_limit=32*1024**2)
+    binding={'code_revision':r['bindings']['code_revision'],'runtime_image_id':r['bindings']['runtime_id'],
+             'pins':{'input_sha256':r['bindings']['data_sha256'],'protocol_sha256':r['bindings']['protocol_sha256']},
+             'input_ref':{'sha256':r['bindings']['data_sha256']},'protocol_ref':{'sha256':r['bindings']['protocol_sha256']},
+             'candidate_id':r['bindings']['candidate_id'],'experiment_id':r['bindings']['experiment_id']}
+    body=canonical(data);bound=canonical(binding);manifest={'schema':schema,'files':{name:{'sha256':sha(body),'bytes':len(body)},'bindings.json':{'sha256':sha(bound),'bytes':len(bound)}}};raw=canonical(manifest);sid=prefix+sha(raw)
+    with results.locked():results._publish(parent,sid,{name:body,'bindings.json':bound,'manifest.json':raw},file_limit=32*1024**2)
     r['provenance']=[{'role':'semantic_manifest','id':sid,'sha256':sha(raw)}]
     published=results.publish(r)
     return results,published['result_id'],tmp_path/parent/sid,name
@@ -100,3 +104,21 @@ def test_input_bound_navigation_never_ticker_only():
     r['bindings']['data_sha256']='9'*64
     assert navigation(r,'AAPL')['status']=='UNRESOLVED'
     assert navigation(r,'UNKNOWN')['instrument_id'] is None
+
+
+@pytest.mark.parametrize('mutation',['phase_nav','input_binding','fill_symbol','fill_quantity','fill_timestamp'])
+def test_rehashed_wrong_phase_source_or_fill_still_rejected(tmp_path,mutation):
+    results,rid,d,name=fixture(tmp_path)
+    record=deepcopy(results.read(rid)['record']);phase=json.loads((d/name).read_bytes());binding=json.loads((d/'bindings.json').read_bytes())
+    leg=phase['FINAL']['simulation']['legs'][0]
+    if mutation=='phase_nav':leg['nav'][1]['nav_cents']+=1
+    elif mutation=='input_binding':binding['input_ref']['sha256']='f'*64
+    elif mutation=='fill_symbol':leg['fills'][0]['symbol']='OTHER'
+    elif mutation=='fill_quantity':leg['fills'][0]['q']+=1
+    else:leg['fills'][0]['at_ns']+=1
+    files={name:canonical(phase),'bindings.json':canonical(binding)}
+    manifest={'schema':'polar.scheduled-reference-semantic-manifest/1','files':{k:{'sha256':sha(v),'bytes':len(v)} for k,v in files.items()}}
+    raw=canonical(manifest);sid='scheduled-reference-experiment-'+sha(raw)
+    with results.locked():results._publish('reference-research-experiments',sid,{**files,'manifest.json':raw},file_limit=32*1024**2)
+    record['provenance'][0].update(id=sid,sha256=sha(raw));rid=results.publish(record)['result_id']
+    with pytest.raises(ResearchError):project(results,rid)
