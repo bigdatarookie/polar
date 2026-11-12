@@ -72,3 +72,13 @@ def test_anchor_adapter_preserves_latest_equal_high_episode_and_empty_stress():
     assert d['drawdown']['peak']['date']==DAYS[1]
     assert d['subperiods'][0]['drawdown']['peak']['date']==DAYS[1]
     assert diagnose_temporal_anchors(t,[],subperiods=())['subperiods']==[]
+
+
+def test_missing_anchor_reason_and_requested_date_reach_common_public_limitations():
+    from polar.scheduled_service import project_diagnostics
+    t=ledger();d=diagnose_temporal_anchors(t,[],subperiods=[('2024-01-01',DAYS[-1])])
+    record={'series':[{'id':t['id'],'label':'Invented temporal'}],'metrics':[],'limitations':[]}
+    project_diagnostics(record,{t['id']:d})
+    segment=next(l for l in record['limitations'] if l['code'].startswith('SEGMENT_'))
+    assert 'requested saved NAV anchor 2024-01-01' in segment['text']
+    assert 'UNAVAILABLE/SAVED_NAV_ANCHOR_MISSING' in segment['text']

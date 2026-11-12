@@ -378,6 +378,8 @@ def project_diagnostics(record, diagnostics):
             scalar = lambda section, key: (segment.get(section, {}).get(key) or {}).get('value', 'unavailable')
             record['limitations'].append({'code': f'SEGMENT_{index}_'+series['id'], 'scope': series['label'],
                 'text': (f"Saved subperiod {index+1}: {segment.get('first_return_date')} through {segment.get('last_return_date')}, "
+                         +(f"requested saved NAV anchor {segment['requested_initial_anchor']}; mapping {segment['status']}/{segment.get('reason') or 'OK'}. "
+                           if 'requested_initial_anchor' in segment else '')+
                          f"preceding-close anchor {segment.get('initial_date')}; {segment.get('intervals')} returns. "
                          f"Normalization initial NAV cents {segment.get('costs', {}).get('normalization_initial_nav_cents')}. "
                          f"CAGR {scalar('metrics', 'net_cagr_act36525')}, annual volatility {scalar('metrics', 'annual_vol_252')}; "
