@@ -381,7 +381,9 @@ function getMainComparison(){
   return comparisonCache.model;
 }
 function priceDisplayValue(value){const model=getMainComparison();return model?.usable?researchNormalize(value,model.priceBase):numberOrNull(value);}
-function selectMainResearch(id,fit=true){
+function selectMainResearch(id,fit=true,preserveSameResult=false){
+  // Returning from the same immutable research result is navigation, not a new strategy selection.
+  if(preserveSameResult&&id===mainResearchSelection){comparisonCache=null;keepScroll(renderAll);saveWorkspace();return;}
   mainResearch.chosen=mainResearch.page?.details?.find(d=>d.result_id===id)||mainResearch.chosen;mainResearchSelection=id;comparisonCache=null;state.measurement=null;state.cursorSource='assetClose';cancelGesture();
   const model=getMainComparison();if(fit&&model?.usable){viewportVersion++;state.lo=model.first;state.hi=model.last;state.rangeId='Custom';state.cursor=state.inspect=state.lo;}
   selectedExecutionId=null;loadExecutions();keepScroll(renderAll);saveWorkspace();tell(model?.usable?'Saved strategy and benchmark compared on Index100. Portfolio is not attributed to this asset.':model?.reason||'Select stored history to compare.');
@@ -583,7 +585,7 @@ function initUI() {
 function initResearchWorkspace(){
   const root=element('main');root.id='research-workspace';$('#workspace').after(root);
   const foot=element('span');foot.id='research-footer';$('footer').prepend(foot);
-  researchWorkspace=createResearchWorkspace({root,historyWorkspace:$('#workspace'),fetcher:fetch,onCompare:saved=>{mainResearch.chosen=saved;researchWorkspace.open(false);selectMainResearch(saved.result_id,true);requestAnimationFrame(()=>$('#chart-stage').focus({preventScroll:true}));},
+  researchWorkspace=createResearchWorkspace({root,historyWorkspace:$('#workspace'),fetcher:fetch,onCompare:saved=>{mainResearch.chosen=saved;researchWorkspace.open(false);selectMainResearch(saved.result_id,true,true);requestAnimationFrame(()=>$('#chart-stage').focus({preventScroll:true}));},
     theme:()=>state.theme,setTheme,
     onToggle:active=>{document.body.dataset.workspace=active?'research':'price';foot.hidden=!active;if(!active)requestAnimationFrame(()=>{chart.resize();renderChart();drawMeasurement();syncToolbar();if(mainResearchReturnFocus)document.getElementById(mainResearchReturnFocus)?.focus({preventScroll:true});});},
     onContext:text=>{foot.textContent=text;foot.title=text;}});
