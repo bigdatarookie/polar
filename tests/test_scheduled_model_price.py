@@ -101,3 +101,28 @@ def test_debited_native_common_projection_and_source_absent_saved_mapping(tmp_pa
     replay=service.recompute(result['semantic_id'])
     assert replay['status']=='REPRODUCED' and replay['native_calls']==replay['store_writes']==0
     assert snapshot(root)==before
+
+
+def test_source_equality_is_not_replaced_by_mapping_and_domain_failure_is_charged(tmp_path,monkeypatch):
+    root,cfg,p,cal=model_fixture(tmp_path,monkeypatch)
+    source=load_reference(cfg['input_ref']);huge=deepcopy(source)
+    a=p['symbols'][0];day=source['dates'][0];huge['prices_micro'][day][a]=10**24
+    with pytest.raises(ValueError,match='MODEL_PRICE_DOMAIN'):view(huge,p['model_price_mapping'])
+    # Changing source reference_quote cannot masquerade as a declared model view.
+    manifest=json.loads(Path(cfg['input_ref']['path']).read_bytes())
+    rows=[json.loads(line) for line in Path(manifest['quotes']['path']).read_bytes().splitlines()]
+    rows[0]['reference_quote']='123456.000001'
+    from polar.gym_contract import canonical
+    manifest['quotes']=write(tmp_path/'changed-quotes.ndjson',b''.join(canonical(r) for r in rows))
+    pin=write(tmp_path/'changed-manifest.json',manifest)
+    with pytest.raises(ValueError,match='REFERENCE_SCALE_CHANGED'):load_reference(pin)
+    import polar.scheduled_service as module
+    def overflow(*a,**k):
+        assert len(list(root.rglob('start.json')))==1
+        raise ValueError('MODEL_PRICE_DOMAIN')
+    monkeypatch.setattr(module,'load_market',overflow)
+    service=ReferenceResearchService(root,128*1024**2)
+    with pytest.raises(ValueError,match='MODEL_PRICE_DOMAIN'):service.run(cfg)
+    finish=json.loads(next(root.rglob('finish/record.json')).read_bytes())
+    assert finish['scientific_status']=='INVALID' and finish['refund'] is False and finish['automatic_retry'] is False
+    with pytest.raises(ValueError,match='ORIGINAL_ALREADY_RECORDED'):service.run(cfg)
