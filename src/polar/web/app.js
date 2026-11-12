@@ -12,6 +12,12 @@ let state = {...restoredControls(null, 0), dataMode:'real',assetId:null, strateg
 let dataset = null, detail = null, view = emptyView(), catalog = [], runRows = [], datasetOffset = 0, runOffset = 0;
 let researchWorkspace=null;
 let mainResearchClient=null,mainResearch={page:null,loading:false,error:null,offset:0},mainResearchSelection=null;
+let mainResearchFlow=0;
+let mainMetricSort={key:null,direction:'desc'};
+// Enable only against a qualified saved-executions serving handoff.
+const EXECUTIONS_RUNTIME_READY=true; // Qualified ef73b9f serving receipt, 2026-11-12T06:51Z.
+const executionClient=createResearchExecutionClient((...args)=>fetch(...args));
+let executions={resultId:null,page:null,allItems:[],loading:false,error:null},selectedExecutionId=null,executionFlow=0;
 let comparisonCache=null,comparisonBenchmark=true,mainResearchReturnFocus=null;
 let chart, loading = false, loadError = null, flow = 0, assetQuery = '', assetOptionIndex = 0, rendering = false, restoreFrame = 0;
 let pendingSelection=null, failedSelection=null;
@@ -29,7 +35,7 @@ function anySource(source) {return view.bars.some((_,i)=>(!historyDisplayed()||(
 function palette() {const c = getComputedStyle(document.documentElement); return Object.fromEntries(['surface','soft','ink','muted','rule','action','equity','benchmark','sma','up','down','positive','negative'].map(k => [k, c.getPropertyValue('--'+k).trim()]));}
 function resolvedTheme() {if (state.theme !== 'auto') return state.theme; return matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';}
 function tell(text) {$('#status').textContent = text;}
-function keepScroll(fn) {const x=scrollX,y=scrollY,saved=['#rail-body','#strategy-list','#raw-readout'].map(s=>[$(s),$(s)?.scrollTop||0]),id=document.activeElement?.id;fn();const active=id?document.getElementById(id):null;if(active&&active!==document.activeElement)active.focus({preventScroll:true});const restore=()=>{window.scrollTo(x,y);saved.forEach(([el,top])=>{if(el)el.scrollTop=top})};restore();cancelAnimationFrame(restoreFrame);restoreFrame=requestAnimationFrame(restore);}
+function keepScroll(fn) {const x=scrollX,y=scrollY,saved=['#workspace','#rail-body','#strategy-list','#raw-readout'].map(s=>[$(s),$(s)?.scrollTop||0]),id=document.activeElement?.id;fn();const active=id?document.getElementById(id):null;if(active&&active!==document.activeElement)active.focus({preventScroll:true});const restore=()=>{window.scrollTo(x,y);saved.forEach(([el,top])=>{if(el)el.scrollTop=top})};restore();cancelAnimationFrame(restoreFrame);restoreFrame=requestAnimationFrame(restore);}
 function syncModes() {$$('[data-mode]').forEach(b=>b.setAttribute('aria-pressed', String(b.dataset.mode === state.mode)));}
 function saveWorkspace() {try {sessionStorage.setItem(sessionKey, JSON.stringify({dataset_id:dataset?.dataset_id,run_id:detail?.run.id,controls:state,history_revision:historyContext?.revision?.dataset_revision,instrument_id:historyContext?.instrument?.instrument_id,history_window:historyDisplayed()?visibleHistoryWindow():null,research_result_id:mainResearchSelection,research_benchmark:comparisonBenchmark}));} catch {}}
 function writeURL(push) {const url=new URL(location.href);url.searchParams.set('mode',historyDisplayed()?'real':'retained-test');for(const key of ['dataset','run','revision','instrument'])url.searchParams.delete(key);if(dataset)url.searchParams.set('dataset',dataset.dataset_id);if(historyDisplayed()){if(historyContext?.revision)url.searchParams.set('revision',historyContext.revision.dataset_revision);if(historyContext?.instrument)url.searchParams.set('instrument',historyContext.instrument.instrument_id);}else if(detail)url.searchParams.set('run',detail.run.id);history[push?'pushState':'replaceState'](null,'',url);saveWorkspace();}
@@ -288,6 +294,38 @@ function setDataMode(mode){
   if(mode==='retained-test'){keepScroll(renderRail);const [asset,run]=urlSelection();loadSelection(run?asset:null,run||null,{catalogPage:0});}
   else loadHistorySelection({});
 }
+async function loadExecutions(offset=0){
+  const current=++executionFlow,focusId=document.activeElement?.id,saved=selectedMainResearch();executionClient.cancel();if(!saved){executions={resultId:null,page:null,loading:false,error:null};selectedExecutionId=null;keepScroll(()=>{renderRail();renderChart();});return;}
+  const id=saved.result_id;executions={resultId:id,page:null,loading:EXECUTIONS_RUNTIME_READY,error:EXECUTIONS_RUNTIME_READY?null:'SAVED_EXECUTION_READER_NOT_QUALIFIED'};keepScroll(renderRail);if(!EXECUTIONS_RUNTIME_READY)return;
+  try{const result=await researchLoadAllExecutions(executionClient,saved,()=>current===executionFlow&&mainResearchSelection===id);if(!result)return;executions={resultId:id,page:result.page,allItems:result.allItems,offset:0,loading:false,error:null};}catch(error){if(current!==executionFlow||mainResearchSelection!==id)return;executions={resultId:id,page:null,loading:false,error:/^[A-Z0-9_]+$/.test(error.message)?error.message:'SAVED_EXECUTIONS_UNAVAILABLE'};}
+  keepScroll(()=>{renderRail();renderChart();});if(['executions-next','executions-previous'].includes(focusId)){const target=document.getElementById(focusId);(target&&!target.disabled?target:document.getElementById(focusId==='executions-next'?'executions-previous':'executions-next'))?.focus({preventScroll:true});}
+}
+function matchingExecutions(){
+  if(executions.resultId!==mainResearchSelection||executions.page?.status!=='OK')return [];
+  return (executions.allItems||[]).filter(event=>{const binding=event.instrument;return binding.status==='BOUND'&&binding.dataset_id===historyContext?.revision?.dataset_id&&binding.dataset_revision===historyContext?.revision?.dataset_revision&&binding.instrument_id===historyContext?.instrument?.instrument_id&&event.status==='FILLED';});
+}
+async function selectExecution(event){
+  if(event.instrument.status!=='BOUND')return;
+  selectedExecutionId=event.order_id;const binding=event.instrument,id=mainResearchSelection,center=event.session_date;
+  const span=Math.max(14,Math.min(10000,Math.round((Date.parse(view.bars[state.hi]?.time)-Date.parse(view.bars[state.lo]?.time))/86400000)||30)),start=new Date(center+'T00:00:00Z'),end=new Date(start);start.setUTCDate(start.getUTCDate()-Math.floor(span/2));end.setUTCDate(end.getUTCDate()+Math.ceil(span/2)+1);
+  await loadHistorySelection({datasetId:binding.dataset_id,revision:binding.dataset_revision,instrumentId:binding.instrument_id,rangeId:'Custom',window:{start:start.toISOString().slice(0,10),end_exclusive:end.toISOString().slice(0,10)},push:true});
+  if(id!==mainResearchSelection)return;if(historyContext?.instrument?.instrument_id!==binding.instrument_id||historyContext?.revision?.dataset_revision!==binding.dataset_revision||loadError){tell('Order security update unavailable; previous valid chart retained. Retry the order or history request.');return;}
+  if(innerWidth<701)$('#rail-inner').classList.remove('mobile-open');$('#workspace').scrollTop=0;$('#chart-stage').focus({preventScroll:true});tell(event.symbol+' · '+event.side+' saved '+event.status+' · '+event.session_date+'; execution USD/unit is a separate price axis.');saveWorkspace();
+}
+function renderSavedExecutions(body){
+  const saved=selectedMainResearch();panelNote(body,saved?researchReadable(saved.record.question.label):'Select a saved strategy to inspect its actual saved order tape.');if(!saved)return;
+  if(executions.resultId!==saved.result_id||executions.loading){panelNote(body,'Loading saved executions · no fills inferred.');return;}
+  if(executions.error){panelNote(body,'Saved executions unavailable · '+executions.error);const retry=element('button','Retry saved executions');retry.id='retry-executions';retry.onclick=()=>loadExecutions();body.append(retry);return;}
+  const page=executions.page;if(!page||page.status==='UNAVAILABLE'){panelNote(body,'Saved execution tape unavailable · '+(page?.reason||'NOT_LOADED'));return;}
+  panelNote(body,page.total===0?'No orders in this saved tape.':'Saved simulation · '+page.total+' orders · '+page.quote_basis+' · '+page.quantity_unit+'. All saved tape pages loaded. Markers show only the exact bound instrument; separate USD/unit axis, never candle price.');
+  const nav=element('div',undefined,'execution-pages');for(const [label,offset] of [['Previous',Math.max(0,(executions.offset||0)-100)],['Next',(executions.offset||0)+100<page.total?(executions.offset||0)+100:null]]){const button=element('button',label);button.id='executions-'+label.toLowerCase();button.disabled=label==='Previous'?!executions.offset:offset===null;button.onclick=()=>{executions.offset=offset;const id=button.id;keepScroll(renderRail);$('#rail-body').scrollTop=0;const next=document.getElementById(id);(next&&!next.disabled?next:document.getElementById(id==='executions-next'?'executions-previous':'executions-next'))?.focus({preventScroll:true});};nav.append(button);}body.append(nav);
+  for(const event of (executions.allItems||[]).slice(executions.offset||0,(executions.offset||0)+100)){
+    const article=element('article',undefined,'order-entry saved-order');article.dataset.orderId=event.order_id;article.dataset.selected=String(event.order_id===selectedExecutionId);const button=element('button',event.symbol+' · '+event.side+' · '+event.status,'saved-order-select');button.id='saved-order-'+encodeURIComponent(event.order_id);button.setAttribute('aria-pressed',String(event.order_id===selectedExecutionId));button.disabled=event.instrument.status!=='BOUND';button.onclick=()=>selectExecution(event);article.append(button,element('p',event.timestamp),element('small','Session '+event.session_date+' · native submission / matched fill'));
+    article.append(element('p','Intended '+event.intended_quantity+' · routed '+event.routed_quantity+' · filled '+event.filled_quantity+' '+page.quantity_unit));
+    article.append(element('p',event.status==='FILLED'?'$'+executionScaledToken(event.price_micro,6)+' / '+(page.price_unit==='USD_PER_SYNTHETIC_REFERENCE_UNIT'?'synthetic reference unit':'modeled share')+' · fee $'+executionScaledToken(event.fee_cents,2):'Not routed · '+(event.reason||'No fill')));
+    article.append(element('small',event.instrument.status==='BOUND'?event.instrument.source_symbol+' · declared current mapping, not PIT certification':event.instrument.reason));const exact=element('details');exact.append(element('summary','Exact order identity'),element('p',event.order_id),element('p','Timestamp ns '+event.timestamp_ns),element('p','Price micro '+(event.price_micro??'Not filled')));article.append(exact);body.append(article);
+  }
+}
 function renderRail() {
   const body=$('#rail-body');body.replaceChildren(element('h3',state.mode));
   if(state.mode==='Settings') {
@@ -295,7 +333,7 @@ function renderRail() {
     const settings=element('div',undefined,'settings-group');settings.append(element('h4','Color theme'));const group=element('div',undefined,'theme-options');
     ['auto','light','dark'].forEach(mode=>{const b=element('button',mode[0].toUpperCase()+mode.slice(1));b.id='theme-'+mode;b.setAttribute('aria-pressed',String(state.theme===mode));b.onclick=()=>setTheme(mode);group.append(b);});settings.append(group);
     panelNote(settings,state.theme==='auto'?'Auto · system resolves '+resolvedTheme()+'.':'Manual '+state.theme+' · overrides OS changes.');body.append(settings);
-    checkbox(body,'marker-toggle','Execution markers','Show attributed actual signed fills; no inferred round trips.','markers',!view.markers.length);
+    checkbox(body,'marker-toggle','Execution markers','Show attributed actual signed fills; no inferred round trips.','markers',historyDisplayed()?!matchingExecutions().length:!view.markers.length);
     const convention=element('div',undefined,'context-note');convention.append(element('b','Display convention'),element('p',historyDisplayed()?'Raw unadjusted OHLC in '+(historyContext?.revision?.basis.price_unit||'source units')+'. Provider-adjusted close and split-adjusted volume remain separate. Price candles remain separate from saved portfolio NAV.':'Price ÷ first usable open × 100. Retained NAV ÷ report initial cash × 100. Separate bases; no range rebasing.'));body.append(convention);
     panelNote(body,'Auto follows the OS. Unresolved preference uses Dark. Manual Light/Dark takes precedence until Auto or Reset.');
     const source=element('div',undefined,'settings-group');source.append(element('h4','Data source'));const choices=element('div',undefined,'theme-options');
@@ -314,8 +352,7 @@ function renderRail() {
     const context=element('div',undefined,'context-note');context.append(element('b','Settings are retained'),element('p','Periods change requested backend parameters, not the active asset or range. All pages/values/statuses commit together; previous coherent display is retained while updating.'));body.append(context);return;
   }
   if(historyDisplayed()) {
-    panelNote(body,historyContext?.instrument?(getAsset().symbol+' · stored history'):'Choose registered stored history.');
-    panelNote(body,'NO_ATTRIBUTED_ORDERS · no order tape is bound to this price history. Open a saved portfolio from the main strategy list to inspect its supplied ledger.');
+    renderSavedExecutions(body);
     if(historyContext?.revision)diagnosticPanel(body,'source','Pinned source details',historyContext.revision.dataset_revision+' · Calendar '+(historyContext.bars?.coverage.calendar_status||historyContext.revision.calendar_status||'UNVERIFIED')+' · PIT '+(historyContext.revision.fitness?.causal_PIT_fitness||'INSUFFICIENT_EVIDENCE'));return;
   }
   panelNote(body,dataset?getAsset().symbol+' · '+getStrategy().name:'Choose an available retained dataset and run.');
@@ -327,13 +364,14 @@ function renderRail() {
   report.orders.forEach(o=>{const row=element('article',undefined,'order-entry');row.append(element('b','Instruction · '+o.status),element('small','Decision '+o.decision_session_id),element('p',o.reason||'No additional reason'));const tape=report.order_tape.find(t=>t.decision_session_id===o.decision_session_id);if(tape)row.append(element('p',tape.quantity+' shares · '+fmtDate(tape.decision_at)));body.append(row);});
   panelNote(body,'Signed fills and instructions are separate; no closed-trade count or per-trade P&L is inferred.');
 }
+function showMainResearchPage(offset){const id=document.activeElement?.id;mainResearch.offset=offset;keepScroll(renderRows);if(['runs-prev','runs-next'].includes(id)&&document.getElementById(id)?.disabled)document.getElementById(id==='runs-next'?'runs-prev':'runs-next')?.focus({preventScroll:true});}
 async function loadMainResearch(offset=mainResearch.offset){
-  if(!mainResearchClient)return;
+  if(!mainResearchClient)return;const request=++mainResearchFlow;
   mainResearch.loading=true;mainResearch.error=null;mainResearch.offset=offset;if(historyDisplayed())keepScroll(renderRows);
   try{
-    const page=await mainResearchClient.load(offset,null,{includeDetails:true});if(!page)return;
-    mainResearch.page=page;mainResearch.loading=false;mainResearch.error=null;if(!page.catalog.total){mainResearchSelection=null;mainResearch.chosen=null;comparisonCache=null;state.measurement=null;state.cursorSource='assetClose';}
-  }catch(error){mainResearch.loading=false;mainResearch.error=/^[A-Z0-9_]+$/.test(error.message)?error.message:'RESEARCH_API_UNAVAILABLE';}
+    const page=await researchLoadAll(mainResearchClient,()=>request===mainResearchFlow);if(!page)return;mainResearch.offset=Math.min(offset,Math.max(0,Math.floor((page.catalog.total-1)/10)*10));
+    mainResearch.page=page;mainResearch.loading=false;if(mainResearchSelection&&executions.resultId!==mainResearchSelection)loadExecutions();mainResearch.error=null;if(!page.catalog.total){mainResearchSelection=null;mainResearch.chosen=null;comparisonCache=null;state.measurement=null;state.cursorSource='assetClose';}
+  }catch(error){if(request!==mainResearchFlow)return;mainResearch.loading=false;mainResearch.error=/^[A-Z0-9_]+$/.test(error.message)?error.message:'RESEARCH_API_UNAVAILABLE';}
   if(historyDisplayed())keepScroll(()=>{renderRows();syncToolbar();renderChart();drawMeasurement();});
 }
 function selectedMainResearch(){return mainResearch.page?.details?.find(d=>d.result_id===mainResearchSelection)||(mainResearch.chosen?.result_id===mainResearchSelection?mainResearch.chosen:null);}
@@ -346,7 +384,7 @@ function priceDisplayValue(value){const model=getMainComparison();return model?.
 function selectMainResearch(id,fit=true){
   mainResearch.chosen=mainResearch.page?.details?.find(d=>d.result_id===id)||mainResearch.chosen;mainResearchSelection=id;comparisonCache=null;state.measurement=null;state.cursorSource='assetClose';cancelGesture();
   const model=getMainComparison();if(fit&&model?.usable){viewportVersion++;state.lo=model.first;state.hi=model.last;state.rangeId='Custom';state.cursor=state.inspect=state.lo;}
-  keepScroll(renderAll);saveWorkspace();tell(model?.usable?'Saved strategy and benchmark compared on Index100. Portfolio is not attributed to this asset.':model?.reason||'Select stored history to compare.');
+  selectedExecutionId=null;loadExecutions();keepScroll(renderAll);saveWorkspace();tell(model?.usable?'Saved strategy and benchmark compared on Index100. Portfolio is not attributed to this asset.':model?.reason||'Select stored history to compare.');
 }
 function comparisonReadout(i){const model=getMainComparison();if(!model?.usable)return '';return '\nSaved portfolio sample '+(model.times[i]||'not supplied on this calendar date')+' · strategy '+(model.strategyRaw[i]??'Unavailable')+' USD · benchmark '+(model.benchmarkRaw[i]??'Unavailable')+' USD · Index100 baseline '+model.baselineDate+'; no fills inferred.';}
 function renderComparisonContext(){
@@ -354,7 +392,7 @@ function renderComparisonContext(){
   const model=getMainComparison(),r=saved.record,head=element('div',undefined,'comparison-heading');head.append(element('b',researchReadable(model?.strategy?.label||r.question.label)),element('span',researchPhase(r)+' · '+r.grid[0].slice(0,10)+' → '+r.grid.at(-1).slice(0,10)));
   const fit=element('button','Fit research dates');fit.id='fit-research';fit.disabled=!model?.usable;fit.onclick=()=>selectMainResearch(saved.result_id,true);
   const clear=element('button','Price only');clear.id='clear-comparison';clear.onclick=()=>selectMainResearch(null,false);
-  const open=element('button','Read research');open.id='comparison-read-research';open.onclick=()=>{mainResearchReturnFocus=open.id;researchWorkspace?.openResult(saved.result_id,mainResearch.page.catalog.offset);};
+  const open=element('button','Read research');open.id='comparison-read-research';open.onclick=()=>{mainResearchReturnFocus=open.id;researchWorkspace?.openResult(saved.result_id,mainResearch.page.offsets[saved.result_id]??0);};
   const controls=element('div',undefined,'comparison-actions');const label=element('label'),check=element('input');check.type='checkbox';check.checked=comparisonBenchmark;check.id='saved-benchmark-toggle';check.onchange=()=>{comparisonBenchmark=check.checked;keepScroll(()=>{syncToolbar();renderChart();});saveWorkspace();};label.append(check,document.createTextNode('Saved benchmark'));controls.append(label,fit,open,clear);
   host.append(head,controls);
   const note=element('p',model?.usable?'Index100 at '+model.baselineDate+' · '+getAsset().symbol+' raw candles / saved strategy / '+researchReadable(model.benchmark.label)+'. Calendar-date display alignment only; source clocks and wealth bases differ.':model?.reason||'No common comparison available.');note.id='comparison-scale';
@@ -366,18 +404,25 @@ function renderMainResearch(list){
   const page=mainResearch.page;$$('.list-heading h2 span').forEach(el=>el.textContent=page?page.catalog.total+' saved results':'Saved research');$('.list-heading p').textContent='Select a strategy to compare its portfolio and benchmark with price context';
   const status=element('p',mainResearch.loading?'Updating saved strategies · current comparison retained.':mainResearch.error?'Saved strategy update failed · '+mainResearch.error:page?.catalog.total?'Choose a strategy · rows select the main chart':'No saved research records available.','panel-note');status.id='main-research-status';status.hidden=!mainResearch.loading&&!mainResearch.error&&!!page?.catalog.total;status.setAttribute('role','status');list.append(status);
   const refresh=element('button',mainResearch.error?'Retry saved strategies':'Refresh saved strategies');refresh.id='main-research-refresh';refresh.onclick=()=>loadMainResearch();$('#sort-label').replaceChildren(refresh);
-  for(const saved of page?.details||[]){
+  let head=$('#main-strategy-head');if(!head){head=element('div',undefined,'main-strategy-head');head.id='main-strategy-head';list.before(head);}head.hidden=false;head.replaceChildren();
+  head.append(element('span','Strategy · sort all results'));
+  for(const [key,label] of [['sharpe','Sharpe'],['drawdown','Drawdown'],['annualized','Annualized']]){
+    const button=element('button',label+(mainMetricSort.key===key?(mainMetricSort.direction==='asc'?' ↑':' ↓'):''));button.id='main-sort-'+key;button.setAttribute('aria-label',label+': '+(mainMetricSort.key===key?mainMetricSort.direction+'ending. Reverse sort':'sort descending')+' across all results');button.setAttribute('aria-pressed',String(mainMetricSort.key===key));button.onclick=()=>{mainMetricSort={key,direction:mainMetricSort.key===key&&mainMetricSort.direction==='desc'?'asc':'desc'};keepScroll(renderRows);saveWorkspace();};head.append(button);
+  }
+  head.append(element('span','Details'));
+  for(const saved of researchSortRows(page?.details||[],mainMetricSort.key,mainMetricSort.direction).slice(mainResearch.offset,mainResearch.offset+10)){
     const r=saved.record,row=element('article',undefined,'main-strategy-row');row.dataset.resultId=saved.result_id;row.setAttribute('role','listitem');row.dataset.selected=String(saved.result_id===mainResearchSelection);
     const choose=element('button',undefined,'main-strategy-select');choose.dataset.compareResult=saved.result_id;choose.id='main-compare-'+saved.result_id;choose.setAttribute('aria-pressed',String(saved.result_id===mainResearchSelection));choose.append(element('b',r.question.label),element('small',researchPhase(r)+' · '+r.grid[0].slice(0,10)+' – '+r.grid.at(-1).slice(0,10)+' · '+r.grid.length+' samples'));choose.onclick=()=>selectMainResearch(saved.result_id);
     const verdict=element('span',researchReadable(saved.assessment.financial),'main-strategy-verdict');
-    const open=element('button','Research','main-strategy-info');open.dataset.openResearch=saved.result_id;open.id='main-research-open-'+saved.result_id;open.setAttribute('aria-label','Read research: '+r.question.label);open.onclick=()=>{mainResearchReturnFocus=open.id;researchWorkspace?.openResult(saved.result_id,page.catalog.offset);};row.append(choose,verdict,open);list.append(row);
+    const open=element('button','Research','main-strategy-info');open.dataset.openResearch=saved.result_id;open.id='main-research-open-'+saved.result_id;open.setAttribute('aria-label','Read research: '+r.question.label);open.onclick=()=>{mainResearchReturnFocus=open.id;researchWorkspace?.openResult(saved.result_id,page.offsets[saved.result_id]??0);};choose.append(verdict);row.append(choose);for(const key of ['sharpe','drawdown','annualized']){const metric=researchRowMetric(saved,key),cell=element('span',metric.display,'main-metric');cell.dataset.metric=key;cell.title=metric.label+' · '+(metric.available?metric.value+' '+metric.unit:metric.reason);if(!metric.available)cell.classList.add('unavailable');row.append(cell);}row.append(open);list.append(row);
   }
-  $('#runs-page').textContent=page?.catalog.items.length?'Results '+(page.catalog.offset+1)+'–'+(page.catalog.offset+page.catalog.items.length)+' of '+page.catalog.total:'No saved results';$('#runs-prev').disabled=mainResearch.loading||!page||page.catalog.offset===0;$('#runs-next').disabled=mainResearch.loading||page?.catalog.next_offset==null;
+  $('#runs-page').textContent=page?.details.length?'Results '+(mainResearch.offset+1)+'–'+Math.min(mainResearch.offset+10,page.catalog.total)+' of '+page.catalog.total+(mainMetricSort.key?' · globally sorted':' · catalog order'):'No saved results';$('#runs-prev').disabled=mainResearch.loading||!page||mainResearch.offset===0;$('#runs-next').disabled=mainResearch.loading||!page||mainResearch.offset+10>=page.catalog.total;
 }
 
 function renderRows() {
   const list=$('#strategy-list');list.replaceChildren();
   if(historyDisplayed()){renderMainResearch(list);return;}
+  if($('#main-strategy-head'))$('#main-strategy-head').hidden=true;
   list.setAttribute('role','listbox');list.setAttribute('aria-label','Choose an actual retained run');$('.table-head').hidden=false;
   const sorted=[...runRows].sort((a,b)=>{
     let x,y;if(state.sortBy==='createdAt'){x=a.run.created_at;y=b.run.created_at;}else{const key=state.sortBy==='returnPct'?'total_return':'sharpe_252';x=numberOrNull(a.metrics?.[key]?.value);y=numberOrNull(b.metrics?.[key]?.value);if(x===null||y===null)return x===y?String(a.run.id).localeCompare(String(b.run.id)):x===null?1:-1;}
@@ -450,9 +495,10 @@ function syncToolbar() {
 function renderAll() {document.documentElement.dataset.theme=resolvedTheme();renderPending();syncModes();renderRail();renderRows();renderRecord();syncToolbar();renderChart();drawMeasurement();showRaw(state.inspect);renderSeriesState();}
 function chartLayout(){
   const control=displayedHistoryControls();
-  return chartGeometry({height:$('#chart').clientHeight,width:$('#chart').clientWidth,narrow:innerWidth<701,
+  const geometry=chartGeometry({height:$('#chart').clientHeight,width:$('#chart').clientWidth,narrow:innerWidth<701,
     rsi:historyDisplayed()&&!!historyContext?.series&&control.rsi,
     reference:historyDisplayed()&&!!historyContext?.series&&control.benchmark,volume:state.volume});
+  if(historyDisplayed()&&state.markers&&matchingExecutions().length){const extra=geometry.reference?(innerWidth<701?36:45):30;geometry.right+=extra;geometry.grid.forEach(g=>g.right=geometry.right);geometry.priceBox.width-=extra;}return geometry;
 }
 function renderChart() {
   if(!chart||$('#workspace').hidden)return;hideCandleBoundary();const c=palette(),bars=view.bars,narrow=innerWidth<701,layout=chartLayout(),control=displayedHistoryControls(),real=historyDisplayed();
@@ -479,7 +525,14 @@ function renderChart() {
   const yAxis=[{type:'value',gridIndex:0,scale:true,splitNumber:narrow?3:5,axisLabel:{color:c.muted,fontSize:narrow?8:10},splitLine:{lineStyle:{color:c.rule,opacity:.55}}},{type:'value',gridIndex:1,show:real&&layout.volume,splitNumber:2,axisLabel:{hideOverlap:true,color:c.muted,fontSize:8,formatter:n=>n>=1e6?(n/1e6).toFixed(1)+'m':n>=1e3?(n/1e3).toFixed(0)+'k':String(n)},splitLine:{show:false}},{type:'value',gridIndex:0,position:'right',scale:true,show:layout.reference,splitNumber:3,axisLabel:{color:c.benchmark,fontSize:8,formatter:n=>Math.abs(n)>=1000?(n/1000).toFixed(1)+'k':String(Number(n.toFixed(1)))},splitLine:{show:false}}];
   if(layout.rsi)yAxis.push({type:'value',gridIndex:2,min:0,max:100,interval:50,axisLabel:{color:c.muted,fontSize:8},splitLine:{lineStyle:{color:c.rule,opacity:.55}}});
   const axes=layout.rsi?[0,1,2]:[0,1];
-  rendering=true;chart.setOption({animation:false,backgroundColor:c.surface,textStyle:{fontFamily:'Golos Text',color:c.ink},grid:layout.grid,xAxis,yAxis,dataZoom:[{id:'inside',type:'inside',xAxisIndex:axes,startValue:state.lo,endValue:state.hi,filterMode:real?'filter':'none',rangeMode:['value','value'],zoomOnMouseWheel:false,moveOnMouseWheel:false,moveOnMouseMove:true,disabled:!available},{id:'slider',type:'slider',xAxisIndex:axes,startValue:state.lo,endValue:state.hi,filterMode:real?'filter':'none',rangeMode:['value','value'],left:layout.left,right:layout.right,bottom:4,height:15,moveHandleSize:0,showDataShadow:false,showDetail:false,borderColor:c.rule,backgroundColor:c.surface,fillerColor:resolvedTheme()==='dark'?'#bb9ae720':'#7145a315',handleStyle:{color:c.surface,borderColor:c.action},brushSelect:false,disabled:!available}],tooltip:{show:true,trigger:'item',confine:true,backgroundColor:c.surface,borderColor:c.rule,textStyle:{color:c.ink,fontSize:10,fontFamily:'Golos Text'},formatter:p=>{if(state.measurement||!p.data?.fill)return '';const f=p.data.fill;return element('div',(Number(f.quantity)<0?'SELL ':'BUY ')+f.quantity+' shares · '+usd(f.price)+' · fee '+f.fee+' · '+fmtDate(f.fill_at)+' · receipt '+fmtDate(f.receipt_at));}},series},{notMerge:true});rendering=false;
+  if(real&&state.markers){
+    const fills=matchingExecutions(),axis=yAxis.length;
+    if(fills.length){yAxis.push({type:'value',gridIndex:0,position:'right',offset:layout.reference?(narrow?35:42):0,scale:true,splitNumber:3,name:'Fill USD/unit',nameTextStyle:{color:c.action,fontSize:8},axisLabel:{color:c.action,fontSize:8,formatter:n=>'$'+Number(n.toFixed(2))},splitLine:{show:false}});
+      series.push({id:'saved-executions',name:'Saved fills · separate USD/unit',type:'scatter',yAxisIndex:axis,symbol:'triangle',symbolSize:(_,p)=>p.data.execution.order_id===selectedExecutionId?13:8,
+        data:fills.map(event=>({value:[event.session_date,Number(executionScaledToken(event.price_micro,6))],execution:event,label:{show:event.order_id===selectedExecutionId,formatter:event.symbol+' '+event.side,position:event.side==='BUY'?'top':'bottom',color:c.action,fontSize:10,backgroundColor:c.surface,padding:3},itemStyle:{color:event.side==='BUY'?c.up:c.down,borderColor:event.order_id===selectedExecutionId?c.ink:c.surface,borderWidth:1}})).filter(p=>bars.some(b=>b.time===p.value[0])&&Number.isFinite(p.value[1])),z:9});
+    }
+  }
+  rendering=true;chart.setOption({animation:false,backgroundColor:c.surface,textStyle:{fontFamily:'Golos Text',color:c.ink},grid:layout.grid,xAxis,yAxis,dataZoom:[{id:'inside',type:'inside',xAxisIndex:axes,startValue:state.lo,endValue:state.hi,filterMode:real?'filter':'none',rangeMode:['value','value'],zoomOnMouseWheel:false,moveOnMouseWheel:false,moveOnMouseMove:true,disabled:!available},{id:'slider',type:'slider',xAxisIndex:axes,startValue:state.lo,endValue:state.hi,filterMode:real?'filter':'none',rangeMode:['value','value'],left:layout.left,right:layout.right,bottom:4,height:15,moveHandleSize:0,showDataShadow:false,showDetail:false,borderColor:c.rule,backgroundColor:c.surface,fillerColor:resolvedTheme()==='dark'?'#bb9ae720':'#7145a315',handleStyle:{color:c.surface,borderColor:c.action},brushSelect:false,disabled:!available}],tooltip:{show:true,trigger:'item',confine:true,backgroundColor:c.surface,borderColor:c.rule,textStyle:{color:c.ink,fontSize:10,fontFamily:'Golos Text'},formatter:p=>{if(p.data?.execution){const e=p.data.execution;return element('div',e.symbol+' · '+e.side+' · saved '+e.status+' · '+e.timestamp+' · session '+e.session_date+' · $'+executionScaledToken(e.price_micro,6)+' per '+executions.page.price_unit+' (separate axis)');}if(state.measurement||!p.data?.fill)return '';const f=p.data.fill;return element('div',(Number(f.quantity)<0?'SELL ':'BUY ')+f.quantity+' shares · '+usd(f.price)+' · fee '+f.fee+' · '+fmtDate(f.fill_at)+' · receipt '+fmtDate(f.receipt_at));}},series},{notMerge:true});rendering=false;
   const volume=$('.volume-title');volume.hidden=!layout.volume;Object.assign(volume.style,{left:(layout.left+2)+'px',top:(layout.grid[1].top-18)+'px',bottom:'auto'});
   const caption=$('#rsi-caption');if(caption){caption.hidden=!layout.rsi;caption.textContent='RSI'+(historyContext?.series?.metadata.parameters.rsi_period||'')+' · 0–100';if(layout.rsi)Object.assign(caption.style,{left:(layout.left+2)+'px',top:(layout.grid[2].top-14)+'px'});}
   requestAnimationFrame(drawMeasurement);
@@ -509,11 +562,11 @@ function initUI() {
   $('#retry-selection').onclick=()=>{if(failedSelection){const f=failedSelection;f.history?loadHistorySelection(f.request):loadSelection(f.datasetId,f.runId,f.options)}};
   $('#open-test-mode').onclick=()=>setDataMode('retained-test');
   $('#refresh').onclick=()=>{if(researchWorkspace?.isActive())return researchWorkspace.refresh();if(state.dataMode==='real'){loadMainResearch();return loadHistorySelection({datasetId:historyContext?.revision?.dataset_id,revision:historyContext?.revision?.dataset_revision,instrumentId:historyContext?.instrument?.instrument_id});}return loadSelection(dataset?.dataset_id||urlSelection()[0],detail?.run.id||urlSelection()[1],{catalogPage:datasetOffset,runsPage:runOffset});};
-  $('#reset').onclick=()=>{mainResearchSelection=null;comparisonCache=null;comparisonBenchmark=true;mainResearchClient?.cancel();mainResearch={page:null,loading:false,error:null,offset:0};researchWorkspace?.reset();loadMainResearch(0);state={...restoredControls(null,0),dataMode:state.dataMode,assetId:null,strategyId:null,cursor:0,inspect:0,measurement:null,infoId:null};try{localStorage.removeItem(themeKey);sessionStorage.removeItem(sessionKey);}catch{}$('#rail-inner').classList.remove('mobile-open');state.dataMode==='real'?loadHistorySelection({}):loadSelection(null,null,{catalogPage:0});};
+  $('#reset').onclick=()=>{mainResearchFlow++;executionFlow++;executionClient.cancel();executions={resultId:null,page:null,loading:false,error:null};selectedExecutionId=null;mainMetricSort={key:null,direction:'desc'};mainResearchSelection=null;comparisonCache=null;comparisonBenchmark=true;mainResearchClient?.cancel();mainResearch={page:null,loading:false,error:null,offset:0};researchWorkspace?.reset();loadMainResearch(0);state={...restoredControls(null,0),dataMode:state.dataMode,assetId:null,strategyId:null,cursor:0,inspect:0,measurement:null,infoId:null};try{localStorage.removeItem(themeKey);sessionStorage.removeItem(sessionKey);}catch{}$('#rail-inner').classList.remove('mobile-open');state.dataMode==='real'?loadHistorySelection({}):loadSelection(null,null,{catalogPage:0});};
   $('#datasets-prev').onclick=()=>loadSelection(null,null,{push:true,catalogPage:Math.max(0,datasetOffset-10)});$('#datasets-next').onclick=()=>loadSelection(null,null,{push:true,catalogPage:datasetOffset+10});
-  $('#runs-prev').onclick=()=>historyDisplayed()?loadMainResearch(Math.max(0,(mainResearch.page?.catalog.offset||0)-10)):loadSelection(dataset?.dataset_id,null,{push:true,runsPage:Math.max(0,runOffset-10)});$('#runs-next').onclick=()=>historyDisplayed()?loadMainResearch(mainResearch.page?.catalog.next_offset):loadSelection(dataset?.dataset_id,null,{push:true,runsPage:runOffset+10});
+  $('#runs-prev').onclick=()=>historyDisplayed()?showMainResearchPage(Math.max(0,mainResearch.offset-10)):loadSelection(dataset?.dataset_id,null,{push:true,runsPage:Math.max(0,runOffset-10)});$('#runs-next').onclick=()=>historyDisplayed()?showMainResearchPage(mainResearch.offset+10):loadSelection(dataset?.dataset_id,null,{push:true,runsPage:runOffset+10});
   const input=$('#asset-search');input.onfocus=()=>{assetQuery='';assetOptionIndex=0;renderAssets();input.select();};input.oninput=()=>{assetQuery=input.value.toLowerCase();assetOptionIndex=0;renderAssets();};input.onkeydown=e=>{const list=filteredAssets();if(['ArrowDown','ArrowUp'].includes(e.key)){e.preventDefault();assetOptionIndex=Math.max(0,Math.min(list.length-1,assetOptionIndex+(e.key==='ArrowDown'?1:-1)));renderAssets();}else if(e.key==='Enter'&&!$('#asset-options').hidden&&list[assetOptionIndex]){e.preventDefault();selectAsset(list[assetOptionIndex].dataset_id);}else if(e.key==='Escape')closeAssets();};input.onblur=()=>setTimeout(closeAssets,100);
-  chart=echarts.init($('#chart'),null,{renderer:'canvas'});chart.on('datazoom',()=>{
+  chart=echarts.init($('#chart'),null,{renderer:'canvas'});chart.on('click',p=>{if(p.data?.execution)selectExecution(p.data.execution);});chart.on('datazoom',()=>{
     if(rendering||!view.bars.length)return;const d=chart.getOption().dataZoom[0],n=view.bars.length,index=v=>typeof v==='string'?view.bars.findIndex(b=>b.time===v):Number(v);
     const lo=Math.max(0,Math.min(n-1,Number.isFinite(index(d.startValue))?index(d.startValue):Math.ceil(d.start/100*(n-1)))),hi=Math.max(lo,Math.min(n-1,Number.isFinite(index(d.endValue))?index(d.endValue):Math.floor(d.end/100*(n-1))));
     commitViewport(lo,hi);

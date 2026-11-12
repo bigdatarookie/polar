@@ -108,3 +108,47 @@ test('no overlap, ambiguous date samples and renderer unsafe baselines explain u
  f.detail.record.grid[1]='2024-01-02T22:00:00Z';assert.match(researchComparison(f.detail,[]).reason,/Multiple supplied samples/);
  assert.equal(researchNormalize('0.'+'0'.repeat(1000)+'1',100),null);assert.equal(researchNormalize('10',0),null);assert.equal(researchNormalize('0',100),0);
 });
+test('row metrics use only strategy full-period producer fields, decimal HALF_EVEN and percent units',()=>{
+ const {researchRowMetric}=require('../src/polar/web/research.js'),f=fixture().detail;
+ f.record.metrics=[{id:'sharpe_252_rf0',label:'Supplied Sharpe',unit:'ratio',values:{'leg-0':ok('1.225'),'leg-1':ok('99')}},{id:'max_drawdown',label:'Supplied drawdown',unit:'fraction',values:{'leg-0':ok('0.00125')}},{id:'net_cagr_act36525',label:'Supplied CAGR',unit:'fraction',values:{'leg-0':ok('-0.10005')}}];
+ assert.equal(researchRowMetric(f,'sharpe').display,'1.22');assert.equal(researchRowMetric(f,'drawdown').display,'0.12%');assert.equal(researchRowMetric(f,'annualized').display,'−10.00%');
+ f.record.metrics[0].values['leg-0']=missing('UNDEFINED');assert.equal(researchRowMetric(f,'sharpe').available,false);
+});
+test('exact metric sorting keeps unavailable last both ways, stable ties and sub-double precision',()=>{
+ const {researchSortRows}=require('../src/polar/web/research.js');
+ const rows=['1.000000000000000000002','1.000000000000000000001','1.000000000000000000001',null].map((v,i)=>{const f=fixture().detail;f.result_id=String(i);f.record.metrics=[{id:'sharpe',label:'Sharpe',unit:'ratio',values:{'leg-0':v===null?missing():ok(v)}}];return f;});
+ assert.deepEqual(researchSortRows(rows,'sharpe','asc').map(x=>x.result_id),['1','2','0','3']);assert.deepEqual(researchSortRows(rows,'sharpe','desc').map(x=>x.result_id),['0','1','2','3']);
+});
+test('execution projection preserves exact nanos, distinguishes unknown/empty and rejects wrong security identity fields',()=>{
+ const {validateResearchExecutions,executionScaledToken}=require('../src/polar/web/research.js'),f=fixture().detail;
+ const base={schema_version:'polar.research-executions/1',result_id:f.result_id,content_sha256:f.content_sha256,series_id:'leg-0',offset:0,limit:100,next_offset:null,items:[],status:'UNAVAILABLE',total:null,reason:'TAPE_NOT_BOUND',price_unit:'USD_PER_SYNTHETIC_REFERENCE_UNIT',quote_basis:'SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT',quantity_unit:'REFERENCE_UNIT',raw_ohlc_overlay_compatible:false};
+ assert.equal(validateResearchExecutions(base,f).total,null);assert.equal(validateResearchExecutions({...base,status:'OK',total:0,reason:null},f).total,0);
+ const event={order_id:'leg-0/2024-01-02/BUY/TEST',symbol:'TEST',side:'BUY',timestamp_ns:'1704229200000000001',timestamp:'2024-01-02T21:00:00.000000001Z',session_date:'2024-01-02',timestamp_semantics:'NATIVE_ORDER_SUBMISSION_AND_MATCHED_FILL',intended_quantity:'2',routed_quantity:'2',filled_quantity:'2',price_micro:'100000001',fee_cents:'1',settled_notional_cents:'20000',status:'FILLED',reason:null,instrument:{status:'UNRESOLVED',reason:'SOURCE_INSTRUMENT_MAPPING_NOT_BOUND',instrument_id:null}};
+ const page={...base,status:'OK',total:1,reason:null,items:[event]};assert.equal(validateResearchExecutions(page,f).items[0].timestamp_ns,'1704229200000000001');assert.equal(executionScaledToken(event.price_micro,6),'100.000001');
+ assert.throws(()=>validateResearchExecutions({...page,content_sha256:'b'.repeat(64)},f),/EXECUTION_IDENTITY/);assert.throws(()=>validateResearchExecutions({...page,items:[{...event,price_micro:null}]},f),/EXECUTION_FILL/);
+ assert.throws(()=>validateResearchExecutions({...page,items:[{...event,instrument:{status:'BOUND',instrument_id:'alias-only'}}]},f),/EXECUTION_INSTRUMENT/);
+});
+
+test('execution reader suppresses obsolete result even when transport ignores abort',async()=>{
+ const {createResearchExecutionClient}=require('../src/polar/web/research.js'),a=fixture('a').detail,b=fixture('b').detail;let resolveOld;
+ const envelope=saved=>({schema_version:'polar.research-executions/1',result_id:saved.result_id,content_sha256:saved.content_sha256,series_id:'leg-0',offset:0,limit:100,next_offset:null,items:[],status:'UNAVAILABLE',total:null,reason:'NOT_BOUND'});
+ const client=createResearchExecutionClient(url=>url.includes(a.result_id)?new Promise(resolve=>resolveOld=resolve):Promise.resolve({ok:true,json:async()=>envelope(b)}));
+ const old=client.load(a),latest=await client.load(b);resolveOld({ok:true,json:async()=>envelope(a)});assert.equal(latest.result_id,b.result_id);assert.equal(await old,null);
+});
+test('global row sorting reads every ten-item API page and retains research source page mapping',async()=>{
+ const {researchLoadAll,researchSortRows,researchRowMetric}=require('../src/polar/web/research.js');
+ const a=fixture('a').detail,b=fixture('b').detail;a.record.metrics=[{id:'net_sharpe',label:'Supplied net Sharpe',unit:'ratio',values:{'leg-0':ok('1.234')}}];b.record.metrics=[{id:'sharpe',label:'Supplied Sharpe',unit:'ratio',values:{'leg-0':ok('2')}}];
+ const offsets=[],client={load:async offset=>{offsets.push(offset);return {catalog:{total:2,offset,items:[{}],next_offset:offset===0?1:null},details:[offset===0?a:b]};}};
+ const all=await researchLoadAll(client);assert.deepEqual(offsets,[0,1]);assert.equal(all.offsets[b.result_id],1);assert.equal(researchSortRows(all.details,'sharpe')[0].result_id,b.result_id);assert.equal(researchRowMetric(a,'sharpe').display,'1.23');
+ assert.equal(await researchLoadAll(client,()=>false),null);
+ await assert.rejects(()=>researchLoadAll({load:async offset=>({catalog:{total:offset===0?2:3,next_offset:offset===0?1:null},details:[offset===0?a:b]})}),/RESEARCH_CATALOG_CHANGED/);
+});
+test('full tape loading includes recent second-page fill independent of card pagination and rejects drift/duplicates',async()=>{
+ const {createResearchExecutionClient,researchLoadAllExecutions}=require('../src/polar/web/research.js'),saved=fixture().detail;
+ const events=Array.from({length:101},(_,i)=>({order_id:'order-'+String(i).padStart(3,'0'),symbol:'TEST',side:'BUY',timestamp_ns:String(1704229200000000000n+BigInt(i)),timestamp:'2024-01-02T21:00:00Z',session_date:i===100?'2024-01-03':'2024-01-02',timestamp_semantics:'NATIVE_ORDER_SUBMISSION_AND_MATCHED_FILL',intended_quantity:'1',routed_quantity:'1',filled_quantity:'1',status:'FILLED',price_micro:'100000000',fee_cents:'0',settled_notional_cents:'10000',instrument:{status:'UNRESOLVED',reason:'NOT_BOUND',instrument_id:null}}));
+ const envelope=offset=>({schema_version:'polar.research-executions/1',result_id:saved.result_id,content_sha256:saved.content_sha256,series_id:'leg-0',status:'OK',total:101,limit:100,offset,next_offset:offset===0?100:null,items:events.slice(offset,offset+100),price_unit:'USD_PER_MODELED_SHARE',quote_basis:'MODELED_RAW_SHARE_PRICE',quantity_unit:'WHOLE_SHARE',raw_ohlc_overlay_compatible:false});
+ const offsets=[],client=createResearchExecutionClient(async url=>{const offset=Number(new URL(url,'http://invented').searchParams.get('offset'));offsets.push(offset);return {ok:true,json:async()=>envelope(offset)};});
+ const loaded=await researchLoadAllExecutions(client,saved);assert.deepEqual(offsets,[0,100]);assert.equal(loaded.page.items.length,100);assert.equal(loaded.allItems.length,101);assert.equal(loaded.allItems.at(-1).session_date,'2024-01-03');
+ await assert.rejects(()=>researchLoadAllExecutions({load:async(_,offset)=>({...envelope(offset),total:offset?102:101})},saved),/EXECUTION_TAPE_CHANGED/);
+ await assert.rejects(()=>researchLoadAllExecutions({load:async(_,offset)=>({...envelope(offset),items:offset?[events[0]]:events.slice(0,100)})},saved),/EXECUTION_TAPE_CHANGED/);
+});
