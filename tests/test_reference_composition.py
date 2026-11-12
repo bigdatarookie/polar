@@ -72,7 +72,7 @@ def test_metadata_failures_before_numeric_source_read(tmp_path,monkeypatch,chang
 
 
 def test_overlapping_aliases_fail_closed(tmp_path):
-    root,cfg=composition_fixture(tmp_path,second_targets=['BBB','CCC'])
+    root,cfg=composition_fixture(tmp_path,second_targets=['BBB','FFF'])
     with pytest.raises(ValueError,match='SYMBOL_OVERLAP'):prepare_input(cfg,root,10**8)
 
 
