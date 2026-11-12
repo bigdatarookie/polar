@@ -59,6 +59,11 @@ def test_sma_observed_vector_first_change_monthend_hold_and_future_firewall(tmp_
     market['prices_micro']={d:{s:10000000 for s in symbols} for d in days}
     market['prices_micro'][days[first+1]]['AAA']=11000000
     market['prices_micro'][days[first+2]]['AAA']=11000000
+    # Explicit invented clock controls exercise coalescing and a later HOLD;
+    # the fixture phase's first date is not inherently a calendar month-end.
+    for row in market['schedule']:
+        if row['date'] in days[first:first+3]:
+            row['month_end_in_reference_range'] = row['date'] == days[first]
     plan=plan_phase(market,p,g,tz);a,b,d=plan['decisions'][:3]
     assert plan['signals'][0]['active']=={s:False for s in symbols}
     assert a['instructions']['SMA']['kind']=='TARGET'
