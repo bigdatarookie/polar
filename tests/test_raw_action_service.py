@@ -44,7 +44,9 @@ def fixture(tmp_path):
     wrappers=[];event_dates=[]
     # q0 on initial day; same calendar date as annual formation; a prior-holder
     # entitlement with arbitrary nominal precision. No real source values.
-    for index,ex,paydate,amount in [(0,days[0],days[0],'0.005'),(1,days[2],days[2],'1.0050000000000000000000000000000000001')]:
+    for index,ex,paydate,amount in [(0,days[0],days[0],'0.005'),
+            (1,days[2],days[2],'1.0050000000000000000000000000000000001'),
+            (2,days[1],days[1],'2.003')]:
         raw={'path':'/INVENTED-NOT-READ','sha256':sha(b'INVENTED-SOURCE'),'bytes':15}
         rec={'json_pointer':'/'+str(index),'sha256':sha(str(index).encode()),'byte_offset':index,'byte_length':1}
         eid='eodhd-vti-div-'+sha(canonical({'source_sha256':raw['sha256'],'json_pointer':rec['json_pointer'],'record_sha256':rec['sha256']}))
@@ -125,12 +127,26 @@ def test_full_native_private_graph_then_source_absent_readonly_reproduction(tmp_
     home=root/'reference-research-experiments'/result['semantic_id']
     base=json.loads((home/'BASE-PAYMENT_CASH_REINVEST.json').read_bytes())
     cash=json.loads((home/'BASE-CASH.json').read_bytes())
-    assert base['component_counts']['recognize']==base['component_counts']['pay']==2
+    assert base['component_counts']['recognize']==base['component_counts']['pay']==3
     assert base['component_counts']['native_positive_balance_updates']==1
     assert cash['component_counts']['native_positive_balance_updates']==0
     assert len(base['intents'])==len(cal['events'])
     assert base['terminal']['strict_component_flag'] is True
     assert all(s['external_cash_flow_cents']==0 and s['nav_before_cents']==s['nav_after_cents'] for s in base['settlements'])
+    # A buy on the ex close gets no entitlement from that ex session.
+    exclose=next(e for e in base['claim_events'] if e['operation']=='recognize' and
+        e['inputs']['session_date']==cal['dates'][1])
+    assert next(c for c in exclose['after']['claims'] if c['action']==exclose['inputs']['action']['event_id'])['entitled_quantity']==0
+    # Frozen D target uses eligible formation close100, not future execution101;
+    # routed buy may only clip down for actual next-close price/fees.
+    assert base['intents'][0]['target']==1000 and base['fills'][0]['q']<1000
+    assert all(f['q']<=f['intended_quantity'] for f in base['fills'])
+    terminal=base['intents'][-1]
+    assert terminal['kind']=='EXIT' and terminal['target']==0
+    assert not any(f['side']=='BUY' and f['at_ns']>=terminal['close_ns'] for f in base['fills'])
+    # Payment/annual overlap is one date with one explicit target, not two orders.
+    overlap=next(e for e in cal['events'] if e['annual'] and e['payment'])
+    assert sum(i['formation']==overlap['formation'] for i in base['intents'])==1
     private=json.loads((home/'BASE-result.json').read_bytes())
     assert private['schema']=='polar.private-raw-action-result/1' and private['financial']=='NOT_REVIEWED'
     assert private['initial_state_control']['status']=='PASS'
@@ -145,6 +161,12 @@ def test_full_native_private_graph_then_source_absent_readonly_reproduction(tmp_
     replay=service.recompute(result['semantic_id'])
     assert replay['status']=='REPRODUCED' and all(replay[k]==0 for k in ('native_calls','source_calls','policy_calls','store_writes'))
     assert snapshot(root)==before
+    from polar.raw_action_evaluation import verify_tape
+    plan=json.loads((home/'plan.json').read_bytes());plan['cost_profile']=COSTS[0]['cost_profile']
+    bad=deepcopy(base);bad['settlements'][0]['external_cash_flow_cents']=1
+    with pytest.raises(ValueError,match='RAW_SETTLEMENT_TRANSFER_REPLAY'):verify_tape(bad,plan)
+    bad=deepcopy(base);bad['fills'][0]['fee_cents']+=1
+    with pytest.raises(ValueError,match='RAW_FILL_MONEY_REPLAY'):verify_tape(bad,plan)
     modified=deepcopy({'legs':[json.loads((home/('BASE-'+leg+'.json')).read_bytes()) for leg in LEGS]})
     modified['legs'][1]['nav'][1]['cash_cents']+=1
     with pytest.raises(ValueError,match='RAW_INITIAL_STATE_MISMATCH'):initial_control(modified)

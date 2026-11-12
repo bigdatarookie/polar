@@ -225,7 +225,8 @@ def simulate(plan, diagnostics=None):
             if diagnostics:diagnostics({'phase':'ACCOUNT_COMPLETED','id':leg,'nav_points':len(days),'fills':len(adapter.fills)})
         except BaseException:
             if diagnostics:diagnostics({'phase':'ACCOUNT_PARTIAL','id':leg,'partial':
-                {'nav':adapter.nav,'fills':adapter.fills,'claim_events':adapter.trace} if adapter else None})
+                {'nav':adapter.nav,'fills':adapter.fills,'claim_events':adapter.trace,
+                 'settlements':module.receipts} if adapter else None,'completed_accounts':results})
             raise
         finally:engine.dispose()
     return {'schema':'polar.raw-action-native-simulation/1','legs':results,'cost_profile':cost,

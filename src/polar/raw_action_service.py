@@ -156,8 +156,11 @@ def run(service,config):
             'rank_calls':0,'estimator_calls':0,'optimizer_calls':0,'bootstrap_samples':0,
             'financial_acceptance':'NOT_REVIEWED','finished_ns':time.time_ns()}
     except BaseException as exc:
+        events=getattr(exc,'events',[])
         finish={'status':'FAILED_UNFINALIZED','attempt_id':aid,'error':str(exc)[:240],
-            'completed_native_accounts':completed,'refund':False,'automatic_retry':False,'finished_ns':time.time_ns()}
+            'completed_native_accounts':completed+sum(e.get('phase')=='ACCOUNT_COMPLETED' for e in events),
+            'native_run_entries_in_failed_phase':sum(e.get('phase')=='NATIVE_RUN_ENTERED' for e in events),
+            'refund':False,'automatic_retry':False,'finished_ns':time.time_ns()}
         with service.store.locked():service.store._publish(parent+'/'+aid,'finish',
             {'record.json':canonical(finish),'diagnostics.json':canonical(getattr(exc,'events',[]))},file_limit=32*1024**2)
         raise

@@ -53,6 +53,8 @@ def metadata(pin, namespace):
     require(type(events) is list and len(events) <= 10000 and
             len({e['event_id'] for e in events}) == len(events), 'RAW_EVENT_IDENTITIES')
     for e in events:
+        require(all(type(e.get(k)) is str and date.fromisoformat(e[k]).isoformat()==e[k]
+            for k in ('ex_date','payment_date','availability_date')), 'RAW_ACTION_DATE_FORMAT')
         require(type(e) is dict and set(e) == {'event_id','ex_date','payment_date','availability_date'} and
                 e['ex_date'] in days and e['payment_date'] >= e['ex_date'] and
                 e['availability_date'] == next((x for x in days if x > e['payment_date']), None) and

@@ -64,8 +64,12 @@ def diagnose(tape, schedule, *, base):
                     'metrics':_statistics(subset),'costs':_costs(tape,subset[0],subset[-1]),
                     'exposure':exposure(subset),'drawdown':_fixed_drawdown(subset),
                     'scope':'CARRIED_NAV_ANCHORS_NO_RESET_NO_DOUBLE_COUNT_NO_EXTRA_LIQUIDATION'})
+    # The frozen B7 terminal month is explicitly partial. A range-end marker is
+    # not proof that the month ended; never count truncated November as complete.
+    month_rows=[{**r,'month_end_in_reference_range':False} if r['date'][:7]==nav[-1]['date'][:7]
+        else r for r in schedule]
     return {'schema':'polar.raw-action-saved-diagnostics/1','daily_tail':_daily_tail(nav),
-        'rolling_extrema':horizons,'calendar_months':_calendar_months(nav,schedule),
+        'rolling_extrema':horizons,'calendar_months':_calendar_months(nav,month_rows),
         'drawdown':_fixed_drawdown(nav),'exposure':exposure(nav),'subperiods':eras,
         'subperiod_status':'BASE_CARRIED_2020_ANCHOR' if base else 'NOT_REQUESTED',
         'uncertainty':'NOT_REQUESTED','robustness':'INSUFFICIENT_EVIDENCE'}
@@ -108,6 +112,14 @@ def verify_tape(tape, plan):
             r['after']=={'total':after.available_cash_cents,'free':after.available_cash_cents,'locked':0} and
             r['nav_before_cents']==r['nav_after_cents'] and r['native_balance_updates']==int(delta>0),
             'RAW_SETTLEMENT_TRANSFER_REPLAY')
+        observed=r['native_account_event']
+        if delta:
+            from dataclasses import asdict
+            require(observed['balances']==r['after'] and observed['ts_event']==r['at_ns'] and
+                observed['info']=={'kind':'INTERNAL_DISTRIBUTION_RECEIVABLE_SETTLEMENT',
+                    'event_id':r['event_id'],'claim_evidence_sha256':sha(canonical(asdict(evidence))),
+                    'external_cash_flow_cents':0,'claim_decrease_cents':delta},'RAW_NATIVE_ACCOUNT_EVENT_REPLAY')
+        else:require(observed is None,'RAW_ZERO_NATIVE_EVENT')
     require([r['date'] for r in tape['nav']]==plan['dates'],'RAW_SAVED_NAV_DATES')
     q=0;cash=INITIAL_CENTS;flat=bps=0;recognized={};settled=set();cost=plan['cost_profile']
     events=plan['events'];require(len(tape['intents'])==len(events),'RAW_INTENT_COUNT')

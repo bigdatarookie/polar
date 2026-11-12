@@ -2,6 +2,7 @@
 from fractions import Fraction
 from datetime import datetime,timezone
 import uuid
+import pytest
 
 from polar.distribution_claims import Action, State, Phase, recognize, settled_snapshot
 from polar.raw_claim_native import settlement_module
@@ -9,7 +10,8 @@ from polar.research_native_money import native_types
 from polar.ci_research import fee_cents, maximum_buy
 
 
-def test_native_receivable_transfer_is_spendable_and_not_nav_gain():
+@pytest.mark.parametrize('sell_before_payment',[False,True])
+def test_native_receivable_transfer_is_spendable_and_not_nav_gain(sell_before_payment):
     from nautilus_trader.accounting.factory import AccountFactory
     from nautilus_trader.backtest.engine import BacktestEngine
     from nautilus_trader.backtest.models import FeeModel, FillModel
@@ -22,7 +24,7 @@ def test_native_receivable_transfer_is_spendable_and_not_nav_gain():
     from nautilus_trader.model.enums import AccountType, OmsType, OrderSide
 
     types = native_types(); module = settlement_module()
-    clocks = [int(datetime(2020,1,d,21,tzinfo=timezone.utc).timestamp())*10**9 for d in (1,2,4)]
+    clocks = [int(datetime(2020,1,d,21,tzinfo=timezone.utc).timestamp())*10**9 for d in (1,2,3,4)]
     venue = Venue('CLAIM' + uuid.uuid4().hex.upper()); iid = InstrumentId(Symbol('INVENTED'), venue)
     class Fee(FeeModel):
         def get_commission(self, order, fill_qty, fill_px, instrument):
@@ -49,8 +51,16 @@ def test_native_receivable_transfer_is_spendable_and_not_nav_gain():
                 assert maximum_buy(1, 9000000, cash) == 0
                 self.buy()  # Real risk engine must refuse unfunded buy.
             elif n == clocks[2]:
-                assert len(self.denied) == 1 and len(self.fills) == 1
-                self.claim_state = module.settle(self.claim_state, 'DIV', '2020-01-04', {'INVENTED': 900}, expected_ns=clocks[2])
+                if sell_before_payment:
+                    self.submit_order(self.order_factory.market(iid,OrderSide.SELL,Quantity.from_int(1)))
+            elif n == clocks[3]:
+                if sell_before_payment:
+                    assert len(self.fills)==2
+                    cash=int(engine.portfolio.account(venue).balance_total(USD).as_decimal()*100)
+                    self.claim_state=settled_snapshot(self.claim_state,'2020-01-03',(('INVENTED',0),),cash)
+                assert len(self.denied) == 1 and len(self.fills) == (2 if sell_before_payment else 1)
+                self.claim_state = module.settle(self.claim_state, 'DIV', '2020-01-04',
+                    {'INVENTED':0 if sell_before_payment else 900},expected_ns=clocks[3])
                 assert maximum_buy(1, 9000000, self.claim_state.available_cash_cents) == 1
                 self.buy()  # Same real risk engine now sees settled cash.
         def buy(self):
@@ -71,18 +81,20 @@ def test_native_receivable_transfer_is_spendable_and_not_nav_gain():
         probe = Probe(); engine.add_strategy(probe)
         engine.add_data([QuoteTick(iid, Price.from_str(p), Price.from_str(p),
             Quantity.from_int(100), Quantity.from_int(100), ns, ns)
-            for ns, p in zip(clocks,['100.000000','9.000000','9.000000'])])
+            for ns, p in zip(clocks,['100.000000','9.000000','9.000000','9.000000'])])
         engine.run(); engine.end()
-        assert len(probe.fills) == 2 and len(probe.denied) == 1
-        assert sum(int(p.quantity.as_decimal()) for p in engine.cache.positions_open()) == 2
+        assert len(probe.fills) == (3 if sell_before_payment else 2) and len(probe.denied) == 1
+        held=sum(int(p.quantity.as_decimal()) for p in engine.cache.positions_open())
+        assert held == (1 if sell_before_payment else 2)
         cash = int(engine.portfolio.account(venue).balance_total(USD).as_decimal() * 100)
-        assert cash == 99
+        assert cash == (898 if sell_before_payment else 99)
         receipt = module.receipts[0]
-        assert receipt['before']['free'] == 100 and receipt['after']['free'] == 1100
+        assert receipt['before']['free'] == (899 if sell_before_payment else 100)
+        assert receipt['after']['free'] == (1899 if sell_before_payment else 1100)
         assert receipt['claim_decrease_cents'] == 1000
-        assert receipt['nav_before_cents'] == receipt['nav_after_cents'] == 2000
+        assert receipt['nav_before_cents'] == receipt['nav_after_cents'] == (1899 if sell_before_payment else 2000)
         assert receipt['external_cash_flow_cents'] == 0
-        probe.claim_state = settled_snapshot(probe.claim_state, '2020-01-04', (('INVENTED', 2),), cash)
+        probe.claim_state = settled_snapshot(probe.claim_state, '2020-01-04', (('INVENTED', held),), cash)
         assert probe.claim_state.available_cash_cents == cash and probe.claim_state.claims[0].status == 'PAID'
     finally:
         engine.dispose()

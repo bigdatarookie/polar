@@ -80,10 +80,13 @@ def settlement_module():
             if amount:
                 require(account.events[-1].info.get('claim_evidence_sha256') == event_hash,
                         'RAW_CLAIM_ACCOUNT_EVENT_BINDING')
+            native_event = account.events[-1] if amount else None
             self.receipts.append({'kind': 'INTERNAL_DISTRIBUTION_RECEIVABLE_SETTLEMENT',
                 'event_id': event_id, 'at_ns': self.clock.timestamp_ns(),
                 'before': before, 'after': actual, 'claim_decrease_cents': amount,
                 'native_balance_updates': int(amount > 0), 'external_cash_flow_cents': 0,
+                'native_account_event': {'info':native_event.info,'ts_event':native_event.ts_event,
+                    'ts_init':native_event.ts_init,'balances':actual} if native_event else None,
                 'nav_before_cents': old_nav['nav_cents'], 'nav_after_cents': new_nav['nav_cents'],
                 'claim_evidence': asdict(evidence)})
             return after
