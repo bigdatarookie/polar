@@ -137,7 +137,7 @@ def test_selected_conversion_to_fixed_input2_native_and_saved_only(tmp_path,monk
         k=datetime.fromisoformat(days[i]+'T00:00:00+00:00')+timedelta(days=1)
         return {'formation_date':days[i],'K':k.isoformat(),'D':(k+timedelta(seconds=60)).isoformat(),
             'execution_date':days[i+1],'reference_execution_close_utc':schedule[i+1]['reference_close_utc']}
-    calendar={'schema':'polar.prospective-fixed-allocation-calendar/1','parent_schedule':manifest['schedule'],
+    calendar={'schema':'polar.prospective-fixed-allocation-calendar/1','parent_schedule':cfg['schedule'],
         'dates':days,'initial_date':days[0],'terminal_date':days[-1],'nav_points':3,'returns':2,
         'annual_targets':[event(0)],'terminal_EXIT':event(1),'clock_scope':'UTC_MIDNIGHT_PLUS_60S'}
     cp=write(separate/'selected-calendar.json',calendar)
@@ -158,3 +158,17 @@ def test_selected_conversion_to_fixed_input2_native_and_saved_only(tmp_path,monk
     before=snapshot(root);replayed=service.recompute(answer['semantic_id'])
     assert replayed['status']=='REPRODUCED' and replayed['native_calls']==replayed['store_writes']==0
     assert before==snapshot(root)
+
+
+def test_frozen_parent_calendar_requires_exact_lossless_derived_clock_grid(tmp_path):
+    from polar.reference_input import schedule_binding_matches
+    store,cfg,_,_=selected_fixture(tmp_path)
+    result=prepare_input(cfg,store,10**8)
+    manifest=json.loads(Path(result['input_ref']['path']).read_bytes())
+    assert manifest['schedule']['sha256']!=cfg['schedule']['sha256']
+    assert schedule_binding_matches(manifest,cfg['schedule'])
+    projected=json.loads(Path(manifest['schedule']['path']).read_bytes())
+    projected['rows'][1]['reference_close_utc']='2024-02-01T20:00:00+00:00'
+    # Rehashed, otherwise valid metadata is still not the frozen parent's projection.
+    manifest['schedule']=put(tmp_path/'substituted-clock-schedule.json',projected)
+    assert not schedule_binding_matches(manifest,cfg['schedule'])

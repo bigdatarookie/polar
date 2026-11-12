@@ -59,8 +59,9 @@ def prepare(service, config, *, load_prices=True):
             profile['input_sha256'] == config['input_ref']['sha256'] and
             profile['calendar_sha256'] == sha(calendar_raw) and profile['timezone_sha256'] == sha(tz_raw), 'SCHEDULED_PROFILE_PINS')
     manifest = decode(read_ref(config['input_ref'])); calendar = decode(calendar_raw)
+    from .reference_input import schedule_binding_matches
     require(manifest['schema'] in ('polar.synthetic-reference-source-input/1','polar.synthetic-reference-source-input/2') and
-            calendar['parent_schedule' if profile['schema'].endswith('/5') else 'source_schedule']['sha256'] == manifest['schedule']['sha256'], 'SCHEDULED_SOURCE_CALENDAR')
+            schedule_binding_matches(manifest,calendar['parent_schedule' if profile['schema'].endswith('/5') else 'source_schedule']), 'SCHEDULED_SOURCE_CALENDAR')
     if config['namespace'] == 'INVENTED':
         require(str(manifest.get('parent_dataset_revision', '')).startswith('INVENTED-') and
                 manifest.get('rights') == 'INVENTED_PUBLIC_TEST' and manifest.get('provenance') ==

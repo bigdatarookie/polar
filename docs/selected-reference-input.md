@@ -50,3 +50,11 @@ basis or eligibility. Frozen C54 pins/grid and legacy invented contracts/output
 identities remain unchanged. Existing `research-input-preflight` is structural,
 not a financial or source-to-experiment admission. Run only through the existing
 DE owner after ordinary affected technical qualification/integration.
+
+The output schedule is a derived clipping of the immutable parent: original
+calendar pins are not replaced by its new byte hash. When a version2 input's
+projected schedule hash differs, scheduled preparation verifies its original
+parent pin and exact deterministic clipping (all metadata/clocks preserved,
+next-date/month-boundary fields recomputed only at the declared boundary).
+A rehashed changed clock/date cannot satisfy the frozen parent calendar. This
+check reads calendar metadata only, never quotes or policy values.

@@ -64,6 +64,33 @@ def validate_source(value, members, relations):
             parent['source_record_ids'] == job['source_record_ids'], 'REFERENCE_PARENT_RELATION')
 
 
+def project_schedule(parent_schedule,date_range):
+    """Lossless calendar clipping only: preserve original metadata/session clocks."""
+    schedule=deepcopy(parent_schedule)
+    schedule['rows']=[r for r in schedule['rows'] if date_range['start']<=r['date']<=date_range['end']]
+    days=[r['date'] for r in schedule['rows']]
+    require(days==sorted(set(days)) and len(days)==date_range['count'] and days and
+            days[0]==date_range['start'] and days[-1]==date_range['end'],'REFERENCE_CONVERSION_SCHEDULE')
+    for i,row in enumerate(schedule['rows']):
+        nxt=days[i+1] if i+1<len(days) else None
+        row['next_reference_date']=nxt
+        row['month_end_in_reference_range']=nxt[:7]!=days[i][:7] if nxt else None
+    reference_schedule(schedule)
+    return schedule
+
+
+def schedule_binding_matches(manifest,calendar_schedule):
+    if calendar_schedule['sha256']==manifest['schedule']['sha256']:return True
+    if manifest['schema']!='polar.synthetic-reference-source-input/2':return False
+    provenance=manifest.get('conversion_metadata',manifest.get('provenance',{}))
+    parent=provenance.get('parent_schedule')
+    if not isinstance(parent,dict) or parent.get('sha256')!=calendar_schedule['sha256']:return False
+    original=decode(pinned_bytes(calendar_schedule))
+    expected=project_schedule(original,manifest['dates'])
+    actual=decode(pinned_bytes(manifest['schedule']))
+    return canonical(expected)==canonical(actual)
+
+
 def prepare_input(config, root, limit):
     """Called only by the owning source consumer after applicable qualification."""
     selected=type(config) is dict and config.get('schema')=='polar.reference-input-conversion-config/2'
@@ -103,20 +130,9 @@ def prepare_input(config, root, limit):
                 ledger['eligible_aliases_fixed_order'], 'REFERENCE_FROZEN_ELIGIBILITY')
         if config['profile_id'] == C:
             require(len(records) == 100 and len(symbols) == 54, 'REFERENCE_FROZEN_C_GRID')
-    parent_schedule = decode(pinned_bytes(config['schedule']))
-    schedule = deepcopy(parent_schedule)
-    schedule['rows'] = [r for r in schedule['rows']
-                        if config['date_range']['start'] <= r['date'] <= config['date_range']['end']]
-    days = [r['date'] for r in schedule['rows']]
-    require(days == sorted(set(days)) and len(days) == config['date_range']['count'] and
-            days[0] == config['date_range']['start'] and days[-1] == config['date_range']['end'],
-            'REFERENCE_CONVERSION_SCHEDULE')
+    schedule=project_schedule(decode(pinned_bytes(config['schedule'])),config['date_range'])
+    days=[r['date'] for r in schedule['rows']]
     if selected:require(days==selected_dates,'REFERENCE_SELECTED_DATE_GRID')
-    for i, row in enumerate(schedule['rows']):
-        nxt = days[i+1] if i+1 < len(days) else None
-        row['next_reference_date'] = nxt
-        row['month_end_in_reference_range'] = nxt[:7] != days[i][:7] if nxt else None
-    reference_schedule(schedule)  # Fail before publishing any invalid calendar.
     if config['profile_id'] == C:
         require(sum(r['early_close_reference'] is True for r in schedule['rows']) == 21,
                 'REFERENCE_C_EARLY_CLOSES')

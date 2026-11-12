@@ -36,6 +36,7 @@ def fixture(tmp_path, mutate=None, *, selected_unit_value=None, selected_plan_id
         parents={j['request']['symbols']:j for j in selected_unit_value['jobs']}
         aliases=sorted(parents)
         request=lambda symbol:parents[symbol]['request']
+    source_plan_jobs={s:parents[s]['job_id'] for s in aliases}
     originals = {s: {'bars': {s: [{'c': '1.234567' if s=='AAA' else '20.1', 't': d+'T00:00:00Z'} for d in days]}}
                  for s in aliases[:2]}
     rows = {}
@@ -58,7 +59,7 @@ def fixture(tmp_path, mutate=None, *, selected_unit_value=None, selected_plan_id
             rows[s].append(canonical(row)+b'\n')
     records = [{'literal_alias':s,'source_records':parents[s]['source_records'],
         'source_record_ids':parents[s]['source_record_ids'],'eligible_for_C':s!='CCC',
-        'canonical_job_id':'canonical-'+s,'source_plan_job_id':parents[s]['job_id'],'request':request(s),
+        'canonical_job_id':'canonical-'+s,'source_plan_job_id':source_plan_jobs[s],'request':request(s),
         'segments':[], 'source_flags':{'missingness':'INVENTED_EXCLUDED' if s=='CCC' else 'COMPLETE'}} for s in aliases]
     objects = {}; packets = []
     for part in [0,1]:
