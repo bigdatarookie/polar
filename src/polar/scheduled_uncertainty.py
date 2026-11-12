@@ -226,7 +226,7 @@ def _interval(values, invalid_reasons, samples):
             'lower_order_index': lower, 'upper_order_index': upper}
 
 
-def bootstrap(simulation, primary_id, benchmark_ids, *, seed=SEED):
+def bootstrap(simulation, primary_id, benchmark_ids, *, seed=SEED, recipe="LEGACY"):
     """Fixed1000 paired circular63 draws from ONLY the three saved BASE legs.
 
     Legs may have native positive integer-cent ``nav`` rows, or ``returns`` with
@@ -234,7 +234,7 @@ def bootstrap(simulation, primary_id, benchmark_ids, *, seed=SEED):
     invented pure callers). Floats and mismatched/missing observations are never
     substituted or silently dropped. This function does not decide robustness.
     """
-    if type(seed) is not int or seed not in (37001,37002):
+    if recipe not in ('LEGACY','TEMPORAL_DESCRIPTIVE') or type(seed) is not int or seed not in ((37003,) if recipe=='TEMPORAL_DESCRIPTIVE' else (37001,37002)):
         raise ValueError('BOOTSTRAP_SEED')
     legs = simulation.get('legs') if isinstance(simulation, dict) else None
     if (not isinstance(legs, list) or len(legs) != 3 or not isinstance(benchmark_ids, (list, tuple))
@@ -279,7 +279,7 @@ def bootstrap(simulation, primary_id, benchmark_ids, *, seed=SEED):
                     reasons[benchmark][name][record['reason']] += 1
             comparisons.append(compared)
         replicates.append({'draw': draw, 'indices_sha256': sha256(index_bytes).hexdigest(), 'comparisons': comparisons})
-    comparisons = [{'benchmark_id': b, **{s: _interval(valid[b][s], reasons[b][s], SAMPLES) for s in STATISTICS}}
+    comparisons = [{'benchmark_id': b, **{s: (_temporal_interval if recipe=='TEMPORAL_DESCRIPTIVE' else _interval)(valid[b][s], reasons[b][s], SAMPLES) for s in STATISTICS}}
                    for b in benchmark_ids]
     all_valid = all(c[s]['valid_count'] == SAMPLES for c in comparisons for s in STATISTICS)
     return {'schema': 'polar.scheduled-paired-bootstrap/1', 'status': 'COMPLETE' if all_valid else 'INSUFFICIENT',
@@ -292,3 +292,18 @@ def bootstrap(simulation, primary_id, benchmark_ids, *, seed=SEED):
             'growth_unit': 'CUMULATIVE_NET_WEALTH_RATIO_DIFFERENCE_FROM_W0_EXACT1_NOT_USD_OR_MEAN_RETURN',
             'drawdown_sign': 'STRATEGY_NONNEGATIVE_MAXDD_MINUS_BENCHMARK_NEGATIVE_IS_BETTER',
             'scope': 'DESCRIPTIVE_PAIRED_SAVED_NET_RETURNS_EXPOSED_ERA_NOT_INDEPENDENT_MARKET_ERAS_OR_FINANCIAL_ACCEPTANCE'}
+
+
+def _temporal_interval(values, invalid_reasons, samples):
+    ordered=sorted(values);m=len(ordered)
+    result={'status':'COMPLETE_DESCRIPTIVE' if m==samples else 'PARTIAL_WITH_EXPLICIT_INVALID_COUNTS' if m else 'UNAVAILABLE',
+        'reason':None if m==samples else 'INVALID_REPLICATES_RETAINED_NO_REDRAW' if m else 'NO_VALID_REPLICATES',
+        'valid_count':m,'invalid_count':samples-m,'invalid_reason_counts':dict(sorted(invalid_reasons.items())),
+        'quantile_rule':'EMPIRICAL_INVERSE_CDF_CEIL_P_M_MINUS_ONE'}
+    for name,num,den in [('lower',1,40),('median',1,2),('upper',39,40)]:
+        idx=(num*m+den-1)//den-1 if m else None
+        result[name+'_order_index']=idx
+        result[name]=_text(ordered[idx]) if m else None
+        if m and isinstance(ordered[idx],Fraction):
+            result[name+'_exact']={'numerator':format(Decimal(ordered[idx].numerator),'f'),'denominator':format(Decimal(ordered[idx].denominator),'f')}
+    return result
