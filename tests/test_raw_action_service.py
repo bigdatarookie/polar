@@ -113,7 +113,12 @@ def test_full_native_private_graph_then_source_absent_readonly_reproduction(tmp_
         assert len(list(root.rglob('start.json')))==1
         return real(*a,**k)
     monkeypatch.setattr(module,'load',after_start)
-    result=service.run(cfg)
+    try:
+        result=service.run(cfg)
+    except BaseException as exc:
+        if Path('/reports').is_dir():
+            write(Path('/reports/raw-package-failure.json'),{'error':str(exc),'events':getattr(exc,'events',[])})
+        raise
     assert result['status']=='SUCCESS' and result['native_accounts']==8
     assert all(result[k]==0 for k in ('fit_calls','predict_calls','model_calls','score_calls','rank_calls','estimator_calls','optimizer_calls','bootstrap_samples'))
     assert not (root/'research-results').exists() and set(result['private_results'])=={'BASE','STRESS'}

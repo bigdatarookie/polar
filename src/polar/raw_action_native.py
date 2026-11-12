@@ -197,7 +197,8 @@ def simulate(plan, diagnostics=None):
             engine.add_venue(venue=venue,oms_type=OmsType.NETTING,account_type=AccountType.CASH,
                 starting_balances=[types['money_from_cents'](INITIAL_CENTS)],base_currency=USD,
                 fee_model=Fee(),fill_model=FillModel(prob_fill_on_limit=1.,prob_slippage=0.,random_seed=0),
-                latency_model=LatencyModel(),modules=[module],bar_execution=False,trade_execution=False,
+                latency_model=LatencyModel(base_latency_nanos=0,insert_latency_nanos=0,
+                    update_latency_nanos=0,cancel_latency_nanos=0),modules=[module],bar_execution=False,trade_execution=False,
                 allow_cash_borrowing=False,use_random_ids=False)
             AccountFactory.register_account_type(venue.value,types['account_type'])
             engine.add_instrument(types['equity_type'](iid,Symbol(instrument),USD,6,Price.from_str('0.000001'),Quantity.from_int(1),0,0))
