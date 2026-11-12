@@ -12,11 +12,14 @@ from .import_contract import (MAX_FILE, require, canonical, decode, digest, sha,
 
 
 class ImportStore(HistoryStore):
-    def __init__(self, root, limit, fixture=False, raw_sip=False, raw_profile='first-unit'):
+    def __init__(self, root, limit, fixture=False, raw_sip=False, raw_profile='first-unit', selected_scope_sha256=None):
         super().__init__(root, limit)
         self.raw_sip=raw_sip
-        require(raw_profile in ('first-unit','remaining3490','all-adjusted100'),'IMPORT_POLICY_MISMATCH')
+        require(raw_profile in ('first-unit','remaining3490','all-adjusted100','all-adjusted-selected'),'IMPORT_POLICY_MISMATCH')
         self.raw_profile=raw_profile
+        self.selected_scope_sha256=selected_scope_sha256
+        if raw_profile=='all-adjusted-selected':
+            require(raw_sip,'IMPORT_POLICY_MISMATCH');hash_value(selected_scope_sha256)
         self._read_cache=None
         self._lock_held=False
         self._terminal_finalization=False
@@ -32,6 +35,10 @@ class ImportStore(HistoryStore):
                 from .import_adjusted_sip import SCOPE_SHA
                 self.base=('imports-adjustedsip100-fixture-v1/' if fixture else
                            'imports-adjustedsip100-v1/')+SCOPE_SHA
+
+            if raw_profile=='all-adjusted-selected':
+                self.base=('imports-adjustedsip-selected-fixture-v1/' if fixture else
+                           'imports-adjustedsip-selected-v1/')+selected_scope_sha256
 
     @contextmanager
     def locked(self):
@@ -85,10 +92,13 @@ class ImportStore(HistoryStore):
             require(self.raw(name) == raw,"IMPORT_IMMUTABLE_CONFLICT")
             return
         previous=target.stat().st_size if target.exists() else 0
-        if self.raw_sip and self.raw_profile in ('remaining3490','all-adjusted100'):
+        if self.raw_sip and self.raw_profile in ('remaining3490','all-adjusted100','all-adjusted-selected'):
             from .import_raw_profile import AGGREGATE_POLICY
             if self.raw_profile=='all-adjusted100':
                 from .import_adjusted_sip import POLICY as AGGREGATE_POLICY
+            if self.raw_profile=='all-adjusted-selected':
+                require(hasattr(self,'scope_policy'),'IMPORT_POLICY_MISMATCH')
+                AGGREGATE_POLICY=self.scope_policy
             if not self._lock_held:
                 # The existing control channel intentionally remains writable
                 # from another process while the executor holds its lock.
@@ -165,7 +175,8 @@ class ImportStore(HistoryStore):
         return {jid:list(versions.values()) for jid,versions in cache.items()}
 
     def checkpoint(self,plan_id,value):
-        self.write("checkpoints/"+hash_value(plan_id.split("-",1)[1])+".json",
+        from .import_service import plan_hash
+        self.write("checkpoints/"+plan_hash(plan_id)+".json",
                    {"schema":"polar.import-checkpoint/1","value":value,"sha256":digest(value)},replace=True)
 
     def admit_storage(self,extra=512*1024**2):

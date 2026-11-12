@@ -32,7 +32,7 @@ def request(value):
 
 
 def adjusted(store):
-    return store.raw_profile=='all-adjusted100'
+    return store.raw_profile in ('all-adjusted100','all-adjusted-selected')
 
 
 def schema(store,name):
@@ -44,6 +44,9 @@ def kind(store,has_rows):
 
 
 def job_id(value,profile='first-unit'):
+    if profile=='all-adjusted-selected':
+        from .import_adjusted_sip import SELECTED_ADAPTER as adapter,selected_request as validate
+        return digest({'adapter':adapter,'request':validate(value)})
     if profile=='all-adjusted100':
         from .import_adjusted_sip import ADAPTER as adapter,request as validate
         return digest({'adapter':adapter,'request':validate(value)})
@@ -168,9 +171,16 @@ def plan(service,value):
     fixture=value['mode']=='fixture'
     from .import_adjusted_sip import unit as adjusted_unit,POLICY as ADJUSTED_POLICY
     expected_fixture_prefix='imports-rawsip-aggregate-fixture-v1/' if aggregate else 'imports-rawsip-fixture-v1/'
+    selected=service.store.raw_profile=='all-adjusted-selected'
     if all_adjusted:expected_fixture_prefix='imports-adjustedsip100-fixture-v1/'
+    if selected:expected_fixture_prefix='imports-adjustedsip-selected-fixture-v1/'
     require(fixture==service.store.base.startswith(expected_fixture_prefix),'IMPORT_MODE_MISMATCH')
-    if all_adjusted:
+    if selected:
+        from .import_adjusted_sip import selected_unit
+        unit=selected_unit(value,fixture);policy=unit['policy']
+        require(unit['scope_sha256']==service.store.selected_scope_sha256,'IMPORT_SCOPE_MISMATCH')
+        service.store.scope_policy=policy
+    elif all_adjusted:
         unit=adjusted_unit(value,fixture);policy=ADJUSTED_POLICY
     elif aggregate:
         unit=aggregate_unit(value,fixture);policy=AGGREGATE_POLICY
@@ -189,10 +199,11 @@ def plan(service,value):
     prefix=('rawsipaggregatefixture-' if fixture else 'rawsipaggregate-') if aggregate else (
             'rawsipfixture-' if fixture else 'rawsip-')
     if all_adjusted:prefix='adjustedsip100fixture-' if fixture else 'adjustedsip100-'
+    if selected:prefix=('adjustedsipselectedfixture-' if fixture else 'adjustedsipselected-')+unit['scope_sha256']+'-'
     pid=prefix+digest(data);data['plan_id']=pid
     require(type(value['seed_refs']) is list and len(value['seed_refs'])<=policy['jobs']*2,'IMPORT_CACHE_SCHEMA')
     with service.store.locked():
-        service.store.admit_storage(ADJUSTED_POLICY['additional_bytes']) if all_adjusted else service.store.admit_storage()
+        service.store.admit_storage(policy['additional_bytes']) if all_adjusted else service.store.admit_storage()
         service.store.write('policy.json',policy)
         service.store.write('plans/'+pid+'.json',data)
         # Explicit legacy migration: exact request, complete cursor chain, bound raw bodies.
@@ -358,7 +369,12 @@ def execute(service,pid,*,fixture=None,network=False,attempt_id=None,scope=None)
     policy=plan['policy']
     from .import_raw_profile import AGGREGATE_POLICY
     from .import_adjusted_sip import POLICY as ADJUSTED_POLICY
-    require(policy==(ADJUSTED_POLICY if all_adjusted else AGGREGATE_POLICY if aggregate else POLICY),'IMPORT_POLICY_MISMATCH')
+    if service.store.raw_profile=='all-adjusted-selected':
+        from .import_adjusted_sip import selected_unit
+        expected=selected_unit(plan['config'],is_fixture)
+        require(expected==plan['unit'] and policy==expected['policy'],'IMPORT_SCOPE_MISMATCH')
+    else:
+        require(policy==(ADJUSTED_POLICY if all_adjusted else AGGREGATE_POLICY if aggregate else POLICY),'IMPORT_POLICY_MISMATCH')
     require(plan['source_projection']==code_projection(),'IMPORT_SOURCE_CHANGED')
     require(is_fixture==(fixture is not None) and network==(not is_fixture),'IMPORT_NETWORK_NOT_AUTHORIZED')
     if is_fixture:
@@ -390,7 +406,7 @@ def execute(service,pid,*,fixture=None,network=False,attempt_id=None,scope=None)
         transport=RawHttpTransport(authority['credential_reference'],profile=service.store.raw_profile)
     aid=attempt_name(attempt_id or str(uuid.uuid4()));prefix='attempts/'+aid
     with service.store.locked():
-        service.store.admit_storage(ADJUSTED_POLICY['additional_bytes']) if all_adjusted else service.store.admit_storage()
+        service.store.admit_storage(policy['additional_bytes']) if all_adjusted else service.store.admit_storage()
         require(not service.store.exists(prefix+'/started.json'),'IMPORT_ATTEMPT_EXISTS')
         # Immutable metadata/body graphs are validated once at executor entry;
         # append updates below keep the same evidence-first order. No persistent
