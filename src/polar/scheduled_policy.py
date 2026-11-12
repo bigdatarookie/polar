@@ -122,6 +122,13 @@ def profile_value(p):
         if c['kind'] in ('DRAWDOWN_SCALED_LE','TERMINAL_SCALED_GE','VOL_SCALED_LE'):
             require(type(c['factor']) is list and len(c['factor']) == 2 and all(type(v) is int for v in c['factor']) and
                     0 <= c['factor'][0] <= c['factor'][1] <= 1000000 and c['factor'][1] > 0, 'SCHEDULED_CRITERION_FACTOR')
+        if c['kind']=='VOL_SCALED_LE':
+            # Preserve the prospective canonical-D50 operation; nonterminating
+            # factors would add an undeclared preliminary rounding step.
+            denominator=Fraction(*c['factor']).denominator
+            for prime in (2,5):
+                while denominator%prime==0:denominator//=prime
+            require(denominator==1,'SCHEDULED_VOL_FACTOR_NONTERMINATING')
         for key in ('threshold', 'lower', 'upper'):
             if key in c:
                 require(type(c[key]) is str and len(c[key]) <= 64 and Decimal(c[key]).is_finite(), 'SCHEDULED_CRITERION_NUMBER')

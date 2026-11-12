@@ -97,6 +97,10 @@ def test_scaled_wealth_is_terminal_not_profit_and_vol_uses_d50_order(tmp_path,mo
     assert [c['status'] for c in module.evaluate_policy(fake,profile,'FINAL')['criteria']]==['NOT_MET','NOT_MET']
     metrics['FULL']['annual_vol_252']['value']=None
     assert module.evaluate_policy(fake,profile,'FINAL')['criteria'][1]['status']=='UNAVAILABLE'
+    bad=deepcopy(profile);bad['criteria'][1]['factor']=[1,3]
+    with pytest.raises(ValueError,match='VOL_FACTOR_NONTERMINATING'):module.profile_value(bad)
+    bad=deepcopy(profile);bad['criteria'][1]['factor']=[2,6]
+    with pytest.raises(ValueError,match='VOL_FACTOR_NONTERMINATING'):module.profile_value(bad)
     bad=deepcopy(profile);bad['criteria'][0]['factor']=[9,0]
     with pytest.raises(ValueError,match='FACTOR'):module.profile_value(bad)
 

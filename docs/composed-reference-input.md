@@ -35,8 +35,13 @@ No scale change, rounding, rebase, dividend credit, provider call, feature, retu
 fit, policy, portfolio/native operation or financial qualification occurs.
 
 The shared criterion evaluator additionally supports `TERMINAL_SCALED_GE` and
-`VOL_SCALED_LE`, each with a rational `factor: [numerator,denominator]` in [0,1].
-Terminal wealth compares exact cent NAV, not return or CAGR. Volatility compares
+`VOL_SCALED_LE`, each with a `factor: [numerator,denominator]` in [0,1]. Terminal wealth accepts
+exact rational factors and compares exact cent NAV, not return or CAGR.
+Volatility admits only finite-decimal factors (reduced denominator contains only
+factors 2 and 5); nonterminating factors such as 1/3 or 2/6 are rejected before
+execution. This avoids an undeclared preliminary rounding of the factor. It compares
 canonical annual-volatility fields in a fresh D50 context as
-`left <= (Decimal(numerator)/Decimal(denominator))*right`; no display rounding.
+`left <= (Decimal(numerator)/Decimal(denominator))*right`. Multiplication uses the declared fresh D50 HALF_EVEN context; this is
+canonical numerical rounding, never display rounding or an unrounded Fraction
+product. The prospective A4 4/5 operation remains exactly as frozen.
 Legacy criterion definitions and fixed annual policy/5 remain unchanged.
