@@ -49,7 +49,10 @@ def fixture(tmp_path):
             (2,days[1],days[1],'2.003')]:
         raw={'path':'/INVENTED-NOT-READ','sha256':sha(b'INVENTED-SOURCE'),'bytes':15}
         rec={'json_pointer':'/'+str(index),'sha256':sha(str(index).encode()),'byte_offset':index,'byte_length':1}
-        eid='eodhd-vti-div-'+sha(canonical({'source_sha256':raw['sha256'],'json_pointer':rec['json_pointer'],'record_sha256':rec['sha256']}))
+        # Producer-shaped fixture deliberately does not use the reader codec or
+        # gym canonicalizer: content IDs use compact sorted JSON WITHOUT LF.
+        eid='eodhd-vti-div-'+sha(json.dumps({'source_sha256':raw['sha256'],'json_pointer':rec['json_pointer'],
+            'record_sha256':rec['sha256']},sort_keys=True,separators=(',',':')).encode())
         action={'event_id':eid,'instrument':instrument,'source_ref':'sha256:'+raw['sha256'],'raw_pointer':rec['json_pointer'],
             'ex_date':ex,'payment_date':paydate,'amount_token':amount,'reference_dates':days,'currency':'USD',
             'basis':'RAW_USD_PER_CONTEMPORANEOUS_SHARE'}
@@ -212,3 +215,45 @@ def test_private_projection_rejects_hidden_receivables_or_floating_money():
     assert Point.model_validate(row).nav_cents==350
     with pytest.raises(ValidationError):Point.model_validate({**row,'nav_cents':300})
     with pytest.raises(ValidationError):Point.model_validate({**row,'cash_cents':100.0})
+
+
+def test_raw_content_id_literal_producer_vector_and_global_canonical_unchanged():
+    from polar.raw_action_input import content_event_id
+    material={'source_sha256':'0'*64,'json_pointer':'/0','record_sha256':'1'*64}
+    expected='eodhd-vti-div-39a53cf6f02a77f64a81922c25e08d1981642888fc4f9fd492c14d94834520d5'
+    assert content_event_id(**material)==expected
+    assert canonical(material).endswith(b'\n')
+    assert 'eodhd-vti-div-'+sha(canonical(material))!=expected
+
+
+@pytest.mark.parametrize('field,error',[
+    ('source_ref','RAW_CONTENT_SOURCE_REF'),
+    ('raw_pointer','RAW_CONTENT_RAW_POINTER'),
+    ('event_id','RAW_CONTENT_EVENT_ID'),
+    ('newline_event_id','RAW_CONTENT_EVENT_ID'),
+    (None,None),
+])
+def test_raw_content_conjuncts_independently(tmp_path,field,error):
+    from polar.raw_action_input import load
+    _,_,desc,cal=fixture(tmp_path)
+    rows=[json.loads(x) for x in Path(desc['clocks_ref']['path']).read_bytes().splitlines()]
+    wrappers=[json.loads(x) for x in Path(desc['actions_ref']['path']).read_bytes().splitlines()]
+    action=wrappers[0]['action']
+    if field=='source_ref':action['source_ref']='sha256:'+'f'*64
+    elif field=='raw_pointer':action['raw_pointer']='/other-invented-record'
+    elif field in ('event_id','newline_event_id'):
+        if field=='event_id':action['event_id']='eodhd-vti-div-'+'f'*64
+        else:
+            w=wrappers[0]
+            action['event_id']='eodhd-vti-div-'+sha(canonical({'source_sha256':w['source_raw']['sha256'],
+                'json_pointer':w['raw_record']['json_pointer'],'record_sha256':w['raw_record']['sha256']}))
+        # Bind metadata to this deliberately wrong ID so the content predicate,
+        # rather than the preceding metadata membership check, is exercised.
+        desc['event_dates'][0]['event_id']=action['event_id']
+    desc['actions_ref']=write(tmp_path/'content-control.ndjson',b''.join(canonical(w) for w in wrappers))
+    if error:
+        with pytest.raises(Exception,match='^'+error+'$'):load(desc,cal['dates'],rows)
+    else:
+        result=load(desc,cal['dates'],rows)
+        assert result['actions'][0]['event_id']==action['event_id']
+        assert len(result['actions'])==3

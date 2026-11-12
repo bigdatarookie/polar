@@ -4,16 +4,30 @@ Metadata is admissible before FIRST_START. Source value decoding belongs only
 inside the debited original. Source quality is bound, not re-fetched or inferred.
 """
 from datetime import datetime, date, time, timedelta, timezone
+import json
 
 from .ci_research import require
 from .distribution_claims import Action
-from .gym_contract import canonical, sha
+from .gym_contract import sha
 from .obs158_math import microprice
 from .reference_ridge_plan import nanoseconds
 from .research_reference import decode, pinned_bytes, reference_schedule
 
 INPUT = 'polar.raw-action-input/1'
 PRIVATE = 'SOLE_OWNER_PRIVATE_NONCOMMERCIAL_NO_PUBLIC_DATA_OR_DATA_CONTAINING_RESULT_REDISTRIBUTION'
+
+
+def content_event_id(source_sha256, json_pointer, record_sha256):
+    """Producer content identity: sorted compact UTF-8 JSON, with no final LF.
+
+    This codec is local to raw action IDs. Operation/config/family canonical
+    bytes retain their existing newline and must never use this codec.
+    """
+    material = {'source_sha256':source_sha256, 'json_pointer':json_pointer,
+                'record_sha256':record_sha256}
+    raw = json.dumps(material, sort_keys=True, separators=(',', ':'),
+                     ensure_ascii=True, allow_nan=False).encode('utf-8')
+    return 'eodhd-vti-div-' + sha(raw)
 
 
 def instant(text):
@@ -117,9 +131,10 @@ def load(d, days, rows):
         require(original['unadjustedValue'] == action.amount_token and original['date'] == action.ex_date and
                 original['paymentDate'] == action.payment_date and original['currency'] == action.currency,
                 'RAW_ORIGINAL_NOMINAL_BINDING')
-        material = {'source_sha256':raw['sha256'],'json_pointer':rec['json_pointer'],'record_sha256':rec['sha256']}
-        require(action.source_ref == 'sha256:'+raw['sha256'] and action.raw_pointer == rec['json_pointer'] and
-                action.event_id == 'eodhd-vti-div-'+sha(canonical(material)), 'RAW_CONTENT_EVENT_ID')
+        require(action.source_ref == 'sha256:'+raw['sha256'], 'RAW_CONTENT_SOURCE_REF')
+        require(action.raw_pointer == rec['json_pointer'], 'RAW_CONTENT_RAW_POINTER')
+        require(action.event_id == content_event_id(raw['sha256'], rec['json_pointer'], rec['sha256']),
+                'RAW_CONTENT_EVENT_ID')
         avail = w['modeled_cash_availability']
         require(avail['date'] == action.availability_date and avail['historical_known_by'] is None and
                 avail['actual_broker_receipt'] is None, 'RAW_MODELED_NOT_OBSERVED_PAYMENT')
