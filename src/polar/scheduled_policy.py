@@ -15,7 +15,7 @@ PROFILE_SCHEMA = 'polar.scheduled-reference-profile/1'
 CONDITIONS = {
     'SR_DELTA_GE': {'right_id', 'threshold'},
     'TERMINAL_GE': {'right_id'}, 'TERMINAL_GT': {'right_id'},
-    'POSITIVE_GROWTH': set(), 'DRAWDOWN_LE': {'right_id'},
+    'POSITIVE_GROWTH': set(), 'DRAWDOWN_LE': {'right_id'}, 'VOL_LE': {'right_id'},
     'VOL_RATIO_BETWEEN': {'right_id', 'lower', 'upper'},
     'DRAWDOWN_SCALED_LE': {'right_id', 'factor'},
 }
@@ -26,13 +26,14 @@ def profile_value(p):
               'primary_strategy', 'primary_benchmark', 'decision_delay_seconds', 'criteria',
               'question_label', 'question_summary', 'clock_description', 'partition_description',
               'additional_limitations', 'subperiods'}
+    version7 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/7'
     version5 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/5'
     version6 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/6'
     version4 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/4'
     version2 = type(p) is dict and p.get('schema') in ('polar.scheduled-reference-profile/2','polar.scheduled-reference-profile/4')
     version3 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/3'
-    require(type(p) is dict and set(p) == fields | ({'cost_scenarios', 'uncertainty'} if version2 or version6 else set()) and
-            p['schema'] in (PROFILE_SCHEMA, 'polar.scheduled-reference-profile/2', 'polar.scheduled-reference-profile/3', 'polar.scheduled-reference-profile/4', 'polar.scheduled-reference-profile/5', 'polar.scheduled-reference-profile/6'), 'SCHEDULED_PROFILE_SCHEMA')
+    require(type(p) is dict and set(p) == fields | ({'cost_scenarios', 'uncertainty'} if version2 or version6 or version7 else set()) and
+            p['schema'] in (PROFILE_SCHEMA, 'polar.scheduled-reference-profile/2', 'polar.scheduled-reference-profile/3', 'polar.scheduled-reference-profile/4', 'polar.scheduled-reference-profile/5', 'polar.scheduled-reference-profile/6', 'polar.scheduled-reference-profile/7'), 'SCHEDULED_PROFILE_SCHEMA')
     for key in ('protocol_sha256', 'input_sha256', 'calendar_sha256', 'timezone_sha256'):
         require(type(p[key]) is str and re.fullmatch('[a-f0-9]{64}', p[key]), 'SCHEDULED_PROFILE_HASH')
     require(type(p['protocol_id']) is str and re.fullmatch('[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}', p['protocol_id']), 'SCHEDULED_PROTOCOL_ID')
@@ -44,7 +45,10 @@ def profile_value(p):
     symbols = p['symbols']
     require(type(symbols) is list and 1 <= len(symbols) <= 64 and symbols == sorted(set(symbols)), 'SCHEDULED_SYMBOLS')
     policy = p['policy']
-    if version6:
+    if version7:
+        from .scheduled_relative import validate_profile
+        validate_profile(p)
+    elif version6:
         require(type(policy) is dict and set(policy)=={'kind','lookback','annual_cap','calibration'} and
                 policy['kind']=='TEMPORAL_VOLATILITY' and policy['lookback']==60 and policy['annual_cap']=='0.10' and
                 len(symbols)==1 and p['decision_delay_seconds']==1,'SCHEDULED_TEMPORAL_POLICY')
@@ -103,7 +107,7 @@ def profile_value(p):
                     type(leg['label']) is str and 0<len(leg['label'])<=128,'SCHEDULED_LEG_ID_LABEL')
             continue
         require(set(leg) == {'id', 'label', 'rule', 'scale'} and
-                leg['rule'] in (('TEMPORAL_VOL','STATIC_VOL','FULL','CASH') if version6 else ('SHRUNK_GMV','INVERSE_VOL','EQUAL_WEIGHT') if version4 else ('INVERSE_VOL', 'MOMENTUM', 'EQUAL_WEIGHT') if version2 else ('SMA_SLEEVES','EQUAL_WEIGHT','CASH') if version3 else ('SLEEVES', 'MOMENTUM', 'EQUAL_WEIGHT', 'CASH')), 'SCHEDULED_LEG')
+                leg['rule'] in (('RELATIVE_MOMENTUM','EQUAL_WEIGHT','FULL','CASH') if version7 else ('TEMPORAL_VOL','STATIC_VOL','FULL','CASH') if version6 else ('SHRUNK_GMV','INVERSE_VOL','EQUAL_WEIGHT') if version4 else ('INVERSE_VOL', 'MOMENTUM', 'EQUAL_WEIGHT') if version2 else ('SMA_SLEEVES','EQUAL_WEIGHT','CASH') if version3 else ('SLEEVES', 'MOMENTUM', 'EQUAL_WEIGHT', 'CASH')), 'SCHEDULED_LEG')
         require(type(leg['id']) is str and re.fullmatch('[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}', leg['id']) and
                 type(leg['label']) is str and 0 < len(leg['label']) <= 128, 'SCHEDULED_LEG_ID_LABEL')
         require(type(leg['scale']) is list and len(leg['scale']) == 2 and
@@ -125,8 +129,8 @@ def profile_value(p):
         require(type(pair) is list and len(pair) == 2 and date.fromisoformat(pair[0]) <= date.fromisoformat(pair[1]), 'SCHEDULED_SUBPERIOD')
     # Reuse the current common wire's finite bounds; never spend an original on
     # a profile whose public projection cannot fit it.
-    require(29 + 4*len(p['subperiods']) + (3 if version2 or version3 or version6 else 0) <= 40 and
-            12 + len(p['additional_limitations']) + len(legs)*(1+len(p['subperiods'])) + (4 if version4 or version6 else 3 if version2 else 1 if version3 else 0) <= 30,
+    require((32 if version7 else 29 + 4*len(p['subperiods']) + (3 if version2 or version3 or version6 else 0)) <= 40 and
+            (24 + len(p['additional_limitations']) if version7 else 12 + len(p['additional_limitations']) + len(legs)*(1+len(p['subperiods'])) + (4 if version4 or version6 else 3 if version2 else 1 if version3 else 0)) <= 30,
             'SCHEDULED_PUBLIC_WIRE_BOUND')
     return p
 
@@ -162,6 +166,9 @@ def calendar_value(calendar, schedule, phases=None):
 def plan_phase(market, profile, grid, tz):
     """Called only after durable FIRST_START; source prefix is the signal firewall."""
     profile_value(profile)
+    if profile['schema'] == 'polar.scheduled-reference-profile/7':
+        from .scheduled_relative import plan_phase as relative_plan
+        return relative_plan(market,profile,grid,tz)
     if profile['schema'] == 'polar.scheduled-reference-profile/6':
         from .scheduled_temporal_plan import plan_phase as temporal_plan
         return temporal_plan(market,profile,grid,tz)
@@ -237,6 +244,9 @@ def evaluate_policy(simulation, profile, phase):
             elif kind == 'POSITIVE_GROWTH': passed = exact[a]['terminal'] > INITIAL_CENTS
             elif kind == 'DRAWDOWN_LE': passed = exact[a]['max_drawdown'] <= exact[b]['max_drawdown']
             elif kind == 'DRAWDOWN_SCALED_LE': passed = exact[a]['max_drawdown'] <= Fraction(*c['factor'])*exact[b]['max_drawdown']
+            elif kind == 'VOL_LE':
+                av=by_id[a]['metrics']['annual_vol_252']['value'];bv=by_id[b]['metrics']['annual_vol_252']['value']
+                if av is not None and bv is not None:passed=Decimal(av)<=Decimal(bv)
             elif kind == 'VOL_RATIO_BETWEEN':
                 av = by_id[a]['metrics']['annual_vol_252']['value']; bv = by_id[b]['metrics']['annual_vol_252']['value']
                 if av is not None and bv is not None and Decimal(bv) > 0:

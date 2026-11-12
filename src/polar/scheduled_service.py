@@ -89,7 +89,7 @@ def prepare(service, config, *, load_prices=True):
     list(operation_phases(profile, grids))
     history = 0 if profile['schema'].endswith('/5') else profile['policy']['window']-1 if profile['schema'] == 'polar.scheduled-reference-profile/3' else profile['policy']['lookback']
     require(all(days.index(g['initial']) >= history for g in grids.values()), 'SCHEDULED_WARMUP')
-    tz = ZoneInfo.from_file(io.BytesIO(tz_raw), key='UTC' if profile['schema'].endswith('/5') else 'America/New_York')
+    tz = ZoneInfo.from_file(io.BytesIO(tz_raw), key='UTC' if profile['schema'].endswith(('/5','/7')) else 'America/New_York')
     # Preparation performs no features/weights/policy decision or native operation.
     market = load_reference(config['input_ref']) if load_prices else None
     return profile, calendar, schedule, grids, tz, market
@@ -100,7 +100,7 @@ def account_count(profile, grids):
 
 
 def operation_phases(profile, grids):
-    if profile['schema'].endswith(('/2','/4','/6')):
+    if profile['schema'].endswith(('/2','/4','/6','/7')):
         require(set(grids) == {'FINAL'}, 'SCHEDULED_UNCERTAINTY_FINAL_ONLY')
         for scenario in profile['cost_scenarios']:
             yield ('FINAL' if scenario['id'] == 'BASE' else 'FINAL_COST_STRESS'), 'FINAL', scenario
@@ -115,6 +115,9 @@ def preflight(service, config):
             'operation_binding_sha256': sha(canonical(binding(config))), 'policy_execution': 'NOT_RUN',
             'scientific_starts': 0, 'fit_calls': 0, 'predict_calls': 0,
             'expected_native_accounts': account_count(p, grids)}
+    if p['schema'].endswith('/7'):
+        from .scheduled_relative import expected_counts
+        result['expected_signal_counts']=expected_counts(sum(len(g['decisions']) for g in grids.values()))
     if p['schema'].endswith('/6'):
         n=sum(len(g['decisions']) for g in grids.values())
         result['expected_estimator_counts']={'estimator_calls':n+1,'calibration_estimates':1,'rolling_estimates':n,'completed_estimates':n+1}
@@ -132,6 +135,10 @@ def authority_for(service, config, profile, grids):
             authority.get('binding_sha256') == sha(canonical(binding(config))) and
             authority.get('allowed_fit_calls') == 0 and authority.get('allowed_predict_calls') == 0 and
             authority.get('allowed_native_accounts') == account_count(profile, grids), 'SCHEDULED_OPERATION_NOT_BOUND')
+    if profile['schema'].endswith('/7'):
+        from .scheduled_relative import expected_counts
+        require(authority.get('allowed_signal_counts')==expected_counts(sum(len(g['decisions']) for g in grids.values())) and
+                authority.get('allowed_estimator_calls')==authority.get('allowed_optimizer_calls')==0,'SCHEDULED_RELATIVE_OPERATION_BOUND')
     if profile['schema'].endswith('/6'):
         require(authority.get('allowed_estimator_calls')==1+sum(len(g['decisions']) for g in grids.values()) and
                 authority.get('allowed_optimizer_calls')==0,'SCHEDULED_TEMPORAL_OPERATION_BOUND')
@@ -189,12 +196,15 @@ def run(service, config):
     completed = 0
     optimizer_counts = optimization_counts([])
     estimator_counts={'estimator_calls':0,'calibration_estimates':0,'rolling_estimates':0,'completed_estimates':0}
+    signal_counts={}
     try:
         market = load_reference(config['input_ref'])
         phases = {}; diagnostics = {}; plans = {}
         for phase, reference_phase, scenario in operation_phases(profile, grids):
             if reference_phase not in plans:
                 plans[reference_phase] = plan_phase(market, profile, grids[reference_phase], tz)
+                if profile['schema'].endswith('/7'):
+                    signal_counts=plans[reference_phase]['actual_signal_counts']
                 if profile['schema'].endswith('/6'):
                     estimator_counts=plans[reference_phase]['actual_estimator_counts']
                 if profile['schema'].endswith('/4'):
@@ -221,12 +231,12 @@ def run(service, config):
         manifest = {'schema': 'polar.scheduled-reference-semantic-manifest/1',
                     'files': {n: {'sha256': sha(b), 'bytes': len(b)} for n, b in files.items()}}
         uncertainty = None
-        if profile['schema'].endswith(('/2','/4','/6')):
+        if profile['schema'].endswith(('/2','/4','/6','/7')):
             base = phases['FINAL']['simulation']
             uncertainty = uncertainty_for(base,profile)
             screens_met = all(c['status'] == 'MET' for phase in phases.values() for c in phase['evaluation']['criteria'])
             uncertainty['point_screens_all_met'] = screens_met
-            uncertainty['robustness'] = 'INSUFFICIENT_EVIDENCE' if profile['schema'].endswith('/6') else robustness(uncertainty, screens_met)
+            uncertainty['robustness'] = 'INSUFFICIENT_EVIDENCE' if profile['schema'].endswith(('/6','/7')) else robustness(uncertainty, screens_met)
             files['uncertainty.json'] = canonical(uncertainty)
             manifest['files']['uncertainty.json'] = {'sha256':sha(files['uncertainty.json']), 'bytes':len(files['uncertainty.json'])}
         raw = canonical(manifest); sid = SEMANTIC+sha(raw)
@@ -242,7 +252,10 @@ def run(service, config):
             # Display labels come from the bound profile, never a per-run UI branch.
             for series in record['series']:
                 series['label'] = next(x['label'] for x in profile['legs'] if x['id'] == series['id'])
-            project_diagnostics(record, diagnostics[phase])
+            if profile['schema'].endswith('/7'):
+                project_relative_diagnostics(record,diagnostics[phase],data['plan'])
+            else:
+                project_diagnostics(record, diagnostics[phase])
             if profile['schema'] == 'polar.scheduled-reference-profile/3':
                 project_gate_accounting(record, data['plan'], data['simulation'])
             if uncertainty is not None:
@@ -255,6 +268,11 @@ def run(service, config):
         finish = {'status': 'SUCCESS', 'attempt_id': aid, 'semantic_id': sid, 'results': publications,
                   'fit_calls': 0, 'predict_calls': 0, 'model_calls': 0, 'native_accounts': completed,
                   'financial_acceptance': 'NOT_REVIEWED', 'finished_ns': time.time_ns()}
+        if profile['schema'].endswith('/7'):
+            from .scheduled_relative import expected_counts
+            require(signal_counts==expected_counts(sum(len(g['decisions']) for g in grids.values())),'SCHEDULED_RELATIVE_COMPLETION_COUNTS')
+            finish['actual_signal_counts']=signal_counts
+            finish['estimator_calls']=finish['optimizer_calls']=0
         if profile['schema'].endswith('/6'):
             n=sum(len(g['decisions']) for g in grids.values())
             require(estimator_counts=={'estimator_calls':n+1,'calibration_estimates':1,'rolling_estimates':n,'completed_estimates':n+1},'SCHEDULED_TEMPORAL_COMPLETION_COUNTS')
@@ -267,6 +285,10 @@ def run(service, config):
         finish = {'status': 'FAILED_UNFINALIZED', 'attempt_id': aid, 'error': str(exc)[:240],
                   'fit_calls': 0, 'predict_calls': 0, 'model_calls': 0, 'completed_native_accounts': completed,
                   'refund': False, 'automatic_retry': False, 'finished_ns': time.time_ns()}
+        if profile['schema'].endswith('/7'):
+            from .scheduled_relative import RelativeSignalError,expected_counts
+            finish['actual_signal_counts']=getattr(exc,'events',{}).get('actual_counts',signal_counts or expected_counts(0))
+            if isinstance(exc,RelativeSignalError):finish['scientific_status']='INVALID'
         if profile['schema'].endswith('/6'):
             from .scheduled_temporal import TemporalEstimationError
             if isinstance(exc,TemporalEstimationError):finish['scientific_status']='INVALID'
@@ -297,16 +319,19 @@ def recompute(service, semantic_id):
         require(len(body) == pin['bytes'] and sha(body) == pin['sha256'], 'SCHEDULED_MEMBER_HASH')
         files[name] = decode(body)
     profile = profile_value(files['profile.json'])
-    expected_members = MEMBERS | ({'uncertainty.json'} if profile['schema'].endswith(('/2','/4','/6')) else set())
+    expected_members = MEMBERS | ({'uncertainty.json'} if profile['schema'].endswith(('/2','/4','/6','/7')) else set())
     require(set(files) == expected_members, 'SCHEDULED_PROFILE_MEMBER_SET')
     require(files['bindings.json']['code'] == code_binding(), 'SCHEDULED_REPRODUCTION_CODE_BINDING')
-    if profile['schema'].endswith(('/4','/6')):
+    if profile['schema'].endswith(('/4','/6','/7')):
         base=files['phases.json']['FINAL']['plan'];stress=files['phases.json']['FINAL_COST_STRESS']['plan']
         require({k:v for k,v in base.items() if k!='cost_profile'}=={k:v for k,v in stress.items() if k!='cost_profile'},'SCHEDULED_GMV_STRESS_SHARED_PLAN')
     expected_diagnostics = {}
     # Only saved output arrays are used; no source, policy feature, model or native call.
     calendar = files['calendar.json']
     for phase, data in files['phases.json'].items():
+        if profile['schema'].endswith('/7'):
+            from .scheduled_relative import verify_plan
+            verify_plan(data['plan'],profile,calendar['source_schedule_rows'],calendar['phases']['FINAL'])
         if profile['schema'].endswith('/6'):
             from .scheduled_temporal_plan import verify_plan
             verify_plan(data['plan'],profile,calendar['source_schedule_rows'])
@@ -322,10 +347,14 @@ def recompute(service, semantic_id):
     if 'uncertainty.json' in files:
         actual = uncertainty_for(files['phases.json']['FINAL']['simulation'],profile)
         met = all(c['status'] == 'MET' for phase in files['phases.json'].values() for c in phase['evaluation']['criteria'])
-        actual['point_screens_all_met'] = met; actual['robustness'] = 'INSUFFICIENT_EVIDENCE' if profile['schema'].endswith('/6') else robustness(actual, met)
+        actual['point_screens_all_met'] = met; actual['robustness'] = 'INSUFFICIENT_EVIDENCE' if profile['schema'].endswith(('/6','/7')) else robustness(actual, met)
         require(canonical(actual) == canonical(files['uncertainty.json']), 'SCHEDULED_UNCERTAINTY_RECOMPUTE')
     result={'status': 'REPRODUCED', 'semantic_id': semantic_id, 'fit_calls': 0, 'model_calls': 0,
             'predict_calls': 0, 'native_calls': 0, 'store_writes': 0}
+    if profile['schema'].endswith('/7'):
+        from .scheduled_relative import expected_counts
+        result['actual_signal_counts']=expected_counts(0)
+        result['estimator_calls']=result['optimizer_calls']=0
     if profile['schema'].endswith('/6'):
         result['actual_estimator_counts']={'estimator_calls':0,'calibration_estimates':0,'rolling_estimates':0,'completed_estimates':0}
     if profile['schema'].endswith('/4'):
@@ -487,15 +516,18 @@ def project_optimization(record, counts):
 
 def uncertainty_for(simulation,profile):
     from .scheduled_uncertainty import bootstrap
-    temporal=profile['schema'].endswith('/6')
+    temporal=profile['schema'].endswith(('/6','/7'))
     wanted={x['id'] for x in profile['legs'] if not temporal or x['rule']!='CASH'}
     base={'legs':[l for l in simulation['legs'] if l['id'] in wanted]}
     return bootstrap(base,profile['primary_strategy'],[x['id'] for x in profile['legs']
         if x['id'] in wanted and x['id']!=profile['primary_strategy']],seed=profile['uncertainty']['seed'],
-        recipe='TEMPORAL_DESCRIPTIVE' if temporal else 'LEGACY')
+        recipe='RELATIVE_DESCRIPTIVE' if profile['schema'].endswith('/7') else 'TEMPORAL_DESCRIPTIVE' if temporal else 'LEGACY')
 
 
 def diagnose_phase(tape,schedule,profile,plan,*,subperiods=()):
+    if profile['schema'].endswith('/7'):
+        from .scheduled_relative import diagnose_relative
+        return diagnose_relative(tape,schedule,subperiods=subperiods)
     if profile['schema'].endswith('/5'):
         from .scheduled_fixed import diagnose_fixed
         return diagnose_fixed(tape,schedule,plan['prices'],subperiods=subperiods)
@@ -508,3 +540,24 @@ def diagnose_phase(tape,schedule,profile,plan,*,subperiods=()):
 def project_estimation(record,counts):
     record['limitations'].append({'code':'ORIGINAL_VOLATILITY_ESTIMATION_COUNTS','scope':'EXPERIMENT',
         'text':f"Original estimator calls {counts['estimator_calls']}: one preperiod calibration {counts['calibration_estimates']}, causal rolling estimates {counts['rolling_estimates']}, completed {counts['completed_estimates']}. One saved weight sequence shared by both cost accounts. Zero ML fits/predictions/optimizations; computational completeness is not financial or robustness acceptance."})
+
+
+def project_relative_diagnostics(record,diagnostics,plan):
+    """All eras stay in saved diagnostics; compact public summaries fit common wire."""
+    project_diagnostics(record,{k:{**v,'subperiods':[]} for k,v in diagnostics.items()})
+    for leg,d in diagnostics.items():
+        segments=d.get('subperiods',[]);summaries=[]
+        for segment in segments:
+            def value(group,key):
+                from decimal import Decimal
+                raw=(segment.get(group,{}).get(key) or {}).get('value')
+                return format(Decimal(raw),'.10g') if raw is not None else 'unavailable'
+            summaries.append(f"{segment.get('first_return_date')}..{segment.get('last_return_date')}, anchor {segment.get('initial_date')}, "
+                f"{segment.get('intervals')} returns; {segment['status']}/{segment.get('reason') or 'OK'}; "
+                f"net {value('metrics','net_total_return')}, SR {value('metrics','sharpe_252_rf0')}, "
+                f"DD {value('metrics','max_drawdown')}, feesUSD {value('costs','total_fee_usd')}.")
+        text=('Display10 significant digits; exact saved diagnostics. '+' '.join(summaries)) if segments else 'NOT_REQUESTED: no era diagnostics for this cost scenario.'
+        require(len(text)<=1000,'SCHEDULED_RELATIVE_PUBLIC_ERA_BOUND')
+        record['limitations'].append({'code':'CARRIED_FIRST_RETURN_ERAS_'+leg,'scope':leg,'text':text})
+    record['limitations'].append({'code':'EXACT_RELATIVE_SIGNAL_ACCOUNTING','scope':'EXPERIMENT',
+        'text':f"Original scientific counts {plan['actual_signal_counts']}. Exact lagged rational scores, lexical ties, always top1 even negative. One cached target set shared by BASE/2x cost; every leg TARGET including cash zero, terminal EXIT separate. No risk estimator, fit, prediction or optimizer. Latest-equal-peak drawdown; eras use inclusive FIRST_RETURN dates with carried preceding NAV anchors. Full operands/rank certificates and diagnostics saved; no policy rebuild in stored verification."})
