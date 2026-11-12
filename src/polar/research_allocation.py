@@ -17,13 +17,17 @@ def nav_cents(cash, held, prices):
     return nav, amounts
 
 
-def desired_targets(cash, held, prices, weights):
+def desired_targets(cash, held, prices, weights, *, witness=None):
     nav, _ = nav_cents(cash, held, prices)
     require(type(weights) is dict and set(weights) == set(held) and
             all(type(w) is Fraction and w >= 0 for w in weights.values()) and
             sum(weights.values()) <= 1, 'ALLOCATION_WEIGHTS')
     targets = {s: (nav*10000*weights[s].numerator)//(prices[s]*weights[s].denominator) for s in held}
     require(all(q <= 1000000000 for q in targets.values()), 'ALLOCATION_TARGET_BOUND')
+    if witness is not None:
+        witness.update(schema='polar.target-sizing-witness/1',cash_cents=cash,holdings=dict(held),
+            eligible_prices_micro=dict(prices),nav_cents=nav,weights={s:[w.numerator,w.denominator] for s,w in weights.items()},
+            targets=dict(targets),lot_size=1,quantity_unit='WHOLE_SYNTHETIC_REFERENCE_UNIT_NOT_RAW_SHARE')
     return targets
 
 

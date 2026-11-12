@@ -112,7 +112,7 @@ def simulate(plan, diagnostics=None):
             def decide(self, event, d):
                 self.reconcile()
                 require(d["known_ns"] < event.ts_event < d["open_ns"], "DECISION_CLOCK")
-                targets = dict(self.held); budgets = {}; signal = None
+                targets = dict(self.held); budgets = {}; signal = None; sizing = None
                 if profile["kind"] == "REFERENCE_TARGETS":
                     instruction = d["instructions"][leg]
                     require(set(instruction) <= {"kind", "weights", "signal"} and
@@ -123,7 +123,11 @@ def simulate(plan, diagnostics=None):
                         from .research_allocation import desired_targets
                         marks = {s: prices[d["formation"]][s]["close_micro"] for s in symbols}
                         weights = {s: Fraction(v[0],v[1]) for s,v in instruction["weights"].items()}
-                        targets = desired_targets(self.expected_cash, self.held, marks, weights)
+                        sizing={} if plan.get('capture_consumed_sizing') is True else None
+                        targets = desired_targets(self.expected_cash, self.held, marks, weights, witness=sizing)
+                        if sizing is not None:
+                            sizing['eligible_quote']={'date':d['formation'],'at_ns':d['formation_close_ns'],
+                                'source_identity':plan['price_evidence'][d['formation']]}
                     signal = instruction.get("signal")
                 elif d["kind"] == "EXIT" and (profile["kind"] == "A_MOMENTUM" or leg_index == 0 or d["day"] == profile["end"]):
                     targets = {s: 0 for s in symbols}
@@ -154,6 +158,9 @@ def simulate(plan, diagnostics=None):
                                      "spending_budgets_cents": budgets,
                                      "sizing_kind": "FEE_AWARE_SPENDING_BUDGET" if budgets else "WHOLE_REFERENCE_UNIT_TARGETS" if profile["kind"] == "REFERENCE_TARGETS" else "WHOLE_SHARE_TARGETS",
                                      "signal": signal})
+                if plan.get('capture_consumed_sizing') is True:
+                    self.intents[-1].update(decision_id=f"{leg}/{d['day']}",instruction_kind=instruction['kind'],
+                        sizing_witness=sizing,sizing_status='CONSUMED_TARGET_OPERANDS' if sizing is not None else 'NOT_APPLICABLE_'+instruction['kind'])
 
             def route(self, event, d, symbol, side):
                 self.reconcile()
@@ -168,15 +175,24 @@ def simulate(plan, diagnostics=None):
                     # billion-share target. The bound is only for exact search.
                     desired = maximum_buy(1000000000, p, self.expected_cash, self.pending["budgets"][symbol],
                                           cost_profile=cost_profile)
+                clip={} if plan.get("capture_consumed_sizing") is True and side=="BUY" else None
                 q = min(desired, held) if side == "SELL" else maximum_buy(desired, p, self.expected_cash,
                                                                 self.pending["budgets"].get(symbol),
-                                                                cost_profile=cost_profile)
+                                                                cost_profile=cost_profile,witness=clip)
+                route_witness={"decision_id":f"{leg}/{d['day']}","target":target,"holdings_before":dict(self.held),
+                    "cash_before_cents":self.expected_cash,"price_micro":p,"quote_at_ns":self.opens[symbol][0],
+                    "quote_day":d["day"],"desired_delta":desired,"affordability":clip,
+                    "cost_profile":dict(cost_profile) if cost_profile is not None else {"flat_cents":100,"bps":10}} if plan.get("capture_consumed_sizing") is True else None
                 if not desired:
+                    if route_witness is not None:
+                        self.orders.append({"id":f"{leg}/{d['day']}/{side}/{symbol}","symbol":symbol,"side":side,"at_ns":event.ts_event,
+                            "intended_quantity":0,"routed_quantity":0,"reason":"ZERO_DELTA_NO_ORDER","consumed_operands":route_witness})
                     return
                 logical = f"{leg}/{d['day']}/{side}/{symbol}"
                 self.orders.append({"id": logical, "symbol": symbol, "side": side, "at_ns": event.ts_event,
                                     "intended_quantity": desired, "routed_quantity": q,
                                     "reason": "FEE_AWARE_BUDGET_CAP" if q < desired else None})
+                if route_witness is not None:self.orders[-1]["consumed_operands"]=route_witness
                 if not q:
                     return
                 fee, settled = fee_cents(q, p, cost_profile=cost_profile), cent_round_micro(q*p)
