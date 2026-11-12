@@ -87,7 +87,7 @@ The matched-state signature is saved in each phase and checked again from
 saved output during zero-source/zero-native/zero-write reproduction, along with
 the exact TARGET/HOLD/EXIT schedule and both cost bindings.
 
-Only profile/9 permits TERMINAL_SCALED_GE factors above one (bounded positive
+Profile/9 permits TERMINAL_SCALED_GE factors above one (bounded positive
 integer denominator and nonnegative numerator, each at most1000000). `[101,100]`
 compares exact terminal cents: `100*annual >=101*buyhold`, including the exact
 boundary; this is neither annualized return nor rounded display1.01. Other
@@ -98,3 +98,20 @@ instructions. BASE uses carried saved eras; stress eras remain NOT_REQUESTED.
 No pure fee causality, independent replication, robustness or adoption is implied.
 The existing common wire bound applies; with five legs/two eras, at most one
 additional profile limitation fits alongside the two standard profile/9 limits.
+
+## Fixed annual utility thresholds
+
+Profile/5 also admits factors above one for TERMINAL_SCALED_GE,
+VOL_SCALED_LE and DRAWDOWN_SCALED_LE. Numerator and denominator remain strict
+integers bounded by1000000, with nonnegative numerator and positive denominator.
+Volatility factors must reduce to a finite decimal (denominator has only2/5
+prime factors), preserving the canonical fresh-D50 multiplication without an
+extra preliminary rounding operation. Terminal cents and drawdown comparisons
+remain exact rational comparisons. Thus terminal `[11,10]` means
+`10*strategy_terminal_cents >=11*benchmark_terminal_cents`, and risk `[6,5]`
+allows the explicitly declared20% measured-risk budget; neither is leverage,
+cash remuneration, alpha or an independent financial verdict. Allocation
+weights still sum to at most one. Existing valid profile/5 inputs and all
+profile/8 and profile/9 factor domains remain unchanged. Profile/5 uses its
+ordinary annual schedule and saved-only replay, without profile/9's matched
+initial-state condition or two-cost requirement.
