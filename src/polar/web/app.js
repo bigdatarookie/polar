@@ -15,7 +15,7 @@ let mainResearchClient=null,mainResearch={page:null,loading:false,error:null,off
 let mainResearchFlow=0;
 let mainMetricSort={key:null,direction:'desc'};
 // Enable only against a qualified saved-executions serving handoff.
-const EXECUTIONS_RUNTIME_READY=false;
+const EXECUTIONS_RUNTIME_READY=true; // Qualified ef73b9f serving receipt, 2026-11-12T06:51Z.
 const executionClient=createResearchExecutionClient((...args)=>fetch(...args));
 let executions={resultId:null,page:null,allItems:[],loading:false,error:null},selectedExecutionId=null,executionFlow=0;
 let comparisonCache=null,comparisonBenchmark=true,mainResearchReturnFocus=null;
