@@ -80,6 +80,21 @@ class Service:
     def research_review(self, review):
         return self._research_call("review", review)
 
+    def research_revision(self):
+        return self._research_call("revision")
+
+    def research_delivery_submit(self, body):
+        from .research_delivery import submit
+        return submit(self.registry, body)
+
+    def research_delivery_status(self, delivery_id):
+        from .research_delivery import delivery_status
+        from .registry import NotFound
+        row = self.registry.research_delivery(delivery_id)
+        if row is None:
+            raise NotFound("RESEARCH_DELIVERY_NOT_FOUND")
+        return delivery_status(row)
+
     def research_catalog(self, limit=10, offset=0):
         return self._research_call("catalog", limit, offset)
 

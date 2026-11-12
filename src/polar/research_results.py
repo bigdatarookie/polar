@@ -274,7 +274,8 @@ class ResearchResults(HistoryStore):
         with self.locked():
             self._publish("research-results", result_id, {"result.json": raw}, file_limit=MAX_RESULT)
         return {"schema_version": "polar.research-publication/1", "result_id": result_id,
-                "content_sha256": sha(raw), "review_status": "NOT_REVIEWED"}
+                "content_sha256": sha(raw),
+                "review_status": "RECORDED_EXTERNAL_ASSESSMENT" if self.read(result_id)["assessment"]["reviews"] else "NOT_REVIEWED"}
 
     def read(self, result_id):
         if not isinstance(result_id, str) or not re.fullmatch(r"research-[a-f0-9]{64}", result_id):
@@ -350,6 +351,43 @@ class ResearchResults(HistoryStore):
                           {"review.json": body}, file_limit=16384)
         return {"result_id": review["result_id"], "review_sha256": sha(body),
                 "status": "RECORDED_EXTERNAL_ASSESSMENT"}
+
+    def revision(self):
+        """Cheap discovery hint over immutable publication names, not a QA verdict.
+
+        Payload integrity remains enforced by catalog/detail. Readers tolerate a
+        concurrent atomic rename: the following poll discovers the newer set.
+        """
+        import stat
+        safe_root(self.root)
+        def entries(parent, pattern, bound):
+            try:
+                mode = parent.lstat().st_mode
+            except FileNotFoundError:
+                return []
+            if not stat.S_ISDIR(mode):
+                raise ResearchError("RESEARCH_UNSAFE_DIRECTORY")
+            found = []
+            for item in parent.iterdir():
+                if item.name.startswith(".history-partial-"):
+                    continue
+                if not re.fullmatch(pattern, item.name) or not stat.S_ISDIR(item.lstat().st_mode):
+                    raise ResearchError("RESEARCH_UNSAFE_DIRECTORY")
+                found.append(item.name)
+                if len(found) > bound:
+                    raise ResearchError("RESEARCH_CATALOG_BOUND")
+            return sorted(found)
+        results = entries(self.root/"research-results", r"research-[a-f0-9]{64}", 4096)
+        subjects = entries(self.root/"research-reviews", r"research-[a-f0-9]{64}", 4096)
+        reviews = []
+        for rid in subjects:
+            if rid not in results:
+                raise ResearchError("RESEARCH_REVIEW_BINDING")
+            for h in entries(self.root/"research-reviews"/rid, r"[a-f0-9]{64}", 100):
+                reviews.append([rid, h])
+        return {"schema_version": "polar.research-revision/1",
+                "revision": sha(canonical({"results": results, "reviews": reviews})),
+                "result_count": len(results), "assessment_count": len(reviews)}
 
     def catalog(self, limit=10, offset=0):
         if type(limit) is not int or type(offset) is not int or not 1 <= limit <= 10 or not 0 <= offset <= 4096:

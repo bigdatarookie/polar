@@ -124,9 +124,26 @@ def work_once(settings):
     return reg.get(rid)
 
 
+def work_research_delivery_once(settings):
+    from .research_delivery import deliver_once
+    from .research_results import ResearchResults
+    from .history_bundle import HistoryError
+    registry = Registry(settings)
+    results = ResearchResults(settings.artifacts, settings.storage_bytes)
+    try:
+        return deliver_once(registry, results)
+    except HistoryError:
+        # No persisted acknowledgement: retry only saved delivery after lease expiry.
+        raise RuntimeError("RESEARCH_DELIVERY_INTEGRITY_ERROR") from None
+
+
 def run_forever():
     settings = Settings.load()
     while True:
+        try:
+            work_research_delivery_once(settings)
+        except Exception:
+            print(json.dumps({"event":"research_delivery_dependency_unavailable"}),flush=True)
         try:
             work_once(settings)
         except Exception:
