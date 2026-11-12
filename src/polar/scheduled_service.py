@@ -62,7 +62,7 @@ def prepare(service, config, *, load_prices=True):
     manifest = decode(read_ref(config['input_ref'])); calendar = decode(calendar_raw)
     from .reference_input import schedule_binding_matches
     require(manifest['schema'] in ('polar.synthetic-reference-source-input/1','polar.synthetic-reference-source-input/2') and
-            schedule_binding_matches(manifest,calendar['parent_schedule' if profile['schema'].endswith(('/5','/8','/9')) else 'source_schedule']), 'SCHEDULED_SOURCE_CALENDAR')
+            schedule_binding_matches(manifest,calendar['parent_schedule' if profile['schema'].endswith(('/5','/8','/9','/10')) else 'source_schedule']), 'SCHEDULED_SOURCE_CALENDAR')
     if config['namespace'] == 'INVENTED':
         require(str(manifest.get('parent_dataset_revision', '')).startswith('INVENTED-') and
                 manifest.get('rights') == 'INVENTED_PUBLIC_TEST' and manifest.get('provenance') ==
@@ -84,21 +84,31 @@ def prepare(service, config, *, load_prices=True):
         require(len(labels)==1259 and labels[0]==lo and labels[-1]==hi and all(hi<g['initial'] for g in calendar['phases'].values()),'SCHEDULED_TEMPORAL_CALIBRATION_GRID')
     require((profile['schema'] == 'polar.scheduled-reference-profile/3') ==
             (calendar.get('schema') == 'polar.daily-gate-policy-calendar/1'), 'SCHEDULED_CALENDAR_POLICY')
-    require((profile['schema'] in ('polar.scheduled-reference-profile/5','polar.scheduled-reference-profile/8','polar.scheduled-reference-profile/9')) ==
+    require((profile['schema'] in ('polar.scheduled-reference-profile/5','polar.scheduled-reference-profile/8','polar.scheduled-reference-profile/9','polar.scheduled-reference-profile/10')) ==
             (calendar.get('schema')=='polar.prospective-fixed-allocation-calendar/1'),'SCHEDULED_CALENDAR_POLICY')
     grids = calendar_value(calendar, schedule)
     list(operation_phases(profile, grids))
-    history = 0 if profile['schema'].endswith(('/5','/8','/9')) else profile['policy']['window']-1 if profile['schema'] == 'polar.scheduled-reference-profile/3' else profile['policy']['lookback']
+    history = 0 if profile['schema'].endswith(('/5','/8','/9','/10')) else profile['policy']['window']-1 if profile['schema'] == 'polar.scheduled-reference-profile/3' else profile['policy']['lookback']
     require(all(days.index(g['initial']) >= history for g in grids.values()), 'SCHEDULED_WARMUP')
-    tz = ZoneInfo.from_file(io.BytesIO(tz_raw), key='UTC' if profile['schema'].endswith(('/5','/7','/8','/9')) else 'America/New_York')
+    tz = ZoneInfo.from_file(io.BytesIO(tz_raw), key='UTC' if profile['schema'].endswith(('/5','/7','/8','/9','/10')) else 'America/New_York')
     if profile['schema'].endswith('/7'):
         require(all(tz.utcoffset(datetime.fromisoformat(d))==timedelta(0) for g in grids.values() for d in g['nav_dates']),
                 'SCHEDULED_RELATIVE_UTC_METADATA')
         from .scheduled_relative import validate_clock_metadata
         validate_clock_metadata(schedule,grids,tz)
     # Preparation performs no features/weights/policy decision or native operation.
-    market = load_reference(config['input_ref']) if load_prices else None
+    require(not (load_prices and profile['schema'].endswith('/10') and config['namespace']=='RETAINED'),
+            'MODEL_PRICE_DERIVATION_REQUIRES_DEBITED_ORIGINAL')
+    market = load_market(config,profile) if load_prices else None
     return profile, calendar, schedule, grids, tz, market
+
+
+def load_market(config,profile):
+    source=load_reference(config['input_ref'])
+    if profile['schema'].endswith('/10'):
+        from .reference_model_price import view
+        return view(source,profile['model_price_mapping'])
+    return source
 
 
 def account_count(profile, grids):
@@ -208,7 +218,7 @@ def run(service, config):
     estimator_counts={'estimator_calls':0,'calibration_estimates':0,'rolling_estimates':0,'completed_estimates':0}
     signal_counts={}
     try:
-        market = load_reference(config['input_ref'])
+        market = load_market(config,profile)
         phases = {}; diagnostics = {}; plans = {}
         for phase, reference_phase, scenario in operation_phases(profile, grids):
             if reference_phase not in plans:
@@ -260,6 +270,8 @@ def run(service, config):
         publications = {}
         for phase, data in phases.items():
             public = public_config(config, profile)
+            if profile['schema'].endswith('/10'):
+                public['model_price_mapping']=profile['model_price_mapping']
             if 'cost_scenario' in data:
                 public['cost_profile'] = data['cost_scenario']['cost_profile']
             record = public_reference(public, data['simulation'], data['evaluation'],
@@ -308,6 +320,9 @@ def run(service, config):
         finish = {'status': 'FAILED_UNFINALIZED', 'attempt_id': aid, 'error': str(exc)[:240],
                   'fit_calls': 0, 'predict_calls': 0, 'model_calls': 0, 'completed_native_accounts': completed,
                   'refund': False, 'automatic_retry': False, 'finished_ns': time.time_ns()}
+        if profile['schema'].endswith('/10') and (str(exc).startswith('MODEL_') or
+                'MODEL_PRICE_NATIVE_DOMAIN' in str(exc)):
+            finish['scientific_status']='INVALID'
         if profile['schema'].endswith('/9') and str(exc).startswith('SCHEDULED_INITIAL_STATE_'):
             finish['scientific_status']='INVALID'
         if profile['schema'].endswith('/7'):
@@ -362,6 +377,9 @@ def recompute(service, semantic_id):
     # Only saved output arrays are used; no source, policy feature, model or native call.
     calendar = files['calendar.json']
     for phase, data in files['phases.json'].items():
+        if profile['schema'].endswith('/10'):
+            from .reference_model_price import verify_plan
+            verify_plan(data['plan'],profile)
         if profile['schema'].endswith('/7'):
             from .scheduled_relative import verify_plan
             verify_plan(data['plan'],profile,calendar['source_schedule_rows'],calendar['phases']['FINAL'])
@@ -568,7 +586,7 @@ def diagnose_phase(tape,schedule,profile,plan,*,subperiods=()):
     if profile['schema'].endswith('/7'):
         from .scheduled_relative import diagnose_relative
         return diagnose_relative(tape,schedule,subperiods=subperiods)
-    if profile['schema'].endswith(('/5','/8','/9')):
+    if profile['schema'].endswith(('/5','/8','/9','/10')):
         from .scheduled_fixed import diagnose_fixed
         return diagnose_fixed(tape,schedule,plan['prices'],subperiods=subperiods)
     if profile['schema'].endswith('/6'):

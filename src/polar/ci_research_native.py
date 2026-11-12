@@ -233,7 +233,12 @@ def simulate(plan, diagnostics=None):
             for d in plan["decisions"]:
                 for i,s in enumerate(symbols):
                     micro = prices[d["day"]][s]["close_micro" if profile["kind"] == "REFERENCE_TARGETS" else "open_micro"]
-                    p = Price.from_str(f"{micro//1000000}.{micro%1000000:06d}"); ns = d["open_ns"]+i
+                    try:
+                        p = Price.from_str(f"{micro//1000000}.{micro%1000000:06d}")
+                    except (ValueError,OverflowError):
+                        if 'model_price_mapping' in plan: require(False,'MODEL_PRICE_NATIVE_DOMAIN')
+                        raise
+                    ns = d["open_ns"]+i
                     require(Fraction(p.as_decimal())*1000000 == micro, "NATIVE_PRICE_ROUNDTRIP")
                     quotes.append(QuoteTick(ids[s], p, p, Quantity.from_int(1000000000), Quantity.from_int(1000000000), ns, ns))
             engine.add_data(quotes)
@@ -260,5 +265,5 @@ def simulate(plan, diagnostics=None):
     return {"schema": "polar.ci-research-simulation/1", "legs": results,
             **({'cost_profile': cost_profile} if cost_profile is not None else {}),
             **({"quote_basis": "SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT", "execution_phase": "REFERENCE_CLOSE",
-                "quantity_unit": "WHOLE_SYNTHETIC_REFERENCE_UNIT_NOT_RAW_SHARE"} if profile["kind"] == "REFERENCE_TARGETS" else {}),
+                "quantity_unit": plan.get("quantity_unit", "WHOLE_SYNTHETIC_REFERENCE_UNIT_NOT_RAW_SHARE")} if profile["kind"] == "REFERENCE_TARGETS" else {}),
             "engine": "nautilus_trader-1.231.0", "native_account_rule": "EXACT_CENT_HALF_EVEN"}

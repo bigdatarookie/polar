@@ -11,6 +11,7 @@ MONEY = {'terminal_nav_usd','flat_fee_usd','bps_cost_usd','total_cost_usd',
 
 
 def public_reference(config, simulation, evaluation, *, semantic_id, semantic_hash, phase):
+    model_mapping = config.get('model_price_mapping')
     primary, benchmark = config['primary_strategy'], config['primary_benchmark']
     evaluated = {v['id']:v for v in evaluation['legs']}
     series=[]
@@ -29,6 +30,8 @@ def public_reference(config, simulation, evaluation, *, semantic_id, semantic_ha
         units[name]=unit
         label={'net_total_return':'Synthetic vendor-adjusted reference-unit return after modeled costs',
                'net_cagr_act36525':'Synthetic vendor-adjusted reference-unit CAGR after modeled costs'}.get(name,name.replace('_',' '))
+        if model_mapping and name in ('net_total_return','net_cagr_act36525'):
+            label=label.replace('Synthetic vendor-adjusted reference-unit','Declared coarse100 synthetic model-unit')
         metrics.append({'id':key,'label':label,'unit':unit,'values':{leg['id']:leg['metrics'][name] for leg in evaluation['legs']}})
     for scope,diagnostic in config.get('forecast_diagnostics',{}).items():
         for field,label,unit in [('mse_repr','forecast MSE','squared_fraction'),('sse_repr','forecast SSE','squared_fraction'),('n','complete forecast labels','count')]:
@@ -66,6 +69,17 @@ def public_reference(config, simulation, evaluation, *, semantic_id, semantic_ha
             ('RISK_AND_POLICY_CLASS','Exposure and concentration may differ across controls. Point differences do not isolate causal alpha or risk-matched utility.'),
             ('NO_INFERENTIAL_ADOPTION','No calibrated significance, general alpha, prospective profit, original-hypothesis validation or adoption claim.')]
     limits += config.get('additional_limitations', [])
+    if model_mapping:
+        limits=[(code, 'Vendor source tokens remain unchanged and validated; separate declared coarse100 model prices are used. '
+            'No additional split units, dividend cash or source-token correction is credited.' if code=='NO_DOUBLE_ACTION_CREDIT' else
+            'Original current-vintage vendor-adjusted closes are immutable source evidence. Active model unit price is100times '
+            'source price, lot1 coarsens feasible positions; it is not a physical share, split or vendor observation.'
+            if code=='SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT' else text) for code,text in limits]
+        limits.append(('DECLARED_MODEL_PRICE_DENOMINATION',
+            'COARSE100_SYNTHETIC_REFERENCE_UNIT_NOT_PHYSICAL_SHARE; fixed integer100 price multiplier for active aliases, '
+            'identity for zero-target aliases. Source hash and mapping are bound separately; source and model prices are saved. '
+            'Capital, weights, fees, calendar and original source tokens are unchanged. This changes the lot1 attainable grid, '
+            'not a coordinate-only relabel; no general denomination invariance, untouched confirmation or adoption claim.'))
     record={'schema_version':'polar.research-result/1','question':{'id':config['protocol_id']+'.'+phase,
         'label':config['question_label']+' — '+phase,'summary':config['question_summary']},
         'bindings':config['bindings'],'basis':{'currency':'USD','frequency':'DAILY','timezone':'UTC',
@@ -81,4 +95,9 @@ def public_reference(config, simulation, evaluation, *, semantic_id, semantic_ha
         'criteria':evaluation['criteria'],'point_interpretation':evaluation['point_interpretation']}
     if 'source_coverage' in config:
         record['source_coverage'] = config['source_coverage']
+    if model_mapping:
+        from .gym_contract import canonical,sha
+        record['provenance'].append({'role':'model_price_mapping','id':'COARSE100_MODEL_NOT_SOURCE_PRICE',
+            'sha256':sha(canonical(model_mapping))})
+        record['financial_claim']='Limited declared coarse100 model-unit comparison; original source tokens unchanged. No physical-share, denomination-invariance, investor-total-return or adoption claim.'
     return validate_result(record)
