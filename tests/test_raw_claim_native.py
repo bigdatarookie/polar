@@ -1,5 +1,6 @@
 """Invented real-engine settlement, no retained source or financial oracle."""
 from fractions import Fraction
+from datetime import datetime,timezone
 import uuid
 
 from polar.distribution_claims import Action, State, Phase, recognize, settled_snapshot
@@ -21,6 +22,7 @@ def test_native_receivable_transfer_is_spendable_and_not_nav_gain():
     from nautilus_trader.model.enums import AccountType, OmsType, OrderSide
 
     types = native_types(); module = settlement_module()
+    clocks = [int(datetime(2020,1,d,21,tzinfo=timezone.utc).timestamp())*10**9 for d in (1,2,4)]
     venue = Venue('CLAIM' + uuid.uuid4().hex.upper()); iid = InstrumentId(Symbol('INVENTED'), venue)
     class Fee(FeeModel):
         def get_commission(self, order, fill_qty, fill_px, instrument):
@@ -29,27 +31,27 @@ def test_native_receivable_transfer_is_spendable_and_not_nav_gain():
     class Probe(Strategy):
         def __init__(self):
             super().__init__(StrategyConfig(strategy_id='INVENTED', log_events=False, log_commands=False))
-            self.fills = []; self.denied = []; self.state = None
+            self.fills = []; self.denied = []; self.claim_state = None
         def on_start(self):
             self.subscribe_quote_ticks(iid)
         def on_quote_tick(self, tick):
             n = tick.ts_event
-            if n == 1000000000:
+            if n == clocks[0]:
                 self.buy()
-            elif n == 2000000000:
+            elif n == clocks[1]:
                 assert len(self.fills) == 1
                 cash = int(engine.portfolio.account(venue).balance_total(USD).as_decimal() * 100)
                 assert cash == 100
-                self.state = recognize(State('2020-01-01', Phase.CLOSE_SETTLED, cash,
+                self.claim_state = recognize(State('2020-01-01', Phase.CLOSE_SETTLED, cash,
                     (('INVENTED', 1),)), Action('DIV', 'INVENTED', 'INVENTED', '/0',
                     '2020-01-02', '2020-01-03', '10',
                     ('2020-01-01','2020-01-02','2020-01-03','2020-01-04')), '2020-01-02')
                 assert maximum_buy(1, 9000000, cash) == 0
                 self.buy()  # Real risk engine must refuse unfunded buy.
-            elif n == 3000000000:
+            elif n == clocks[2]:
                 assert len(self.denied) == 1 and len(self.fills) == 1
-                self.state = module.settle(self.state, 'DIV', '2020-01-04', {'INVENTED': 900})
-                assert maximum_buy(1, 9000000, self.state.available_cash_cents) == 1
+                self.claim_state = module.settle(self.claim_state, 'DIV', '2020-01-04', {'INVENTED': 900}, expected_ns=clocks[2])
+                assert maximum_buy(1, 9000000, self.claim_state.available_cash_cents) == 1
                 self.buy()  # Same real risk engine now sees settled cash.
         def buy(self):
             self.submit_order(self.order_factory.market(iid, OrderSide.BUY, Quantity.from_int(1)))
@@ -69,7 +71,7 @@ def test_native_receivable_transfer_is_spendable_and_not_nav_gain():
         probe = Probe(); engine.add_strategy(probe)
         engine.add_data([QuoteTick(iid, Price.from_str(p), Price.from_str(p),
             Quantity.from_int(100), Quantity.from_int(100), ns, ns)
-            for ns, p in [(1000000000,'100.000000'),(2000000000,'9.000000'),(3000000000,'9.000000')]])
+            for ns, p in zip(clocks,['100.000000','9.000000','9.000000'])])
         engine.run(); engine.end()
         assert len(probe.fills) == 2 and len(probe.denied) == 1
         assert sum(int(p.quantity.as_decimal()) for p in engine.cache.positions_open()) == 2
@@ -80,7 +82,7 @@ def test_native_receivable_transfer_is_spendable_and_not_nav_gain():
         assert receipt['claim_decrease_cents'] == 1000
         assert receipt['nav_before_cents'] == receipt['nav_after_cents'] == 2000
         assert receipt['external_cash_flow_cents'] == 0
-        probe.state = settled_snapshot(probe.state, '2020-01-04', (('INVENTED', 2),), cash)
-        assert probe.state.available_cash_cents == cash and probe.state.claims[0].status == 'PAID'
+        probe.claim_state = settled_snapshot(probe.claim_state, '2020-01-04', (('INVENTED', 2),), cash)
+        assert probe.claim_state.available_cash_cents == cash and probe.claim_state.claims[0].status == 'PAID'
     finally:
         engine.dispose()

@@ -7,6 +7,7 @@ No native imports or operations occur on import.
 """
 from dataclasses import asdict
 from fractions import Fraction
+from datetime import datetime, timezone
 
 from .ci_research import require
 from .distribution_claims import Phase, transition, valuation
@@ -45,7 +46,10 @@ def settlement_module():
                 return n.numerator
             return account, balance, {k: cents(getattr(balance, k)) for k in ('total', 'free', 'locked')}
 
-        def settle(self, state, event_id, session_date, position_marks_cents):
+        def settle(self, state, event_id, session_date, position_marks_cents, *, expected_ns):
+            require(type(expected_ns) is int and self.clock.timestamp_ns() == expected_ns and
+                    datetime.fromtimestamp(expected_ns//10**9, timezone.utc).date().isoformat() == session_date,
+                    'RAW_CLAIM_NATIVE_PAYMENT_CLOCK')
             account, balance, before = self.balances()
             require(before['locked'] == 0 and before['total'] == before['free'] == state.available_cash_cents,
                     'RAW_CLAIM_NATIVE_PREPAY_RECONCILIATION')
