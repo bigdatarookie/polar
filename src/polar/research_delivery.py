@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import ValidationError
 
 from .codec import digest
-from .history_bundle import HistoryError, canonical, sha
+from .history_bundle import canonical, sha
 from .research_results import (Closed, Hash, MAX_RESULT, ResearchError,
                                ResearchReview, public_text, validate_result)
 
@@ -70,7 +70,10 @@ def deliver_once(registry, results):
         operation = results.publish if body["kind"] == "RESULT" else results.review
         receipt = operation(body["payload"])
         detail = results.read(rid)
-        receipt = {**receipt, "assessment": detail["assessment"],
+        assessment = detail["assessment"]
+        receipt = {**receipt, "assessment": {k: assessment[k] for k in
+                   ("technical", "product", "financial", "financial_evidence")},
+                   "review_count": len(assessment["reviews"]),
                    "observed_content_sha256": detail["content_sha256"]}
         state, code = "DELIVERED", None
     except ResearchError as exc:
@@ -79,8 +82,6 @@ def deliver_once(registry, results):
             state, code = "WAITING_FOR_RESULT", "RESEARCH_NOT_FOUND"
         else:
             state, code = "REJECTED", exc.code
-    except HistoryError:
-        receipt, state, code = None, "REJECTED", "RESEARCH_INTEGRITY_ERROR"
     # OSError/DB/process loss deliberately does not complete/reject the lease.
     return delivery_status(registry.finish_research_delivery(
         row["id"], row["lease_token"], state, receipt, code))

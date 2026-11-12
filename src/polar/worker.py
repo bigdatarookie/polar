@@ -129,12 +129,23 @@ def work_research_delivery_once(settings):
     from .research_results import ResearchResults
     from .history_bundle import HistoryError
     registry = Registry(settings)
-    results = ResearchResults(settings.artifacts, settings.storage_bytes)
-    try:
-        return deliver_once(registry, results)
-    except HistoryError:
-        # No persisted acknowledgement: retry only saved delivery after lease expiry.
-        raise RuntimeError("RESEARCH_DELIVERY_INTEGRITY_ERROR") from None
+    # Reuse the existing storage-admission serialization. Envelopes already
+    # consume PG bytes; reserve space for a compact acknowledgement as well.
+    # This is delivery capacity, never a scientific reservation or new ceiling.
+    with registry.connect() as db:
+        db.execute("SELECT pg_advisory_xact_lock(734902)")
+        db_bytes = db.execute("SELECT pg_database_size(current_database()) AS n").fetchone()["n"]
+        remaining = settings.storage_bytes-db_bytes-16384
+        if remaining <= 0:
+            raise RuntimeError("RESEARCH_DELIVERY_STORAGE_UNAVAILABLE")
+        results = ResearchResults(settings.artifacts, remaining)
+        try:
+            return deliver_once(registry, results)
+        except HistoryError:
+            # read_file intentionally folds OS errors. Do not certify a transient
+            # IO/permission/capacity failure as permanent invalidity; preserve its
+            # lease for saved-only recovery and expose dependency failure in logs.
+            raise RuntimeError("RESEARCH_DELIVERY_STORAGE_OR_READ_UNAVAILABLE") from None
 
 
 def run_forever():

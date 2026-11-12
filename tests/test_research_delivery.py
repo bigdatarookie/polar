@@ -140,3 +140,38 @@ def test_missing_payload_in_existing_subject_is_integrity_failure(tmp_path):
     path.unlink()
     from polar.history_bundle import HistoryError
     with pytest.raises(HistoryError): store.read(rid)
+
+
+@pytest.mark.postgres
+def test_transient_read_failure_keeps_delivery_recoverable(registry, monkeypatch):
+    from polar.history_bundle import HistoryError
+    reg = registry; reg.migrate()
+    svc = Service(reg.settings); svc.registry = reg
+    body = envelope(invented_result())
+    queued = svc.research_delivery_submit(body)
+    store = svc._research()
+    def failed(*args): raise HistoryError('HISTORY_UNSAFE_OR_MISSING_FILE')
+    monkeypatch.setattr(store, 'publish', failed)
+    with pytest.raises(HistoryError): deliver_once(reg, store)
+    assert reg.research_delivery(queued['id'])['state'] == 'DELIVERING'
+    with reg.connect() as db:
+        db.execute("UPDATE research_deliveries SET lease_until=now()-interval '1 second' WHERE id=%s", (queued['id'],))
+    assert deliver_once(reg, svc._research())['state'] == 'DELIVERED'
+
+
+@pytest.mark.postgres
+def test_worker_combines_db_and_artifact_capacity(registry, monkeypatch):
+    from dataclasses import replace
+    import polar.worker as worker
+    reg = registry; reg.migrate()
+    svc = Service(reg.settings); svc.registry = reg
+    queued = svc.research_delivery_submit(envelope(invented_result()))
+    monkeypatch.setattr(worker, 'Registry', lambda settings: reg)
+    with reg.connect() as db:
+        size = db.execute('SELECT pg_database_size(current_database()) AS n').fetchone()['n']
+    # Existing DB alone uses the allocation: no artifact copy is admitted.
+    with pytest.raises(RuntimeError, match='RESEARCH_DELIVERY_STORAGE_UNAVAILABLE'):
+        worker.work_research_delivery_once(replace(reg.settings, storage_bytes=size))
+    assert reg.research_delivery(queued['id'])['state'] == 'QUEUED'
+    assert svc.research_catalog()['total'] == 0
+    assert worker.work_research_delivery_once(reg.settings)['state'] == 'DELIVERED'
