@@ -150,8 +150,8 @@
 /* Keep at least one complete strategy row reachable instead of squeezing the list
    under pagination. A short desktop workspace scrolls; its tools remain fixed. */
 @media(min-width:701px){
- .workspace:has(#main-strategy-head:not([hidden])){overflow-y:auto;grid-template-rows:minmax(360px,60%) minmax(260px,1fr)}
- .workspace[data-rsi=true]:has(#main-strategy-head:not([hidden])){grid-template-rows:minmax(460px,72%) minmax(260px,1fr)}
+ .workspace:has(#main-strategy-head:not([hidden])){overflow-y:auto;grid-template-rows:minmax(360px,52%) minmax(260px,1fr)}
+ .workspace[data-rsi=true]:has(#main-strategy-head:not([hidden])){grid-template-rows:minmax(460px,62%) minmax(260px,1fr)}
  .workspace:has(#main-strategy-head:not([hidden]))>.rail{position:sticky;top:0;align-self:start;height:calc(100dvh - 84px)}
 }
 .strategy-section>.list-heading,.strategy-section>.record-pagination{flex-shrink:0}
