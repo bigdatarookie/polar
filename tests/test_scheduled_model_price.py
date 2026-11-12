@@ -113,7 +113,9 @@ def test_source_equality_is_not_replaced_by_mapping_and_domain_failure_is_charge
     rows=[json.loads(line) for line in Path(manifest['quotes']['path']).read_bytes().splitlines()]
     rows[0]['reference_quote']='123456.000001'
     from polar.gym_contract import canonical
-    manifest['quotes']=write(tmp_path/'changed-quotes.ndjson',b''.join(canonical(r) for r in rows))
+    changed=tmp_path/'changed-quotes.ndjson';changed.write_bytes(b''.join(canonical(r) for r in rows))
+    manifest['quotes']={'path':str(changed),'sha256':hashlib.sha256(changed.read_bytes()).hexdigest(),
+        'bytes':changed.stat().st_size}
     pin=write(tmp_path/'changed-manifest.json',manifest)
     with pytest.raises(ValueError,match='REFERENCE_SCALE_CHANGED'):load_reference(pin)
     import polar.scheduled_service as module
