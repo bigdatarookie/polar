@@ -167,3 +167,34 @@ def test_metadata_rejects_wrong_timezone_before_any_source_read(tmp_path,monkeyp
     monkeypatch.setattr(module,'load_reference',forbidden)
     with pytest.raises(ValueError,match='RELATIVE_UTC_METADATA'):ReferenceResearchService(root,256*1024**2).preflight(cfg)
     assert not (root/'scheduled-reference-attempts').exists()
+
+
+@pytest.mark.parametrize('which',['decision','terminal'])
+@pytest.mark.parametrize('close_time',['00:00:59','00:01:00'])
+def test_infeasible_event_or_terminal_clock_rejected_before_start_and_prices(tmp_path,monkeypatch,which,close_time):
+    root,cfg,p,c=relative_fixture(tmp_path,monkeypatch)
+    manifest=json.loads(Path(cfg['input_ref']['path']).read_bytes())
+    source=json.loads(Path(manifest['schedule']['path']).read_bytes())
+    g=c['phases']['FINAL'];day=g['decisions'][0]['execution_date'] if which=='decision' else g['terminal']
+    row=next(r for r in source['rows'] if r['date']==day)
+    row['reference_open_utc']=day+'T00:00:00+00:00';row['reference_close_utc']=day+'T'+close_time+'+00:00'
+    sp=write(tmp_path/'infeasible-schedule.json',source);manifest['schedule']=sp
+    mp=write(tmp_path/'infeasible-input.json',manifest);c['source_schedule']=sp
+    for e in g['decisions']:
+        if e['execution_date']==day:e['execution_reference_close_utc']=row['reference_close_utc']
+    cp=write(tmp_path/'infeasible-calendar.json',c)
+    p.update(input_sha256=mp['sha256'],calendar_sha256=cp['sha256'])
+    cfg={**cfg,'input_ref':mp,'calendar_ref':cp,'profile_ref':write(tmp_path/'infeasible-profile.json',p)}
+    # Prove this is a valid source schedule and monthly grid, not a structural
+    # schema failure that accidentally hides the missing K/D/close guard.
+    from polar.research_reference import reference_schedule
+    schedule,_=reference_schedule(source);calendar_value(c,schedule)
+    import polar.scheduled_service as module
+    import polar.scheduled_relative as planner
+    def forbidden(*a,**k):raise AssertionError('NO_PRICE_POLICY_NATIVE_BEFORE_METADATA_REJECTION')
+    for name in ['load_reference','plan_phase','bounded_native']:monkeypatch.setattr(module,name,forbidden)
+    monkeypatch.setattr(planner,'plan_phase',forbidden)
+    service=ReferenceResearchService(root,256*1024**2)
+    for operation in [service.preflight,service.run]:
+        with pytest.raises(ValueError,match='SCHEDULED_RELATIVE_PREFLIGHT_CLOCK'):operation(cfg)
+        assert not (root/'scheduled-reference-attempts').exists()
