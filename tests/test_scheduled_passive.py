@@ -112,3 +112,25 @@ def test_terminal_factor_exact_boundary_and_legacy_rejection(tmp_path,monkeypatc
           {x['id']:{'terminal':terminal if x['id']=='THIRDS' else 10000,'max_drawdown':0} for x in p['legs']}))
         return evaluate_policy({'legs':[{'nav':[{},{}]}]},p,'FINAL')['criteria'][0]['status']
     assert evaluation(10100)=='MET' and evaluation(10099)=='NOT_MET'
+
+
+@pytest.mark.parametrize('tamper,error',[('instructions','PASSIVE_SAVED_INSTRUCTIONS'),('control','INITIAL_STATE_CONTROL_BINDING')])
+def test_rehashed_saved_passive_or_control_drift_rejected_without_source(tmp_path,monkeypatch,tamper,error):
+    import polar.scheduled_service as m
+    root,cfg,_,_=passive_fixture(tmp_path,monkeypatch);service=ReferenceResearchService(root,128*1024**2)
+    result=service.run(cfg);directory=root/'reference-research-experiments'/result['semantic_id']
+    manifest=json.loads((directory/'manifest.json').read_bytes());files={n:(directory/n).read_bytes() for n in manifest['files']}
+    phases=json.loads(files['phases.json'])
+    if tamper=='control':
+        for phase in phases.values():del phase['initial_state_control']
+    else:
+        for phase in phases.values():
+            phase['plan']['decisions'][1]['instructions']['ALTERNATE']={'kind':'TARGET','weights':phase['plan']['decisions'][0]['instructions']['ALTERNATE']['weights'],'signal':{'kind':'FIXED_DECLARED_WEIGHTS'}}
+    files['phases.json']=m.canonical(phases);manifest['files']={n:{'sha256':m.sha(b),'bytes':len(b)} for n,b in files.items()}
+    raw=m.canonical(manifest);sid=m.SEMANTIC+m.sha(raw);target=root/'reference-research-experiments'/sid;target.mkdir()
+    for name,body in {**files,'manifest.json':raw}.items():(target/name).write_bytes(body)
+    def forbidden(*a,**k):raise AssertionError('UNEXPECTED_SOURCE_POLICY_NATIVE')
+    for name in ('load_reference','plan_phase','bounded_native'):monkeypatch.setattr(m,name,forbidden)
+    before=snapshot(root)
+    with pytest.raises(ValueError,match=error):service.recompute(sid)
+    assert snapshot(root)==before
