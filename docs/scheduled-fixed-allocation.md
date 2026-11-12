@@ -64,3 +64,37 @@ allowed_estimator_calls, allowed_optimizer_calls and allowed_bootstrap_samples
 all exactly0. The existing source/runtime/method/reservation/root/CI/native bounds
 remain required. Its extra point-screen limitation consumes one common-wire
 limitation slot; choose compact accurate public text within existing bounds.
+
+## Initial-only passive controls and matched executed state
+
+Profile `polar.scheduled-reference-profile/9` is a separate closed version.
+It retains the fixed annual calendar, rational sizing, two exact cost scenarios,
+no uncertainty member and existing CLI/store/native/evaluator. Policy is
+`{"kind":"FIXED_ANNUAL_WITH_PASSIVE_CONTROLS"}`. Leg fields remain
+`id,label,rule,weights`: `FIXED_WEIGHTS` targets on every declared event,
+`INITIAL_TARGET_ONLY` targets only at the first event and HOLDs at subsequent
+events without resizing or backfill, and `CASH` HOLDs throughout. The common
+terminal EXIT overrides all rules. Legacy profiles/5 and /8 remain unchanged.
+
+Primary strategy must be FIXED_WEIGHTS and primary benchmark
+INITIAL_TARGET_ONLY with identical exact intended weights. This is necessary
+but insufficient: before evaluation/publication, each fresh cost scenario must
+have equal actual first-execution holdings, residual cash, fees, logical mark
+and fill/rounding data. Account-specific order IDs are excluded; logical model
+timestamps are compared, never wallclock duration. A mismatch is INVALID,
+preserves charged attempts, and neither repairs state nor retries/refunds.
+The matched-state signature is saved in each phase and checked again from
+saved output during zero-source/zero-native/zero-write reproduction, along with
+the exact TARGET/HOLD/EXIT schedule and both cost bindings.
+
+Only profile/9 permits TERMINAL_SCALED_GE factors above one (bounded positive
+integer denominator and nonnegative numerator, each at most1000000). `[101,100]`
+compares exact terminal cents: `100*annual >=101*buyhold`, including the exact
+boundary; this is neither annualized return nor rounded display1.01. Other
+factor domains and old profiles are preserved. With eleven events, one annual,
+three initial-only and one CASH leg across two costs, there are28TARGET,
+82nonterminal eventHOLD and10EXIT instructions; daily valuation marks are not
+instructions. BASE uses carried saved eras; stress eras remain NOT_REQUESTED.
+No pure fee causality, independent replication, robustness or adoption is implied.
+The existing common wire bound applies; with five legs/two eras, at most one
+additional profile limitation fits alongside the two standard profile/9 limits.
