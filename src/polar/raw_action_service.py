@@ -95,19 +95,21 @@ def preflight(service,config):
         'financial_values':'NOT_PARSED','common_result_publication':'NOT_SUPPORTED_PRIVATE_TYPED_ARTIFACT_ONLY'}
 
 
-def private_result(config, phase, simulation, evaluation, diagnostics, initial):
-    return {'schema':'polar.private-raw-action-result/1','phase':phase,
+def private_result(config, phase, simulation, evaluation, diagnostics, initial, source_context):
+    from .raw_action_result import validate
+    return validate({'schema':'polar.private-raw-action-result/1','phase':phase,
         'bindings':binding(config),'basis':{'currency':'USD','quantity':'WHOLE_RAW_SHARE_DECLARED_CURRENT_SOURCE_IDENTITY',
             'wealth':'RAW_MARKS_PLUS_CAPTURED_NOMINAL_RECEIVABLES','payment':'MODELED_FIRST_REFERENCE_CLOSE_CIVIL_STRICTLY_AFTER_PAYDATE',
             'cash':'AVAILABLE_NATIVE_CASH_ONLY','receivable':'SEPARATE_NOMINAL_CENTS_NO_DISCOUNT_TAX',
             'historical_K':None,'physical_investor_total_return':'NOT_CERTIFIED'},
+        'source_context':source_context,
         'series':[{'id':t['id'],'role':'STRATEGY' if t['id']==LEGS[0] else 'BENCHMARK' if t['id']==LEGS[1] else 'CONTROL',
             'ledger':[{k:r[k] for k in ('date','nominal_ns','cash_cents','exposure_cents','receivable_cents',
                 'position_cents','positions','nav_cents','flat_cents','bps_cents')} for r in t['nav']]} for t in simulation['legs']],
         'primary_benchmark':LEGS[1],'evaluation':evaluation,'diagnostics':diagnostics,'initial_state_control':initial,
         'financial':'NOT_REVIEWED','adoption':'INSUFFICIENT_EVIDENCE','robustness':'INSUFFICIENT_EVIDENCE',
         'rights':'PRIVATE_ONEOFF_DEMO_NO_DATA_CONTAINING_REDISTRIBUTION_OR_CONTINUING_FEED',
-        'common_research_result':'NOT_PUBLISHED_NO_LEGACY_FIELD_REDEFINITION'}
+        'common_research_result':'NOT_PUBLISHED_NO_LEGACY_FIELD_REDEFINITION'})
 
 
 def run(service,config):
@@ -136,7 +138,7 @@ def run(service,config):
             for tape in simulation['legs']:verify_tape(tape,current)
             initial=initial_control(simulation);evaluation=evaluate(simulation)
             diagnostics={t['id']:diagnose(t,rows,base=phase=='BASE') for t in simulation['legs']}
-            result=private_result(config,phase,simulation,evaluation,diagnostics,initial)
+            result=private_result(config,phase,simulation,evaluation,diagnostics,initial,d)
             raw=canonical(result);rid='private-raw-action-result-'+sha(raw)
             projections[phase]={'result_id':rid,'sha256':sha(raw),'file':phase+'-result.json'}
             phasefiles={phase+'-'+t['id']+'.json':canonical(t) for t in simulation['legs']}
@@ -182,7 +184,8 @@ def recompute(service,sid):
         for tape in simulation['legs']:verify_tape(tape,current)
         initial=initial_control(simulation);evaluation=evaluate(simulation)
         diagnostics={t['id']:diagnose(t,plan['schedule'],base=phase=='BASE') for t in simulation['legs']}
-        expected=private_result(config,phase,simulation,evaluation,diagnostics,initial)
+        expected=private_result(config,phase,simulation,evaluation,diagnostics,initial,
+            files['source-evidence.json']['source_identity'])
         require(expected==files[phase+'-result.json'],'RAW_PRIVATE_RESULT_REPRODUCTION')
         results[phase]='private-raw-action-result-'+sha(canonical(expected))
     return {'status':'REPRODUCED','semantic_id':sid,'private_results':results,'native_calls':0,

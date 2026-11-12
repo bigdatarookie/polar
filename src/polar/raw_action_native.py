@@ -20,6 +20,7 @@ LEGS = ('PAYMENT_CASH_REINVEST','RETAIN_CASH','ANNUAL_CASH_REINVEST','CASH')
 
 
 def compact_state(value):
+    value = json.loads(canonical(value))
     return {**value, 'claims':[{**c, 'action':c['action']['event_id']} for c in value['claims']]}
 
 
