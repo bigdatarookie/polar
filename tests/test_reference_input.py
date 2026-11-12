@@ -24,13 +24,18 @@ def put(path, raw):
     return {'path': str(path), 'sha256': sha(raw), 'bytes': len(raw)}
 
 
-def fixture(tmp_path, mutate=None):
+def fixture(tmp_path, mutate=None, *, selected_unit_value=None, selected_plan_id=None):
     root = tmp_path.resolve(); source = root/'source'; store = root/'store'; store.mkdir()
     days = ['2024-01-31', '2024-02-01', '2024-02-02']; aliases = ['AAA', 'BBB', 'CCC']
     request = lambda s: {'symbols': s, 'adjustment': 'all', 'start': days[0]+'T00:00:00Z', 'end': '2024-02-03T00:00:00Z'}
     parents = {s: {'job_id': 'plan-'+s, 'request': request(s), 'source_records': [{'population_record_id': 'listing-'+s}],
                    'source_record_ids': ['listing-'+s], 'frozen_alias_ordinal': i,
                    'population_record_id': None, 'economic_identity_admission': 'NOT_ISSUED'} for i,s in enumerate(aliases)}
+    source_plan_id=selected_plan_id or 'INVENTED-PLAN'
+    if selected_unit_value is not None:
+        parents={j['request']['symbols']:j for j in selected_unit_value['jobs']}
+        aliases=sorted(parents)
+        request=lambda symbol:parents[symbol]['request']
     originals = {s: {'bars': {s: [{'c': '1.234567' if s=='AAA' else '20.1', 't': d+'T00:00:00Z'} for d in days]}}
                  for s in aliases[:2]}
     rows = {}
@@ -53,7 +58,7 @@ def fixture(tmp_path, mutate=None):
             rows[s].append(canonical(row)+b'\n')
     records = [{'literal_alias':s,'source_records':parents[s]['source_records'],
         'source_record_ids':parents[s]['source_record_ids'],'eligible_for_C':s!='CCC',
-        'canonical_job_id':'canonical-'+s,'source_plan_job_id':'plan-'+s,'request':request(s),
+        'canonical_job_id':'canonical-'+s,'source_plan_job_id':parents[s]['job_id'],'request':request(s),
         'segments':[], 'source_flags':{'missingness':'INVENTED_EXCLUDED' if s=='CCC' else 'COMPLETE'}} for s in aliases]
     objects = {}; packets = []
     for part in [0,1]:
@@ -67,7 +72,7 @@ def fixture(tmp_path, mutate=None):
         for s in aliases[:2]:
             raw=canonical({'bars': {s: originals[s]['bars'][s][:1] if part == 0 else originals[s]['bars'][s][1:]}})
             name='objects/'+sha(raw)+'.json';m=put(directory/name,raw);members[name]={k:m[k] for k in ['sha256','bytes']}
-        partition={'schema':'polar.vendor-all-adjusted-source-content/1','source_plan_id':'INVENTED-PLAN','objects':members}
+        partition={'schema':'polar.vendor-all-adjusted-source-content/1','source_plan_id':source_plan_id,'objects':members}
         pin=put(directory/'content-manifest.json',partition)
         for key,v in members.items():objects[rel+key]=v
         objects[rel+'content-manifest.json']={k:pin[k] for k in ['sha256','bytes']}
@@ -79,7 +84,7 @@ def fixture(tmp_path, mutate=None):
                 'member_first_line_1based':n*(1 if part==0 else 2)+1,
                 'rows':1 if part==0 else 2,'first_job_row_0based':0 if part==0 else 1})
     collection=put(source/'content-manifest.json',{'schema':'polar.vendor-all-adjusted-source-collection/1',
-        'source_plan_id':'INVENTED-PLAN','objects':objects,'packets':packets,
+        'source_plan_id':source_plan_id,'objects':objects,'packets':packets,
         'rights':'INVENTED_PUBLIC_TEST','provenance':{'kind':'DETERMINISTIC_INVENTED_FIXTURE'}})
     all_days=['2024-01-30']+days
     schedule=put(root/'schedule.json',{'schema':'polar.xnys-reference-schedule/1','time_status':'MODELED_NOT_OBSERVED',
@@ -89,7 +94,7 @@ def fixture(tmp_path, mutate=None):
             'clock_status':'MODELED_NOT_OBSERVED','next_reference_date':all_days[i+1] if i+1<len(all_days) else None,
             'month_end_in_reference_range':False if i+1<len(all_days) else None} for i,d in enumerate(all_days)]})
     binding=put(root/'binding.json',{'schema':'polar.C-source-consumer-metadata-binding/1','source_collection':collection,
-        'source_plan_id':'INVENTED-PLAN','portfolio_symbol_order':aliases[:2],'records':records,'rights':'INVENTED_PUBLIC_TEST',
+        'source_plan_id':source_plan_id,'portfolio_symbol_order':aliases[:2],'records':records,'rights':'INVENTED_PUBLIC_TEST',
         'provenance':{'kind':'DETERMINISTIC_INVENTED_FIXTURE'}})
     contract=put(root/'definition.json',{'clock_binding':{'schedule':schedule}})
     ledger=put(root/'ledger.json',{'eligible_aliases_fixed_order':aliases[:2],'all_records':records})
