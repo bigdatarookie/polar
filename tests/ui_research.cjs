@@ -119,3 +119,12 @@ test('exact metric sorting keeps unavailable last both ways, stable ties and sub
  const rows=['1.000000000000000000002','1.000000000000000000001','1.000000000000000000001',null].map((v,i)=>{const f=fixture().detail;f.result_id=String(i);f.record.metrics=[{id:'sharpe',label:'Sharpe',unit:'ratio',values:{'leg-0':v===null?missing():ok(v)}}];return f;});
  assert.deepEqual(researchSortRows(rows,'sharpe','asc').map(x=>x.result_id),['1','2','0','3']);assert.deepEqual(researchSortRows(rows,'sharpe','desc').map(x=>x.result_id),['0','1','2','3']);
 });
+test('execution projection preserves exact nanos, distinguishes unknown/empty and rejects wrong security identity fields',()=>{
+ const {validateResearchExecutions,executionScaledToken}=require('../src/polar/web/research.js'),f=fixture().detail;
+ const base={schema_version:'polar.research-executions/1',result_id:f.result_id,content_sha256:f.content_sha256,series_id:'leg-0',offset:0,limit:100,next_offset:null,items:[],status:'UNAVAILABLE',total:null,reason:'TAPE_NOT_BOUND'};
+ assert.equal(validateResearchExecutions(base,f).total,null);assert.equal(validateResearchExecutions({...base,status:'OK',total:0,reason:null},f).total,0);
+ const event={order_id:'leg-0/2024-01-02/BUY/TEST',symbol:'TEST',side:'BUY',timestamp_ns:'1704229200000000001',timestamp:'2024-01-02T21:00:00.000000001Z',session_date:'2024-01-02',timestamp_semantics:'NATIVE_ORDER_SUBMISSION_AND_MATCHED_FILL',intended_quantity:'2',routed_quantity:'2',filled_quantity:'2',price_micro:'100000001',fee_cents:'1',settled_notional_cents:'20000',status:'FILLED',reason:null,instrument:{status:'UNRESOLVED',reason:'SOURCE_INSTRUMENT_MAPPING_NOT_BOUND',instrument_id:null}};
+ const page={...base,status:'OK',total:1,reason:null,items:[event]};assert.equal(validateResearchExecutions(page,f).items[0].timestamp_ns,'1704229200000000001');assert.equal(executionScaledToken(event.price_micro,6),'100.000001');
+ assert.throws(()=>validateResearchExecutions({...page,content_sha256:'b'.repeat(64)},f),/EXECUTION_IDENTITY/);assert.throws(()=>validateResearchExecutions({...page,items:[{...event,price_micro:null}]},f),/EXECUTION_FILL/);
+ assert.throws(()=>validateResearchExecutions({...page,items:[{...event,instrument:{status:'BOUND',instrument_id:'alias-only'}}]},f),/EXECUTION_INSTRUMENT/);
+});
