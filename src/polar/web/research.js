@@ -36,7 +36,7 @@ function validateResearchCatalog(body,offset){
 }
 function createResearchClient(fetcher){
   let serial=0,controller;
-  return {cancel(){serial++;controller?.abort();},async load(offset=0,selection=null,{includeDetails=false}={}){
+  return {cancel(){serial++;controller?.abort();},async load(offset=0,selection=null,{includeDetails=false,selectionItem=null}={}){
     researchRequire(Number.isInteger(offset)&&offset>=0&&offset<=4096,'RESEARCH_PAGE_INVALID');
     const ticket=++serial;controller?.abort();const own=new AbortController();controller=own;
     async function read(url){
@@ -47,7 +47,7 @@ function createResearchClient(fetcher){
     }
     try{
       const catalog=validateResearchCatalog(await read('/v1/research/results?limit=10&offset='+offset),offset);if(ticket!==serial)return null;
-      const selected=selection?catalog.items.find(i=>i.result_id===selection):catalog.items[0];
+      const selected=selection?(catalog.items.find(i=>i.result_id===selection)||(selectionItem?.result_id===selection?selectionItem:null)):catalog.items[0];
       researchRequire(!selection||selected,'RESEARCH_SELECTION_NOT_ON_PAGE');
       const details=includeDetails?await Promise.all(catalog.items.map(async item=>validateResearchDetail(await read('/v1/research/results/'+encodeURIComponent(item.result_id)),item))):null;
       const detail=selected?(details?details.find(d=>d.result_id===selected.result_id):validateResearchDetail(await read('/v1/research/results/'+encodeURIComponent(selected.result_id)),selected)):null;

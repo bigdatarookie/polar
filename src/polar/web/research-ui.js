@@ -49,7 +49,7 @@ function createResearchWorkspace({root,historyWorkspace,fetcher,theme=()=> 'auto
   }
   async function load(offset=0,selection=null){
     if(!Number.isInteger(offset))return;request={offset,selection};loading=true;error=null;if(!committed)render();else renderPending();
-    try{const next=await client.load(offset,selection);if(!next)return;
+    try{const next=await client.load(offset,selection,{selectionItem:automaticSnapshot?.items.find(item=>item.result_id===selection)});if(!next)return;
       const same=committed?.detail?.result_id===next.detail?.result_id;committed=next;if(!same){inspect=0;metricChoice=null;main.scrollTop=0;root.scrollTop=0;}
       loading=false;error=null;render();
     }catch(e){loading=false;error=/^[A-Z0-9_]+$/.test(e.message)?e.message:'RESEARCH_API_UNAVAILABLE';if(!committed)render();else renderPending();}

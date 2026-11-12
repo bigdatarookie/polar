@@ -46,3 +46,13 @@ test('snapshot signatures include independent assessments and source page keeps 
  assert.equal(researchSnapshotSignature(snapshot),researchSnapshotSignature(structuredClone(snapshot)));const next=structuredClone(snapshot);next.items[11].assessment.financial='NOT_SUPPORTED';assert.notEqual(researchSnapshotSignature(snapshot),researchSnapshotSignature(next));
  const page=researchSnapshotPage(snapshot,10,'result-0');assert.equal(page.catalog.offset,10);assert.equal(page.catalog.items.length,2);assert.equal(page.detail.result_id,'result-0');
 });
+
+test('a selected result shifted outside the visible page remains refreshable with its validated identity',async()=>{
+ const {createResearchClient}=require('../src/polar/web/research.js');
+ const fs=require('node:fs'),vm=require('node:vm'),source=fs.readFileSync(require.resolve('./ui_research.cjs'),'utf8'),start=source.indexOf('function fixture('),end=source.indexOf("test('detail",start),context=vm.createContext({});
+ vm.runInContext("const hash='a'.repeat(64);const ok=value=>({value,status:'OK',reason:null});const missing=(reason='NO_DATA',status='UNAVAILABLE')=>({value:null,status,reason});"+source.slice(start,end)+';globalThis.make=fixture',context);
+ const a=context.make('a'),b=context.make('b'),catalog={...b.catalog,offset:10,total:11};
+ const client=createResearchClient(async url=>({ok:true,json:async()=>url.includes('?')?catalog:a.detail}));
+ const result=await client.load(10,a.item.result_id,{selectionItem:a.item});assert.equal(result.catalog.offset,10);assert.equal(result.catalog.items[0].result_id,b.item.result_id);assert.equal(result.detail.result_id,a.item.result_id);
+ await assert.rejects(()=>client.load(10,a.item.result_id),/RESEARCH_SELECTION_NOT_ON_PAGE/);
+});
