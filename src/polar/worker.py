@@ -124,9 +124,37 @@ def work_once(settings):
     return reg.get(rid)
 
 
+def work_research_delivery_once(settings):
+    from .research_delivery import deliver_once
+    from .research_results import ResearchResults
+    from .history_bundle import HistoryError
+    registry = Registry(settings)
+    # Reuse the existing storage-admission serialization. Envelopes already
+    # consume PG bytes; reserve space for a compact acknowledgement as well.
+    # This is delivery capacity, never a scientific reservation or new ceiling.
+    with registry.connect() as db:
+        db.execute("SELECT pg_advisory_xact_lock(734902)")
+        db_bytes = db.execute("SELECT pg_database_size(current_database()) AS n").fetchone()["n"]
+        remaining = settings.storage_bytes-db_bytes-16384
+        if remaining <= 0:
+            raise RuntimeError("RESEARCH_DELIVERY_STORAGE_UNAVAILABLE")
+        results = ResearchResults(settings.artifacts, remaining)
+        try:
+            return deliver_once(registry, results)
+        except HistoryError:
+            # read_file intentionally folds OS errors. Do not certify a transient
+            # IO/permission/capacity failure as permanent invalidity; preserve its
+            # lease for saved-only recovery and expose dependency failure in logs.
+            raise RuntimeError("RESEARCH_DELIVERY_STORAGE_OR_READ_UNAVAILABLE") from None
+
+
 def run_forever():
     settings = Settings.load()
     while True:
+        try:
+            work_research_delivery_once(settings)
+        except Exception:
+            print(json.dumps({"event":"research_delivery_dependency_unavailable"}),flush=True)
         try:
             work_once(settings)
         except Exception:

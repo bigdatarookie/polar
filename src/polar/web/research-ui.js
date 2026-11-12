@@ -8,6 +8,7 @@ function researchTableScrollTarget(left,max,key,width){
 function createResearchWorkspace({root,historyWorkspace,fetcher,theme=()=> 'auto',setTheme,onToggle,onContext=()=>{},onCompare=()=>{}}){
   const client=createResearchClient(fetcher);
   let active=false,committed=null,loading=false,error=null,request={offset:0,selection:null},chart=null,inspect=0,renderFrame=0,chartResult=null,metricChoice=null;
+  let autoError=null,automaticSnapshot=null,pinnedResultId=null;
   const el=(tag,text,cls)=>{const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node;};
   const button=(label,action,id)=>{const node=el('button',label);node.type='button';if(id)node.id=id;node.onclick=action;return node;};
   const details=(label,body,id)=>{const d=el('details',undefined,'research-disclosure');if(id)d.id=id;d.append(el('summary',label),body);return d;};
@@ -42,25 +43,38 @@ function createResearchWorkspace({root,historyWorkspace,fetcher,theme=()=> 'auto
   function renderPending(){
     const target=committed?.catalog.items.find(i=>i.result_id===request.selection)?.question.label;
     const label=loading?'Updating '+(target||'saved research')+(committed?' · current result retained.':'. Waiting for a complete result.'):error?'Update failed · '+error+(committed?'. Last coherent result retained.':'. No result available.'):committed?.detail?'Research ready':committed?'No saved research results.':'Open saved research to load persisted results.';
-    catalogStatus.textContent=label;catalogStatus.className='research-load-status'+(error?' research-error':'');root.setAttribute('aria-busy',String(loading));reload.textContent=error?'Retry results':'Refresh results';
+    catalogStatus.textContent=label+(autoError?' · Automatic updates unavailable: '+autoError+'. Manual Refresh remains available.':'');catalogStatus.className='research-load-status'+(error?' research-error':'');root.setAttribute('aria-busy',String(loading));reload.textContent=error?'Retry results':'Refresh results';
     prev.disabled=loading||!committed||committed.catalog.offset===0;next.disabled=loading||committed?.catalog.next_offset==null;
     for(const b of list.querySelectorAll('button'))b.disabled=false;
   }
   async function load(offset=0,selection=null){
     if(!Number.isInteger(offset))return;request={offset,selection};loading=true;error=null;if(!committed)render();else renderPending();
-    try{const next=await client.load(offset,selection);if(!next)return;
+    try{const next=await client.load(offset,selection,{selectionItem:automaticSnapshot?.items.find(item=>item.result_id===selection)});if(!next)return;
       const same=committed?.detail?.result_id===next.detail?.result_id;committed=next;if(!same){inspect=0;metricChoice=null;main.scrollTop=0;root.scrollTop=0;}
       loading=false;error=null;render();
     }catch(e){loading=false;error=/^[A-Z0-9_]+$/.test(e.message)?e.message:'RESEARCH_API_UNAVAILABLE';if(!committed)render();else renderPending();}
   }
+  function applyAutomaticSnapshot(snapshot){
+    if(loading)return false;automaticSnapshot=snapshot;if(!committed)return true;
+    const selection=committed.detail?.result_id||request.selection||snapshot.items[request.offset]?.result_id;
+    const next=researchSnapshotPage(snapshot,request.offset,selection);
+    // A removed selection remains the last coherent visible detail; never silently substitute another result.
+    if(!next.detail&&committed.detail)next.detail=committed.detail;
+    const signature=value=>JSON.stringify([value.catalog,value.detail?.result_id,value.detail?.assessment]);
+    if(signature(next)===signature(committed))return true;
+    pinnedResultId=root.contains(document.activeElement)?document.activeElement?.closest?.('[data-result-id]')?.dataset.resultId||null:null;
+    committed=next;error=null;if(active)withResearchDOMState(root,render);return true;
+  }
+  root.addEventListener('focusout',()=>queueMicrotask(()=>{if(pinnedResultId&&document.activeElement?.closest?.('[data-result-id]')?.dataset.resultId!==pinnedResultId){pinnedResultId=null;if(active)withResearchDOMState(root,render);}}));
   function render(){
     for(const mode of ['auto','light','dark'])document.getElementById('research-theme-'+mode)?.setAttribute('aria-pressed',String(theme()===mode));
     const previous=committed?.detail?.result_id===root.dataset.renderedResult?[...root.querySelectorAll('details')].map(d=>d.open):[];
     renderPending();list.replaceChildren();picker.replaceChildren();const detail=committed?.detail;onContext(detail?'Saved research · '+detail.record.question.label+' · '+researchPhase(detail.record):'Saved research · '+(loading?'Updating':error||'No result'));
-    for(const item of committed?.catalog.items||[]){
+    const visibleItems=[...(committed?.catalog.items||[])],pinned=automaticSnapshot?.items.find(item=>item.result_id===pinnedResultId);if(pinned&&!visibleItems.some(item=>item.result_id===pinned.result_id))visibleItems.push(pinned);
+    for(const item of visibleItems){
       const option=el('option',item.question.label);option.value=item.result_id;option.selected=item.result_id===detail?.result_id;picker.append(option);
       const b=button('',()=>load(committed.catalog.offset,item.result_id));b.className='research-result';b.dataset.resultId=item.result_id;b.setAttribute('aria-pressed',String(item.result_id===detail?.result_id));
-      b.append(el('b',item.question.label),el('small',researchReadable(item.assessment.financial)));list.append(b);
+      b.append(el('b',item.question.label),el('small',researchReadable(item.assessment.financial)+(item.result_id===pinnedResultId&&!committed.catalog.items.includes(item)?' · Focused result retained outside this page':'')));list.append(b);
     }
     if(committed&&!committed.catalog.items.length)list.append(el('p','No persisted results are available. No demonstration result is substituted.','research-muted'));
     picker.disabled=!committed?.catalog.items.length;pagination.hidden=!committed||committed.catalog.total<=10;
@@ -146,7 +160,7 @@ function createResearchWorkspace({root,historyWorkspace,fetcher,theme=()=> 'auto
   }
   const observer=new ResizeObserver(()=>{cancelAnimationFrame(renderFrame);renderFrame=requestAnimationFrame(renderChart);});observer.observe(root);
   const themeObserver=new MutationObserver(()=>{if(active)render();});themeObserver.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
-  open(false);return {navigation:nav,open,openResult:(id,offset=0)=>open(true,id,offset),refresh:()=>load(request.offset,request.selection),isActive:()=>active,reset(){client.cancel();committed=null;loading=false;error=null;request={offset:0,selection:null};inspect=0;chartResult=null;chart?.clear();open(false);}};
+  open(false);return {navigation:nav,open,openResult:(id,offset=0)=>open(true,id,offset),refresh:()=>load(request.offset,request.selection),isActive:()=>active,isLoading:()=>loading,applyAutomaticSnapshot,setAutoError(value){if(autoError===value)return;autoError=value;renderPending();},reset(){client.cancel();committed=null;loading=false;error=null;automaticSnapshot=null;pinnedResultId=null;request={offset:0,selection:null};inspect=0;chartResult=null;chart?.clear();open(false);}};
 }
 
 if(typeof module!=='undefined')module.exports={researchTableScrollTarget};

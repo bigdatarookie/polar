@@ -30,6 +30,32 @@ def create_app(service=None):
     def research_error(req, exc):
         return JSONResponse(status_code=exc.status, content={"code": exc.code})
 
+    @app.get("/v1/research/revision")
+    def research_revision():
+        return svc().research_revision()
+
+    @app.post("/v1/research/deliveries", status_code=202)
+    async def research_delivery(request: Request):
+        # Stream-bound before JSON parsing; never buffer an unbounded POST.
+        import json
+        raw = bytearray()
+        async for chunk in request.stream():
+            if len(raw)+len(chunk) > 8*1024**2+4096:
+                raise ResearchError("RESEARCH_DELIVERY_TOO_LARGE", 413)
+            raw.extend(chunk)
+        try:
+            body = json.loads(raw)
+        except (ValueError, UnicodeError):
+            raise ResearchError("RESEARCH_INVALID_DELIVERY", 422) from None
+        return svc().research_delivery_submit(body)
+
+    @app.get("/v1/research/deliveries/{delivery_id}")
+    def research_delivery_status(delivery_id: str):
+        import re
+        if re.fullmatch(r"delivery-[a-f0-9]{64}", delivery_id) is None:
+            raise ResearchError("RESEARCH_DELIVERY_INVALID_ID", 422)
+        return svc().research_delivery_status(delivery_id)
+
     @app.get("/v1/research/results")
     def research_catalog(limit: int = Query(10, ge=1, le=10), offset: int = Query(0, ge=0, le=4096)):
         return svc().research_catalog(limit, offset)
@@ -75,6 +101,7 @@ def create_app(service=None):
     def budget(req,exc):
         return JSONResponse(status_code=429,content={"code":str(exc)})
 
+    @app.exception_handler(RuntimeError)
     @app.exception_handler(psycopg.Error)
     @app.exception_handler(OSError)
     @app.exception_handler(ArtifactError)

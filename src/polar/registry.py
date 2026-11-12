@@ -1,6 +1,8 @@
 """PostgreSQL is the sole metadata authority. No SQLite qualification path."""
 import uuid
 import hashlib
+import json
+import re
 from importlib.resources import files
 
 import psycopg
@@ -41,6 +43,150 @@ class Registry:
                     raise RuntimeError("SCHEMA_MISMATCH")
             db.execute(source)
             db.execute("INSERT INTO schema_version(version,checksum) VALUES (1,%s) ON CONFLICT DO NOTHING",(checksum,))
+            self._migrate_research_delivery(db)
+
+    @staticmethod
+    def _research_delivery_schema():
+        return files("polar").joinpath("research_delivery_schema.sql").read_bytes()
+
+    def _check_research_delivery(self, db):
+        existing = db.execute("SELECT to_regclass('research_delivery_schema_version') AS name").fetchone()
+        if not existing["name"]:
+            raise RuntimeError("RESEARCH_DELIVERY_UNAVAILABLE")
+        checksum = hashlib.sha256(self._research_delivery_schema()).hexdigest()
+        rows = db.execute("SELECT version,checksum FROM research_delivery_schema_version").fetchall()
+        if rows != [{"version": 1, "checksum": checksum}]:
+            raise RuntimeError("RESEARCH_DELIVERY_SCHEMA_MISMATCH")
+        db.execute("""SELECT id,kind,result_id,payload_hash,body,body_bytes,state,
+            delivery_attempt_count,lease_token,lease_until,queued_at,started_at,
+            last_started_at,delivered_at,finished_at,updated_at,not_before,receipt,error_code
+            FROM research_deliveries LIMIT 0""")
+
+    def _migrate_research_delivery(self, db):
+        # Same transaction/advisory lock as legacy migration; never alter its v1.
+        existing = db.execute("SELECT to_regclass('research_delivery_schema_version') AS name").fetchone()
+        if existing["name"]:
+            self._check_research_delivery(db)
+            return
+        collision = db.execute("SELECT to_regclass('research_deliveries') AS name").fetchone()
+        function = db.execute("SELECT to_regproc('protect_research_delivery') AS name").fetchone()
+        if collision["name"] or function["name"]:
+            raise RuntimeError("RESEARCH_DELIVERY_SCHEMA_PARTIAL")
+        source = self._research_delivery_schema()
+        db.execute(source.decode())
+        db.execute("INSERT INTO research_delivery_schema_version(version,checksum) VALUES (1,%s)",
+                   (hashlib.sha256(source).hexdigest(),))
+        self._check_research_delivery(db)
+
+    @staticmethod
+    def _research_delivery_id(value, prefix):
+        if type(value) is not str or re.fullmatch(prefix+r"-[0-9a-f]{64}", value) is None:
+            raise ValueError("RESEARCH_DELIVERY_INVALID_ID")
+        return value
+
+    @staticmethod
+    def _research_delivery_json(body):
+        if not isinstance(body, dict):
+            raise ValueError("RESEARCH_DELIVERY_INVALID_BODY")
+        try:
+            encoded = canonical(body)
+            if json.loads(encoded) != body:
+                raise ValueError("RESEARCH_DELIVERY_INVALID_BODY")
+            return encoded
+        except (ValueError, TypeError, OverflowError, RecursionError):
+            raise ValueError("RESEARCH_DELIVERY_INVALID_BODY") from None
+
+    def submit_research_delivery(self, delivery_id, kind, result_id, payload_hash, body):
+        """Admit immutable validated public delivery bytes, never a scientific job."""
+        self._research_delivery_id(delivery_id, "delivery")
+        self._research_delivery_id(result_id, "research")
+        if type(kind) is not str or kind not in {"RESULT", "ASSESSMENT"}:
+            raise ValueError("RESEARCH_DELIVERY_INVALID_KIND")
+        if type(payload_hash) is not str or re.fullmatch(r"[0-9a-f]{64}", payload_hash) is None:
+            raise ValueError("RESEARCH_DELIVERY_INVALID_HASH")
+        encoded = self._research_delivery_json(body)
+        if delivery_id != "delivery-"+payload_hash or hashlib.sha256(encoded).hexdigest() != payload_hash:
+            raise Conflict("RESEARCH_DELIVERY_PAYLOAD_CONFLICT")
+        try:
+            with self.connect() as db:
+                self._check_research_delivery(db)
+                # Reuse admission serialization/storage accounting, not run attempts.
+                db.execute("SELECT pg_advisory_xact_lock(734902)")
+                old = db.execute("SELECT * FROM research_deliveries WHERE id=%s", (delivery_id,)).fetchone()
+                if old:
+                    if (old["kind"] != kind or old["result_id"] != result_id or
+                            old["payload_hash"] != payload_hash or old["body"] != body):
+                        raise Conflict("RESEARCH_DELIVERY_PAYLOAD_CONFLICT")
+                    return old
+                from .artifacts import storage_used
+                db_bytes = db.execute("SELECT pg_database_size(current_database()) AS n").fetchone()["n"]
+                if db_bytes + storage_used(self.settings.artifacts) + len(encoded) > self.settings.storage_bytes:
+                    raise BudgetExceeded("RETAINED_STORAGE_ADMISSION_LIMIT")
+                return db.execute("""INSERT INTO research_deliveries(id,kind,result_id,payload_hash,body,body_bytes)
+                    VALUES (%s,%s,%s,%s,%s,%s) RETURNING *""",
+                    (delivery_id, kind, result_id, payload_hash, Jsonb(body), len(encoded))).fetchone()
+        except psycopg.Error:
+            raise RuntimeError("RESEARCH_DELIVERY_UNAVAILABLE") from None
+
+    def research_delivery(self, delivery_id):
+        self._research_delivery_id(delivery_id, "delivery")
+        try:
+            with self.connect() as db:
+                self._check_research_delivery(db)
+                return db.execute("SELECT * FROM research_deliveries WHERE id=%s", (delivery_id,)).fetchone()
+        except psycopg.Error:
+            raise RuntimeError("RESEARCH_DELIVERY_UNAVAILABLE") from None
+
+    def claim_research_delivery(self):
+        """Fence one delivery, including only its expired delivery lease/retry."""
+        try:
+            with self.connect() as db:
+                self._check_research_delivery(db)
+                row = db.execute("""SELECT * FROM research_deliveries
+                    WHERE (state IN ('QUEUED','WAITING_FOR_RESULT') AND not_before<=now())
+                       OR (state='DELIVERING' AND lease_until<=now())
+                    ORDER BY queued_at,id LIMIT 1 FOR UPDATE SKIP LOCKED""").fetchone()
+                if not row:
+                    return None
+                token = uuid.uuid4()
+                return db.execute("""UPDATE research_deliveries SET state='DELIVERING',lease_token=%s,
+                    lease_until=now()+make_interval(secs => %s),delivery_attempt_count=delivery_attempt_count+1,
+                    started_at=coalesce(started_at,now()),last_started_at=now(),updated_at=now(),error_code=NULL
+                    WHERE id=%s RETURNING *""", (token, self.settings.lease_seconds, row["id"])).fetchone()
+        except psycopg.Error:
+            raise RuntimeError("RESEARCH_DELIVERY_UNAVAILABLE") from None
+
+    def finish_research_delivery(self, delivery_id, lease_token, state, receipt=None, error_code=None):
+        self._research_delivery_id(delivery_id, "delivery")
+        if type(state) is not str or state not in {"WAITING_FOR_RESULT", "DELIVERED", "REJECTED"}:
+            raise ValueError("RESEARCH_DELIVERY_INVALID_STATE")
+        try:
+            token = uuid.UUID(str(lease_token))
+        except (ValueError, TypeError, AttributeError):
+            raise ValueError("RESEARCH_DELIVERY_INVALID_LEASE_TOKEN") from None
+        if receipt is not None:
+            self._research_delivery_json(receipt)
+        if error_code is not None and (type(error_code) is not str or
+                re.fullmatch(r"[A-Z][A-Z0-9_]{0,127}", error_code) is None):
+            raise ValueError("RESEARCH_DELIVERY_INVALID_ERROR_CODE")
+        try:
+            with self.connect() as db:
+                self._check_research_delivery(db)
+                row = db.execute("SELECT * FROM research_deliveries WHERE id=%s FOR UPDATE", (delivery_id,)).fetchone()
+                if not row:
+                    raise NotFound("RESEARCH_DELIVERY_NOT_FOUND")
+                if (row["state"] != "DELIVERING" or row["lease_token"] != token or not
+                        db.execute("SELECT %s::timestamptz>now() AS valid", (row["lease_until"],)).fetchone()["valid"]):
+                    raise Conflict("RESEARCH_DELIVERY_LEASE_CONFLICT")
+                return db.execute("""UPDATE research_deliveries SET state=%s,receipt=%s,error_code=%s,
+                    lease_token=NULL,lease_until=NULL,updated_at=now(),
+                    not_before=CASE WHEN %s='WAITING_FOR_RESULT' THEN now()+interval '1 second' ELSE not_before END,
+                    delivered_at=CASE WHEN %s='DELIVERED' THEN now() ELSE NULL END,
+                    finished_at=CASE WHEN %s IN ('DELIVERED','REJECTED') THEN now() ELSE NULL END
+                    WHERE id=%s RETURNING *""", (state, Jsonb(receipt) if receipt is not None else None,
+                                               error_code, state, state, state, delivery_id)).fetchone()
+        except psycopg.Error:
+            raise RuntimeError("RESEARCH_DELIVERY_UNAVAILABLE") from None
 
     def check(self):
         checksum = hashlib.sha256(files("polar").joinpath("schema.sql").read_bytes()).hexdigest()
