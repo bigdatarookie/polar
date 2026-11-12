@@ -47,6 +47,7 @@ def test_selected_source_only_lossless_graph_namespace_and_idempotency(tmp_path)
     assert out['status']=='PREPARED_SOURCE_ONLY' and out['strategy_execution']=='NOT_RUN'
     manifest=json.loads(Path(out['input_ref']['path']).read_bytes());m=load_reference(out['input_ref'])
     assert manifest['schema']=='polar.synthetic-reference-source-input/2' and m['symbols']==['AAA','BBB']
+    assert manifest['parent_dataset_revision'].startswith('INVENTED-')
     assert m['prices_micro']['2024-01-31']=={'AAA':1234567,'BBB':20100000}
     assert manifest['provenance']=={'kind':'DETERMINISTIC_INVENTED_FIXTURE','producer':'polar-public-tests','source_payloads':'NONE'}
     relations=json.loads(Path(manifest['source_relations']['path']).read_bytes())

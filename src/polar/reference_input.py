@@ -260,6 +260,7 @@ def prepare_input(config, root, limit):
                                'parent_schedule': config['schedule'], 'semantic': semantic,
                                'economic_distinct_count': 'NOT_ESTABLISHED', 'model_execution': 'UNSUPPORTED_BY_THIS_CONVERTER'}}
     if selected and config['namespace']=='INVENTED':
+        manifest['parent_dataset_revision']='INVENTED-'+binding['source_collection']['sha256']
         manifest['conversion_metadata']=manifest['provenance']
         manifest['provenance']={'kind':'DETERMINISTIC_INVENTED_FIXTURE','producer':'polar-public-tests','source_payloads':'NONE'}
     files = {'manifest.json': canonical(manifest), 'quotes.ndjson': quote_raw,
