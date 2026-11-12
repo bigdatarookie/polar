@@ -326,7 +326,7 @@ function matchingExecutions(){
 function revealExecutionRow(event,{focus=true}={}){
   const index=(executions.allItems||[]).findIndex(item=>item.order_id===event.order_id);if(index<0)return;
   executions.offset=Math.floor(index/100)*100;executionChoices=null;state.mode='Orders';cancelAnimationFrame(restoreFrame);renderRail();syncModes();if(innerWidth<701)openTools();
-  const button=document.getElementById('saved-order-'+encodeURIComponent(event.order_id));button?.scrollIntoView({block:'nearest',inline:'nearest'});if(focus)button?.focus({preventScroll:true});
+  const button=document.getElementById('saved-order-'+encodeURIComponent(event.order_id));button?.closest('.saved-order')?.scrollIntoView({block:'nearest',inline:'nearest'});if(focus)button?.focus({preventScroll:true});
 }
 function chooseExecutionGroup(events){
   if(events.length===1){selectExecution(events[0],{origin:'marker'});return;}
