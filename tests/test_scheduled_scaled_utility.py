@@ -2,7 +2,6 @@
 from copy import deepcopy
 from fractions import Fraction
 import json
-from pathlib import Path
 
 import pytest
 
@@ -54,6 +53,7 @@ def test_factor_domains_do_not_admit_leverage_or_nonterminating_vol(tmp_path, mo
     with pytest.raises(ValueError, match='FIXED_WEIGHTS'): profile_value(bad)
     # The factor extension belongs to exact schema/5, not the shared version5 flag.
     from test_scheduled_fixed_costs import cost_fixture
+    (tmp_path/'old').mkdir()
     _, _, old, _ = cost_fixture(tmp_path/'old', monkeypatch)
     old['criteria'] = deepcopy(p['criteria'])
     for c in old['criteria']:
