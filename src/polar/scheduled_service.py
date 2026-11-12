@@ -17,7 +17,7 @@ from .gym_service import code_binding
 from .history_bundle import read_file
 from .research_reference import load_reference, pinned_bytes, reference_schedule
 from .reference_projection import public_reference
-from .scheduled_policy import profile_value, calendar_value, plan_phase, evaluate_policy, gate_accounting
+from .scheduled_policy import profile_value, calendar_value, plan_phase, evaluate_policy, gate_accounting, optimization_counts
 from .scheduled_diagnostics import diagnose
 
 CONFIG_SCHEMA = 'polar.scheduled-reference-config/1'
@@ -94,7 +94,7 @@ def account_count(profile, grids):
 
 
 def operation_phases(profile, grids):
-    if profile['schema'].endswith('/2'):
+    if profile['schema'].endswith(('/2','/4')):
         require(set(grids) == {'FINAL'}, 'SCHEDULED_UNCERTAINTY_FINAL_ONLY')
         for scenario in profile['cost_scenarios']:
             yield ('FINAL' if scenario['id'] == 'BASE' else 'FINAL_COST_STRESS'), 'FINAL', scenario
@@ -105,10 +105,14 @@ def operation_phases(profile, grids):
 
 def preflight(service, config):
     p, _, _, grids, _, _ = prepare(service, config, load_prices=False)
-    return {'schema': 'polar.scheduled-reference-preflight/1', 'status': 'READY_FOR_BOUND_OPERATION',
+    result = {'schema': 'polar.scheduled-reference-preflight/1', 'status': 'READY_FOR_BOUND_OPERATION',
             'operation_binding_sha256': sha(canonical(binding(config))), 'policy_execution': 'NOT_RUN',
             'scientific_starts': 0, 'fit_calls': 0, 'predict_calls': 0,
             'expected_native_accounts': account_count(p, grids)}
+    if p['schema'].endswith('/4'):
+        n=sum(len(g['decisions']) for g in grids.values())
+        result['expected_optimizer_counts']={'covariance_estimates':n,'spd_certifications':n,'portfolio_optimizations':n,'support_linear_system_attempts':15*n}
+    return result
 
 
 def authority_for(service, config, profile, grids):
@@ -167,12 +171,15 @@ def run(service, config):
             'fit_calls': 0, 'predict_calls': 0, 'model_calls': 0, 'started_ns': time.time_ns()}),
             'config.json': canonical(config), 'authority.json': canonical(authority)})
     completed = 0
+    optimizer_counts = optimization_counts([])
     try:
         market = load_reference(config['input_ref'])
         phases = {}; diagnostics = {}; plans = {}
         for phase, reference_phase, scenario in operation_phases(profile, grids):
             if reference_phase not in plans:
                 plans[reference_phase] = plan_phase(market, profile, grids[reference_phase], tz)
+                if profile['schema'].endswith('/4'):
+                    optimizer_counts = optimization_counts([s for plan in plans.values() for s in plan['signals']])
             # Stress reuses every frozen signal/weight/time but re-executes its
             # own account NAV/quantity/fee-aware cash clipping from fresh capital.
             plan = plans[reference_phase]
@@ -195,11 +202,11 @@ def run(service, config):
         manifest = {'schema': 'polar.scheduled-reference-semantic-manifest/1',
                     'files': {n: {'sha256': sha(b), 'bytes': len(b)} for n, b in files.items()}}
         uncertainty = None
-        if profile['schema'].endswith('/2'):
+        if profile['schema'].endswith(('/2','/4')):
             from .scheduled_uncertainty import bootstrap
             base = phases['FINAL']['simulation']
             uncertainty = bootstrap(base, profile['primary_strategy'],
-                                    [x['id'] for x in profile['legs'] if x['id'] != profile['primary_strategy']])
+                                    [x['id'] for x in profile['legs'] if x['id'] != profile['primary_strategy']], seed=profile['uncertainty']['seed'])
             screens_met = all(c['status'] == 'MET' for phase in phases.values() for c in phase['evaluation']['criteria'])
             uncertainty['point_screens_all_met'] = screens_met
             uncertainty['robustness'] = robustness(uncertainty, screens_met)
@@ -223,14 +230,23 @@ def run(service, config):
                 project_gate_accounting(record, data['plan'], data['simulation'])
             if uncertainty is not None:
                 project_uncertainty(record, uncertainty)
+            if profile['schema'].endswith('/4'):
+                project_optimization(record, optimizer_counts)
             publications[phase] = service.results.publish(record)
         finish = {'status': 'SUCCESS', 'attempt_id': aid, 'semantic_id': sid, 'results': publications,
                   'fit_calls': 0, 'predict_calls': 0, 'model_calls': 0, 'native_accounts': completed,
                   'financial_acceptance': 'NOT_REVIEWED', 'finished_ns': time.time_ns()}
+        if profile['schema'].endswith('/4'):
+            n=sum(len(g['decisions']) for g in grids.values())
+            require(optimizer_counts=={'covariance_estimates':n,'spd_certifications':n,'portfolio_optimizations':n,'support_linear_system_attempts':15*n},'SCHEDULED_GMV_COMPLETION_COUNTS')
+            finish['actual_optimizer_counts'] = optimizer_counts
     except BaseException as exc:
         finish = {'status': 'FAILED_UNFINALIZED', 'attempt_id': aid, 'error': str(exc)[:240],
                   'fit_calls': 0, 'predict_calls': 0, 'model_calls': 0, 'completed_native_accounts': completed,
                   'refund': False, 'automatic_retry': False, 'finished_ns': time.time_ns()}
+        if profile['schema'].endswith('/4'):
+            events=getattr(exc,'events',{})
+            finish['actual_optimizer_counts'] = events.get('actual_counts',optimizer_counts) if isinstance(events,dict) else optimizer_counts
         with service.store.locked():
             service.store._publish(parent+'/'+aid, 'finish', {'record.json': canonical(finish),
                 'diagnostics.json': canonical(getattr(exc, 'events', []))}, file_limit=32*1024**2)
@@ -253,13 +269,18 @@ def recompute(service, semantic_id):
         require(len(body) == pin['bytes'] and sha(body) == pin['sha256'], 'SCHEDULED_MEMBER_HASH')
         files[name] = decode(body)
     profile = profile_value(files['profile.json'])
-    expected_members = MEMBERS | ({'uncertainty.json'} if profile['schema'].endswith('/2') else set())
+    expected_members = MEMBERS | ({'uncertainty.json'} if profile['schema'].endswith(('/2','/4')) else set())
     require(set(files) == expected_members, 'SCHEDULED_PROFILE_MEMBER_SET')
     require(files['bindings.json']['code'] == code_binding(), 'SCHEDULED_REPRODUCTION_CODE_BINDING')
+    if profile['schema'].endswith('/4'):
+        base=files['phases.json']['FINAL']['plan'];stress=files['phases.json']['FINAL_COST_STRESS']['plan']
+        require({k:v for k,v in base.items() if k!='cost_profile'}=={k:v for k,v in stress.items() if k!='cost_profile'},'SCHEDULED_GMV_STRESS_SHARED_PLAN')
     expected_diagnostics = {}
     # Only saved output arrays are used; no source, policy feature, model or native call.
     calendar = files['calendar.json']
     for phase, data in files['phases.json'].items():
+        if profile['schema'].endswith('/4'):
+            verify_gmv_plan(data['plan'], profile)
         if profile['schema'] == 'polar.scheduled-reference-profile/3':
             require(data['plan'].get('gate_accounting') == gate_accounting(data['plan']), 'SCHEDULED_GATE_ACCOUNTING_RECOMPUTE')
         require(canonical(evaluate_policy(data['simulation'], profile, data.get('reference_phase', phase))) == canonical(data['evaluation']), 'SCHEDULED_RECOMPUTE_MISMATCH')
@@ -270,12 +291,15 @@ def recompute(service, semantic_id):
     if 'uncertainty.json' in files:
         from .scheduled_uncertainty import bootstrap
         actual = bootstrap(files['phases.json']['FINAL']['simulation'], profile['primary_strategy'],
-                           [x['id'] for x in profile['legs'] if x['id'] != profile['primary_strategy']])
+                           [x['id'] for x in profile['legs'] if x['id'] != profile['primary_strategy']], seed=profile['uncertainty']['seed'])
         met = all(c['status'] == 'MET' for phase in files['phases.json'].values() for c in phase['evaluation']['criteria'])
         actual['point_screens_all_met'] = met; actual['robustness'] = robustness(actual, met)
         require(canonical(actual) == canonical(files['uncertainty.json']), 'SCHEDULED_UNCERTAINTY_RECOMPUTE')
-    return {'status': 'REPRODUCED', 'semantic_id': semantic_id, 'fit_calls': 0, 'model_calls': 0,
+    result={'status': 'REPRODUCED', 'semantic_id': semantic_id, 'fit_calls': 0, 'model_calls': 0,
             'predict_calls': 0, 'native_calls': 0, 'store_writes': 0}
+    if profile['schema'].endswith('/4'):
+        result['actual_optimizer_counts']=optimization_counts([])
+    return result
 
 
 def project_diagnostics(record, diagnostics):
@@ -366,7 +390,7 @@ def project_uncertainty(record, uncertainty):
         record['metrics'].append({'id':'base_bootstrap_sr_'+key,'label':label,
                                   'unit':unit,'values':values})
     for comparison in uncertainty['comparisons']:
-        text = ('BASE saved-return paired circular blocks63, seed37001, 1000 draws; '
+        text = (f"BASE saved-return paired circular blocks63, seed{uncertainty['seed']}, 1000 draws; "
                 'deltas are primary strategy minus this control. ')
         for key in ('sr_delta','growth_delta','drawdown_delta'):
             stat = comparison[key]
@@ -400,3 +424,29 @@ def project_gate_accounting(record, plan, simulation):
              f"Actual positive submitted order counts: {orders}. First/change/month-end triggers coalesce to one portfolio TARGET; "
              'state follows previous observed vector independently of fills. Monthly controls HOLD otherwise; terminal EXIT overrides all. '
              'Complete state/trigger/target/hold/exit accounting is saved in the semantic plan, not a learned model or risk guarantee.'})
+
+
+def verify_gmv_plan(plan, profile):
+    from .scheduled_signals import verify_gmv_signal
+    require(len(plan['signals']) == len(plan['decisions'])-1, 'SCHEDULED_GMV_SIGNAL_COUNT')
+    for index,(signal,decision) in enumerate(zip(plan['signals'],plan['decisions'])):
+        weights=verify_gmv_signal(signal,plan['symbols'])
+        require(signal['formation']==decision['formation'] and signal['execution']==decision['day'], 'SCHEDULED_GMV_SIGNAL_BINDING')
+        for leg in profile['legs']:
+            instruction=decision['instructions'][leg['id']]
+            expected={s:[v.numerator,v.denominator] for s,v in weights[leg['rule']].items()}
+            require(instruction['kind']=='TARGET' and instruction['weights']==expected and
+                    instruction['signal']=={'kind':'SHRUNK_GMV_COMMON_RISK','certificate_signal_index':index}, 'SCHEDULED_GMV_INSTRUCTION_BINDING')
+    counts=optimization_counts(plan['signals']);n=len(plan['signals'])
+    require(counts=={'covariance_estimates':n,'spd_certifications':n,'portfolio_optimizations':n,'support_linear_system_attempts':15*n}, 'SCHEDULED_GMV_COUNTS')
+    return counts
+
+
+def project_optimization(record, counts):
+    record['provenance'].append({'role':'portfolio_optimizer','id':'EXACT_SHRUNK_GMV_ALL15_SUPPORTS',
+                                'sha256':sha(canonical(counts))})
+    record['limitations'].append({'code':'PORTFOLIO_OPTIMIZATION_ACCOUNTING','scope':'Entire modeled comparison',
+        'text':f"Actual original work {counts}; zero ML fits/predictions is not zero optimization. "
+               'All15 exact support solves and rational KKT/SPD certificates are saved per formation; cost stress reuses that one weight set. '
+               'Saved verification checks certificate identities without source, estimation, solver, native execution or writes. '
+               'Shared forecast risk uses the same fixed50percent diagonal-shrunk covariance for strategy and both new controls; no future-risk guarantee.'})
