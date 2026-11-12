@@ -10,9 +10,9 @@ from polar.reference_composition import PROFILE,composition_metadata
 from polar.research_reference import load_reference
 
 
-def composition_fixture(tmp_path):
+def composition_fixture(tmp_path,second_targets=None):
     refs=[];configs=[]
-    for name,targets in [('first',['AAA','BBB']),('second',['DDD','EEE'])]:
+    for name,targets in [('first',['AAA','BBB']),('second',second_targets or ['DDD','EEE'])]:
         directory=tmp_path/name;directory.mkdir()
         store,cfg,_,_=selected_fixture(directory,targets=targets)
         refs.append(prepare_input(cfg,store,10**8)['input_ref']);configs.append(cfg)
@@ -37,6 +37,7 @@ def test_compose_exact_original_lines_pointers_clock_graph_and_idempotency(tmp_p
     # Original acquisition payloads are absent. Only already validated projections are required.
     import shutil
     for name in ['first','second']:shutil.rmtree(tmp_path/name/'source')
+    root.mkdir()
     result=prepare_input(cfg,root,10**8);market=load_reference(result['input_ref'])
     assert market['symbols']==['AAA','BBB','DDD','EEE'] and result['rows']==12
     m=json.loads(Path(result['input_ref']['path']).read_text())
@@ -50,7 +51,7 @@ def test_compose_exact_original_lines_pointers_clock_graph_and_idempotency(tmp_p
 
 @pytest.mark.parametrize('change,error',[
     ('extra','CONFIG'),('duplicate','DUPLICATE_INPUT'),('rights','RIGHTS'),
-    ('symbols','SYMBOL_SET'),('dates','CALENDAR'),('namespace','BASIS_RIGHTS')])
+    ('symbols','SYMBOL_SET'),('dates','CALENDAR'),('namespace','RIGHTS')])
 def test_metadata_failures_before_numeric_source_read(tmp_path,monkeypatch,change,error):
     root,cfg=composition_fixture(tmp_path)
     if change=='extra':cfg['unbound']=True
@@ -71,9 +72,8 @@ def test_metadata_failures_before_numeric_source_read(tmp_path,monkeypatch,chang
 
 
 def test_overlapping_aliases_fail_closed(tmp_path):
-    root,cfg=composition_fixture(tmp_path)
-    cfg['inputs'][1]=cfg['inputs'][0]
-    with pytest.raises(ValueError,match='DUPLICATE_INPUT'):prepare_input(cfg,root,10**8)
+    root,cfg=composition_fixture(tmp_path,second_targets=['BBB','CCC'])
+    with pytest.raises(ValueError,match='SYMBOL_OVERLAP'):prepare_input(cfg,root,10**8)
 
 
 def test_scaled_wealth_is_terminal_not_profit_and_vol_uses_d50_order(tmp_path,monkeypatch):
@@ -99,3 +99,28 @@ def test_scaled_wealth_is_terminal_not_profit_and_vol_uses_d50_order(tmp_path,mo
     assert module.evaluate_policy(fake,profile,'FINAL')['criteria'][1]['status']=='UNAVAILABLE'
     bad=deepcopy(profile);bad['criteria'][0]['factor']=[9,0]
     with pytest.raises(ValueError,match='FACTOR'):module.profile_value(bad)
+
+
+def test_five_constant_accounts_native_and_stored_only_unchanged_path(tmp_path,monkeypatch):
+    from test_scheduled_fixed import fixed_fixture
+    from reference_fixture import write
+    from polar.reference_service import ReferenceResearchService
+    from polar.research_results import ResearchResults
+    import polar.scheduled_service as module
+    root,cfg,profile,_=fixed_fixture(tmp_path,monkeypatch)
+    profile['legs'].insert(1,{**deepcopy(profile['legs'][0]),'id':'ALT_THIRDS','label':'Alternate thirds'})
+    profile['additional_limitations']=[]
+    profile['criteria'][1].update(kind='TERMINAL_SCALED_GE',factor=[9,10]);profile['criteria'][1].pop('threshold',None)
+    profile['criteria'][2].update(kind='VOL_SCALED_LE',factor=[4,5]);profile['criteria'][2].pop('threshold',None)
+    cfg['profile_ref']=write(tmp_path/'five-profile.json',profile)
+    service=ReferenceResearchService(root,128*1024**2)
+    assert service.preflight(cfg)['expected_native_accounts']==5
+    result=service.run(cfg)
+    assert result['status']=='SUCCESS' and result['native_accounts']==5
+    assert result['fit_calls']==result['predict_calls']==result['model_calls']==0
+    public=ResearchResults(root,128*1024**2).read(result['results']['FINAL']['result_id'])
+    assert len(public['record']['series'])==5 and public['assessment']['financial']=='NOT_REVIEWED'
+    def forbidden(*a,**k):raise AssertionError('STORED_SOURCE_POLICY_NATIVE_CALL')
+    for name in ('load_reference','plan_phase','bounded_native'):monkeypatch.setattr(module,name,forbidden)
+    replay=service.recompute(result['semantic_id'])
+    assert replay['status']=='REPRODUCED' and replay['native_calls']==replay['store_writes']==0
