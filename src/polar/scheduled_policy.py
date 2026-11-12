@@ -150,7 +150,7 @@ def profile_value(p):
     # Reuse the current common wire's finite bounds; never spend an original on
     # a profile whose public projection cannot fit it.
     require((32 if version7 else 29 + 4*len(p['subperiods']) + (3 if version2 or version3 or version6 else 0)) <= 40 and
-            (24 + len(p['additional_limitations']) if version7 else 12 + len(p['additional_limitations']) + len(legs)*(1+len(p['subperiods'])) + (4 if version4 or version6 else 3 if version2 else 2 if version9 else 1 if version3 or version8 else 0)) <= 30,
+            (24 + len(p['additional_limitations']) if version7 else 12 + len(p['additional_limitations']) + len(legs)*(1+len(p['subperiods'])) + (4 if version4 or version6 else 3 if version2 else 2 if version9 else 1 if version3 or version8 or version10 else 0)) <= 30,
             'SCHEDULED_PUBLIC_WIRE_BOUND')
     if version10:
         from .reference_model_price import validate

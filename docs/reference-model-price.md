@@ -68,3 +68,25 @@ profile/runtime to a new fixed original and SUCCESS-only stored allocation.
 General denomination robustness/adoption remains insufficient even if the one
 selected point screen survives. No provider, UI or serving rollout belongs to
 this author change.
+
+
+## Future metadata admission bound
+
+Profile10 adds one `DECLARED_MODEL_PRICE_DENOMINATION` limitation to the common
+projection. Metadata preflight counts it alongside the twelve base limitations,
+declared extra limitations, and each leg's risk/subperiod descriptions. The
+common wire remains capped at30 limitations; no limit is relaxed and no
+explanation is dropped to force admission. A five-leg/two-subperiod profile with
+three extras needs31 and is rejected as `SCHEDULED_PUBLIC_WIRE_BOUND` before any
+attempt debit, price/model load or native call. With two extras it needs30 and
+passes this bound. Profiles1–9 and their counting rules remain unchanged.
+
+An invented scalar projection reproduces a31-item `limitations` rejection at
+common result validation while the old metadata guard admitted that shape. This
+proves a future technical defect and its narrow pre-start correction. It does
+not identify the exact failing field or exclusive cause of the spent A7
+`RESEARCH_INVALID_RESULT`: no private A7 phase/result/quote payload was opened
+or projected during this diagnosis. A7 remains INVALID/FAILED_UNFINALIZED,
+original spent and stored ineligible, without reconstruction/publication/retry.
+The correction deliberately rejects impossible future metadata; it does not
+make that frozen over-bound profile publishable or authorize a new experiment.
