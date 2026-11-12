@@ -257,7 +257,7 @@ def evaluate_policy(simulation, profile, phase):
     comparisons = []
     a = profile['primary_strategy']
     for b in (x['id'] for x in profile['legs'] if x['id'] != a):
-        for key in ('terminal_nav_usd', 'net_cagr_act36525', 'sharpe_252_rf0', 'max_drawdown', 'total_cost_usd'):
+        for key in ('terminal_nav_usd', 'net_cagr_act36525', 'sharpe_252_rf0', 'max_drawdown', 'total_cost_usd') + (('annual_vol_252',) if profile['schema'].endswith('/7') else ()):
             av = by_id[a]['metrics'][key]['value']; bv = by_id[b]['metrics'][key]['value']
             with localcontext(context()): delta = decimal_string(Decimal(av)-Decimal(bv)) if av is not None and bv is not None else None
             comparisons.append({'metric_id': key, 'left_id': a, 'right_id': b,

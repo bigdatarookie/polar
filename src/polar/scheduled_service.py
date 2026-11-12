@@ -3,6 +3,7 @@ import importlib.metadata
 import io
 import os
 from pathlib import Path
+from datetime import datetime,timedelta
 import platform
 import re
 import sys
@@ -90,6 +91,9 @@ def prepare(service, config, *, load_prices=True):
     history = 0 if profile['schema'].endswith('/5') else profile['policy']['window']-1 if profile['schema'] == 'polar.scheduled-reference-profile/3' else profile['policy']['lookback']
     require(all(days.index(g['initial']) >= history for g in grids.values()), 'SCHEDULED_WARMUP')
     tz = ZoneInfo.from_file(io.BytesIO(tz_raw), key='UTC' if profile['schema'].endswith(('/5','/7')) else 'America/New_York')
+    if profile['schema'].endswith('/7'):
+        require(all(tz.utcoffset(datetime.fromisoformat(d))==timedelta(0) for g in grids.values() for d in g['nav_dates']),
+                'SCHEDULED_RELATIVE_UTC_METADATA')
     # Preparation performs no features/weights/policy decision or native operation.
     market = load_reference(config['input_ref']) if load_prices else None
     return profile, calendar, schedule, grids, tz, market

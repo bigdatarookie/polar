@@ -124,6 +124,8 @@ def test_original_stress_shared_once_metadata_prestart_and_stored_zero(tmp_path,
     diagnostics=json.loads((folder/'diagnostics.json').read_bytes())
     assert len(diagnostics['FINAL']['MOM']['subperiods'])==3 and diagnostics['FINAL_COST_STRESS']['MOM']['subperiods']==[]
     assert diagnostics['FINAL']['CASH']['drawdown']['status']=='NO_DRAWDOWN'
+    assert all(diagnostics['FINAL']['CASH']['drawdown'][k] is None for k in ['peak','trough','recovery'])
+    assert len([x for x in phases['FINAL']['evaluation']['comparisons'] if x['metric_id']=='annual_vol_252'])==3
     uncertainty=json.loads((folder/'uncertainty.json').read_bytes())
     assert uncertainty['seed']==37004 and uncertainty['benchmark_ids']==['EW','FULL']
     assert uncertainty['robustness']=='INSUFFICIENT_EVIDENCE' and len(uncertainty['replicates'])==1000
@@ -143,3 +145,25 @@ def test_relative_latest_equal_peak_and_legacy_unchanged():
     from polar.scheduled_diagnostics import _drawdown
     rows=[{'date':str(i),'nav_cents':n,'nominal_ns':i*10**9} for i,n in enumerate([100,100,80,100])]
     assert _drawdown(rows)['peak']['date']=='0' and _drawdown(rows,latest_equal_peak=True)['peak']['date']=='1'
+
+
+@pytest.mark.parametrize('field,value',[('skip',0),('lookback',251),('drawdown_peak','EARLIEST_PEAK')])
+def test_profile_rejects_alternate_lookback_skip_or_peak(tmp_path,monkeypatch,field,value):
+    _,_,p,_=relative_fixture(tmp_path,monkeypatch);p['policy'][field]=value
+    with pytest.raises(ValueError,match='RELATIVE_POLICY'):profile_value(p)
+
+
+def test_metadata_rejects_wrong_timezone_before_any_source_read(tmp_path,monkeypatch):
+    root,cfg,p,_=relative_fixture(tmp_path,monkeypatch)
+    import polar.scheduled_service as module
+    source=next((Path(d)/'America/New_York' for d in TZPATH if (Path(d)/'America/New_York').is_file()),None)
+    if source:raw=source.read_bytes()
+    else:
+        from importlib.resources import files
+        raw=files('tzdata').joinpath('zoneinfo/America/New_York').read_bytes()
+    tz=tmp_path/'wrong-zone';tz.write_bytes(raw);ref={'path':str(tz),'bytes':len(raw),'sha256':sha(raw)}
+    p['timezone_sha256']=ref['sha256'];cfg={**cfg,'timezone_ref':ref,'profile_ref':write(tmp_path/'wrong-zone-profile.json',p)}
+    def forbidden(*a,**k):raise AssertionError('QUOTE_READ_BEFORE_START')
+    monkeypatch.setattr(module,'load_reference',forbidden)
+    with pytest.raises(ValueError,match='RELATIVE_UTC_METADATA'):ReferenceResearchService(root,256*1024**2).preflight(cfg)
+    assert not (root/'scheduled-reference-attempts').exists()
