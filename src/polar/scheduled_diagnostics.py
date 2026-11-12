@@ -92,12 +92,12 @@ def _elapsed(nav, left, right):
     return _metric(Fraction(nav[right]['nominal_ns']-nav[left]['nominal_ns'], 10**9))
 
 
-def _drawdown(nav):
+def _drawdown(nav, *, latest_equal_peak=False):
     peak = nav[0]['nav_cents']; peak_index = 0
     depth = Fraction(); trough = 0; episode_peak = 0; underwater = 0
     for i, row in enumerate(nav):
         value = row['nav_cents']
-        if value > peak:
+        if value > peak or latest_equal_peak and value == peak:
             peak, peak_index = value, i
         drawdown = 1-Fraction(value, peak)
         if i and drawdown > 0:
