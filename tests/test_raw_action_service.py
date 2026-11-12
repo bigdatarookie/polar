@@ -162,3 +162,31 @@ def test_due_zero_and_positive_terminal_are_distinct_without_changing_pure_flag(
     with pytest.raises(ValueError,match='RAW_DUE_LIFECYCLE_INCOMPLETE'):terminal_check(overdue,1)
     paid=pay(state,'Q0',days[3]);assert terminal_check(paid,1)['strict_component_flag'] is True
     with pytest.raises(ValueError,match='CLAIM_DOUBLE_PAYMENT'):pay(paid,'Q0',days[3])
+
+
+@pytest.mark.parametrize('field,value,reason',[
+    ('split_records',1,'RAW_INPUT_BASIS_SPLITS_CLOCK'),
+    ('historical_K','2020-01-01','RAW_INPUT_BASIS_SPLITS_CLOCK'),
+    ('rights','PUBLIC_REUSE','RAW_INPUT_RIGHTS'),
+    ('schema','polar.synthetic-reference-source-input/2','RAW_INPUT_BASIS_SPLITS_CLOCK'),
+])
+def test_input_metadata_rejects_before_financial_parse(tmp_path,monkeypatch,field,value,reason):
+    root,cfg,desc,cal=fixture(tmp_path)
+    import polar.raw_action_service as module
+    def forbidden(*a,**k):raise AssertionError('NO_VALUE_READER_BEFORE_DEBIT')
+    monkeypatch.setattr(module,'load',forbidden)
+    desc[field]=value;inp=write(tmp_path/'changed-input.json',desc)
+    p=json.loads(Path(cfg['profile_ref']['path']).read_bytes());p['input_sha256']=inp['sha256']
+    cfg={**cfg,'input_ref':inp,'profile_ref':write(tmp_path/'changed-profile.json',p)}
+    with pytest.raises(ValueError,match=reason):ReferenceResearchService(root,128*1024**2).run(cfg)
+    assert not (root/'scheduled-reference-attempts').exists()
+
+
+def test_private_projection_rejects_hidden_receivables_or_floating_money():
+    from polar.raw_action_result import Point
+    from pydantic import ValidationError
+    row={'date':'2020-01-01','nominal_ns':1,'cash_cents':100,'exposure_cents':200,'receivable_cents':50,
+        'positions':{'X':2},'position_cents':{'X':200},'nav_cents':350,'flat_cents':0,'bps_cents':0}
+    assert Point.model_validate(row).nav_cents==350
+    with pytest.raises(ValidationError):Point.model_validate({**row,'nav_cents':300})
+    with pytest.raises(ValidationError):Point.model_validate({**row,'cash_cents':100.0})

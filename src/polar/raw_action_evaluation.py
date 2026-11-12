@@ -28,7 +28,7 @@ def criteria():
 
 
 def evaluate(simulation):
-    return evaluate_policy(simulation,{'legs':[{'id':x} for x in LEGS],
+    return evaluate_policy(simulation,{'schema':'polar.raw-action-profile/1','legs':[{'id':x} for x in LEGS],
         'primary_strategy':LEGS[0],'primary_benchmark':LEGS[1],'criteria':criteria()},'FINAL')
 
 
@@ -96,7 +96,8 @@ def verify_tape(tape, plan):
     require(previous==tape['final_claim_state'] and set(recognizes)==set(paid)==set(actions) and
         len(recognizes)==len(paid)==len(actions),'RAW_CLAIM_TRACE_COMPLETENESS')
     state=restore(expand_state(previous,actions));require(terminal_check(state,len(actions))==tape['terminal'],'RAW_TERMINAL_REPLAY')
-    receipts=tape['settlements'];require(len(receipts)==len(actions),'RAW_SETTLEMENT_COMPLETENESS')
+    receipts=tape['settlements'];require(len(receipts)==len(actions) and
+        {r['event_id'] for r in receipts}==set(actions),'RAW_SETTLEMENT_COMPLETENESS')
     for r in receipts:
         evidence=replay_event(r['claim_evidence'],actions)
         before=restore(expand_state(r['claim_evidence']['before'],actions));after=restore(expand_state(r['claim_evidence']['after'],actions))
