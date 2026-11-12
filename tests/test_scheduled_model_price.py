@@ -158,3 +158,45 @@ def test_profile10_authority_requires_zero_nonpolicy_work(tmp_path,monkeypatch,a
     with pytest.raises(ValueError,match='SCHEDULED_FIXED_COST_OPERATION_BOUND'):
         authority_for(None,closed,p,{'FINAL':{}})
     assert not (root/'scheduled-reference-attempts').exists()
+
+
+def test_invented_coarse_projection_can_exceed_wire_limit_before_bound_fix(tmp_path,monkeypatch):
+    # Entirely invented scalar/metadata projection: no retained record, evaluator,
+    # market load, native call, or publication is involved.
+    from pydantic import ValidationError
+    from polar.scheduled_service import public_config,project_diagnostics
+    from polar.reference_projection import public_reference
+    from polar.research_results import ResearchResult,validate_result,ResearchError
+    _,cfg,p,_=model_fixture(tmp_path,monkeypatch)
+    p['additional_limitations']=[['INVENTED_'+str(i),'Invented limitation '+str(i)] for i in range(3)]
+    config=public_config(cfg,p);config['model_price_mapping']=p['model_price_mapping']
+    nav=[{'nominal_ns':1577998800000000000+i*86400*10**9,'cash_cents':10000000,
+          'exposure_cents':0,'flat_cents':0,'bps_cents':0,'positions':{},'nav_cents':10000000} for i in range(2)]
+    token={'value':'0','status':'OK','reason':None}
+    simulation={'legs':[{'id':leg['id'],'nav':deepcopy(nav)} for leg in p['legs']]}
+    evaluation={'legs':[{'id':leg['id'],'returns':[{'decimal':'0'}],
+        'metrics':{key:deepcopy(token) for key in ('terminal_nav_usd','flat_fee_usd','bps_cost_usd')}}
+        for leg in p['legs']], 'comparisons':[],'criteria':[],'point_interpretation':'Invented fixture only'}
+    record=public_reference(config,simulation,evaluation,semantic_id='invented-semantic',semantic_hash='a'*64,phase='FINAL')
+    assert len(record['limitations'])==16  # 12 base + 3 declared + 1 model denomination.
+    diagnostics={leg['id']:{'subperiods':[{},{}]} for leg in p['legs']}
+    project_diagnostics(record,diagnostics)
+    assert len(record['limitations'])==31  # 5 risk + 2*5 carried-era descriptions.
+    with pytest.raises(ValidationError) as exc:ResearchResult.model_validate(record)
+    assert any(e['loc']==('limitations',) and e['type']=='too_long' for e in exc.value.errors())
+    with pytest.raises(ResearchError,match='RESEARCH_INVALID_RESULT'):validate_result(record)
+
+
+def test_profile10_counts_denomination_limitation_before_debit(tmp_path,monkeypatch):
+    root,cfg,p,_=model_fixture(tmp_path,monkeypatch)
+    assert len(p['legs'])==5 and len(p['subperiods'])==2
+    p['additional_limitations']=[['INVENTED_'+str(i),'Invented limitation '+str(i)] for i in range(3)]
+    pin=write(tmp_path/'invented-over-bound-profile.json',p);cfg={**cfg,'profile_ref':pin}
+    import polar.scheduled_service as module
+    def forbidden(*a,**k):raise AssertionError('PRICE_OR_NATIVE_BEFORE_METADATA_BOUND')
+    monkeypatch.setattr(module,'load_market',forbidden);monkeypatch.setattr(module,'bounded_native',forbidden)
+    with pytest.raises(ValueError,match='SCHEDULED_PUBLIC_WIRE_BOUND'):ReferenceResearchService(root,128*1024**2).preflight(cfg)
+    assert not (root/'scheduled-reference-attempts').exists()
+    # Same geometry with only two extra limitations fits exactly30; no expanded wire.
+    p['additional_limitations'].pop()
+    assert profile_value(p)==p
