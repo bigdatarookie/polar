@@ -210,3 +210,182 @@ def test_issue_support_keeps_closed_model_predicate(model, change):
     d['model'] = {**model, **change}
     with pytest.raises(ReferenceError, match='UNSUPPORTED_OWNER_MODEL'):
         build(d, rows, grid)
+
+
+def version_two(label='Invented owner / Parent unit α'):
+    d, rows, grid = fixture()
+    d['schema'] = 'polar.original-conditional-reference-input/2'
+    d['model'] = {**MODEL, 'unit_currency': label}
+    d['model_semantics'] = {'schema': 'polar.conditional-owner-model-semantics/1',
+                            'currency': 'USD', 'quantity_unit': 'OWNER_ASSUMED_PARENT_COMMON_SHARE'}
+    owner = {'schema': 'polar.quant-conditional-reference-owner-model/1',
+             'record_id': d['record_id'], 'owner_model': d['model'].copy(),
+             'interval': [grid['dates'][0], grid['dates'][-1]],
+             'evidence': [{'sha256': 'e' * 64}], 'information_K': {'owner_model': None}}
+    raw = canonical(owner)
+    d['source_use_owner'] = {'path': '/invented-owner.json', 'sha256': sha(raw), 'bytes': len(raw)}
+    return d, rows, grid, owner
+
+
+def materialize_two(tmp_path):
+    ref, root = materialize(tmp_path)
+    d, _, _, owner = version_two()
+    old = json.loads(Path(ref['path']).read_bytes())
+    d.update({k: old[k] for k in ('close_operands', 'date_grid')})
+    raw = canonical(owner)
+    path = tmp_path / 'owner.json'
+    path.write_bytes(raw)
+    d['source_use_owner'] = {'path': str(path), 'sha256': sha(raw), 'bytes': len(raw)}
+    Path(ref['path']).write_bytes(canonical(d))
+    ref['sha256'] = sha(Path(ref['path']).read_bytes())
+    return ref, root, d, owner
+
+
+@pytest.mark.parametrize('label', ['Invented owner / Parent unit α', 'Different opaque label 17', 'x' * 256])
+def test_v2_labels_roundtrip_with_same_rational_k_and_invalidations(label):
+    d, rows, grid, owner = version_two(label)
+    legacy_d, _, _ = fixture()
+    invalidation = [{'reference_date': grid['dates'][1], 'reason': 'INVENTED_CONTRARY',
+                     'evidence_ref': {'sha256': 'e' * 64}}]
+    r = build(d, rows, grid, invalidation, owner=owner)
+    legacy = build(legacy_d, rows, grid, invalidation)
+    assert r['schema'] == 'polar.original-conditional-reference-output/2'
+    assert r['model'] == d['model'] and r['model']['unit_currency'] == label
+    assert r['model_semantics'] == d['model_semantics']
+    assert r['input_refs']['source_use_owner'] == d['source_use_owner']
+    assert all(r[k] == v for k, v in legacy.items() if k not in ('schema', 'model'))
+    assert r['financial'] == 'NOT_RUN' and r['economic_N'] is None
+    owner['owner_model']['unit_currency'] = 'Mutated caller'
+    d['model_semantics']['currency'] = 'Mutated caller'
+    assert r['model']['unit_currency'] == label
+    assert r['model_semantics']['currency'] == 'USD'
+
+
+@pytest.mark.parametrize('change', [
+    {'unit_currency': ''}, {'unit_currency': 'x' * 257}, {'unit_currency': ' leading'},
+    {'unit_currency': 'trailing '}, {'unit_currency': 'line\nbreak'}, {'unit_currency': 'tab\tlabel'},
+    {'unit_currency': 'zero\u200bwidth'}, {'unit_currency': 1}, {'unit_currency': None},
+    {'holder_multiplier': '2'}, {'holder_multiplier': 1}, {'common_cash': '1'},
+    {'common_cash': 0}, {'other_entitlements': 'CERTIFIED_NONE'}, {'extra': 'unsupported'},
+])
+def test_v2_closed_model_rejects_changed_assumptions_and_unprintable_labels(change):
+    d, rows, grid, owner = version_two()
+    d['model'].update(change)
+    owner['owner_model'] = d['model'].copy()
+    with pytest.raises(ReferenceError, match='UNSUPPORTED_OWNER_MODEL'):
+        build(d, rows, grid, owner=owner)
+
+
+@pytest.mark.parametrize('change', [None, {}, {'schema': 'unknown'}, {'currency': 'EUR'},
+                                   {'quantity_unit': 'RAW_SHARE'}, {'extra': 'unsupported'}])
+def test_v2_semantics_are_closed_and_exact(change):
+    d, rows, grid, owner = version_two()
+    if change is None:
+        del d['model_semantics']
+    elif change == {}:
+        d['model_semantics'] = {}
+    else:
+        d['model_semantics'].update(change)
+    with pytest.raises(ReferenceError, match='UNSUPPORTED_MODEL_SEMANTICS'):
+        build(d, rows, grid, owner=owner)
+
+
+@pytest.mark.parametrize('mutation,code', [
+    ('missing', 'OWNER_SCHEMA'), ('schema', 'OWNER_SCHEMA'), ('record', 'OWNER_RECORD'),
+    ('model', 'OWNER_MODEL'), ('extra_model', 'OWNER_MODEL'), ('missing_model_field', 'OWNER_MODEL'),
+    ('interval', 'OWNER_INTERVAL'), ('interval_type', 'OWNER_INTERVAL'), ('interval_count', 'OWNER_INTERVAL'),
+])
+def test_v2_requires_consistent_owner_metadata(mutation, code):
+    d, rows, grid, owner = version_two()
+    if mutation == 'missing': owner = None
+    elif mutation == 'schema': owner['schema'] = 'unknown'
+    elif mutation == 'record': owner['record_id'] = 'different'
+    elif mutation == 'model': owner['owner_model']['unit_currency'] = 'different'
+    elif mutation == 'extra_model': owner['owner_model']['extra'] = 'different'
+    elif mutation == 'missing_model_field': del owner['owner_model']['common_cash']
+    elif mutation == 'interval': owner['interval'][0] = grid['dates'][1]
+    elif mutation == 'interval_type': owner['interval'] = '2020-01-01'
+    elif mutation == 'interval_count': owner['interval'].append(grid['dates'][-1])
+    with pytest.raises(ReferenceError, match=code):
+        build(d, rows, grid, owner=owner)
+
+
+@pytest.mark.parametrize('mutation', ['missing', 'relative', 'hash', 'bytes', 'bool_bytes', 'oversize', 'extra'])
+def test_v2_requires_bounded_hash_bound_owner_reference(mutation):
+    d, rows, grid, owner = version_two()
+    if mutation == 'missing': del d['source_use_owner']
+    elif mutation == 'relative': d['source_use_owner']['path'] = 'relative.json'
+    elif mutation == 'hash': d['source_use_owner']['sha256'] = 'invalid'
+    elif mutation == 'bytes': del d['source_use_owner']['bytes']
+    elif mutation == 'bool_bytes': d['source_use_owner']['bytes'] = True
+    elif mutation == 'oversize': d['source_use_owner']['bytes'] = 4 * 1024**2 + 1
+    elif mutation == 'extra': d['source_use_owner']['extra'] = 'unsupported'
+    with pytest.raises(ReferenceError):
+        build(d, rows, grid, owner=owner)
+
+
+def test_v1_unknown_label_is_not_upgraded_by_v2_metadata():
+    d, rows, grid, owner = version_two()
+    d['schema'] = 'polar.original-conditional-reference-input/1'
+    with pytest.raises(ReferenceError, match='UNSUPPORTED_OWNER_MODEL'):
+        build(d, rows, grid, owner=owner)
+
+
+def test_v2_cli_immutable_roundtrip_and_idempotency(tmp_path):
+    ref, root, d, owner = materialize_two(tmp_path)
+    command = [sys.executable, '-m', 'polar.conditional_reference', '--descriptor', ref['path'],
+               '--descriptor-sha256', ref['sha256'], '--output-root', str(root)]
+    p = subprocess.run(command, capture_output=True, text=True)
+    assert p.returncode == 0, p.stderr
+    result = json.loads(p.stdout)
+    assert construct(ref, root) == result
+    directory = root / result['relative_path']
+    assert set(p.name for p in directory.iterdir()) == {'report.json', 'manifest.json'}
+    raw = (directory / 'report.json').read_bytes()
+    report = json.loads(raw)
+    assert sha(raw) == result['report_sha256']
+    assert report['schema'] == 'polar.original-conditional-reference-output/2'
+    assert report['model'] == owner['owner_model']
+    assert report['input_refs']['source_use_owner'] == d['source_use_owner']
+    assert report['adjacent_gross_factors'][0]['gross_factor'] == {'numerator': '9', 'denominator': '8'}
+    (directory / 'report.json').chmod(0o600)
+    (directory / 'report.json').write_bytes(b'tampered')
+    with pytest.raises(HistoryError, match='IMMUTABLE_CONFLICT'):
+        construct(ref, root)
+
+
+@pytest.mark.parametrize('mutation,code', [('model', 'UNSUPPORTED_OWNER_MODEL'),
+    ('semantics', 'UNSUPPORTED_MODEL_SEMANTICS'), ('owner_schema', 'OWNER_SCHEMA'),
+    ('owner_record', 'OWNER_RECORD'), ('owner_model', 'OWNER_MODEL'),
+    ('owner_interval', 'OWNER_INTERVAL'), ('owner_hash', 'REFERENCE_INTEGRITY'),
+    ('owner_size', 'REFERENCE_INTEGRITY'), ('owner_symlink', 'UNSAFE_REFERENCE')])
+def test_v2_rejection_precedes_close_operand_read_and_publication(tmp_path, monkeypatch, mutation, code):
+    import polar.conditional_reference as module
+    ref, root, d, owner = materialize_two(tmp_path)
+    if mutation == 'model': d['model']['holder_multiplier'] = '2'
+    elif mutation == 'semantics': d['model_semantics']['currency'] = 'EUR'
+    elif mutation.startswith('owner_'):
+        if mutation == 'owner_schema': owner['schema'] = 'unknown'
+        elif mutation == 'owner_record': owner['record_id'] = 'different'
+        elif mutation == 'owner_model': owner['owner_model']['common_cash'] = '1'
+        elif mutation == 'owner_interval': owner['interval'][1] = '2020-12-31'
+        owner_path = Path(d['source_use_owner']['path'])
+        raw = canonical(owner)
+        owner_path.write_bytes(raw)
+        d['source_use_owner'].update(sha256=sha(raw), bytes=len(raw))
+        if mutation == 'owner_hash': d['source_use_owner']['sha256'] = '0' * 64
+        elif mutation == 'owner_size': d['source_use_owner']['bytes'] += 1
+        elif mutation == 'owner_symlink':
+            target = tmp_path / 'owner-target.json'
+            owner_path.rename(target)
+            owner_path.symlink_to(target)
+    Path(ref['path']).write_bytes(canonical(d))
+    ref['sha256'] = sha(Path(ref['path']).read_bytes())
+    original = module.read_ref
+    def sentinel(reference):
+        assert reference != d['close_operands'], 'close operands opened before rejection'
+        return original(reference)
+    monkeypatch.setattr(module, 'read_ref', sentinel)
+    with pytest.raises((ReferenceError, GymError), match=code):
+        construct(ref, root)
+    assert list(root.iterdir()) == []

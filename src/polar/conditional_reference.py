@@ -19,6 +19,8 @@ MODEL = {'holder_multiplier': '1', 'common_cash': '0',
          'unit_currency': 'ASSUMED_USD_PER_ASSUMED_POST_SEPARATION_COMMON_SHARE'}
 AAOI_MODEL = {**MODEL, 'unit_currency': 'ASSUMED_USD_PER_ASSUMED_AAOI_PARENT_COMMON_SHARE'}
 AAWW_MODEL = {**MODEL, 'unit_currency': 'ASSUMED_USD_PER_ASSUMED_AAWW_PARENT_COMMON_SHARE'}
+MODEL_SEMANTICS = {'schema': 'polar.conditional-owner-model-semantics/1',
+                   'currency': 'USD', 'quantity_unit': 'OWNER_ASSUMED_PARENT_COMMON_SHARE'}
 
 
 class ReferenceError(ValueError):
@@ -44,18 +46,64 @@ def timestamp(value):
         raise ReferenceError('INVALID_RAW_K') from None
 
 
-def build(descriptor, rows, grid, invalidations=()):
-    """Pure operation. Caller supplies exact snapshots; no hidden source reads."""
-    require(descriptor['schema'] == 'polar.original-conditional-reference-input/1', 'INPUT_SCHEMA')
-    require(descriptor['model'] in (MODEL, AAOI_MODEL, AAWW_MODEL), 'UNSUPPORTED_OWNER_MODEL')
+def admit_descriptor(descriptor):
+    """Validate the supported mechanism before any close operands are opened."""
+    require(type(descriptor) is dict, 'INPUT_SCHEMA')
+    version = descriptor.get('schema')
+    require(version in ('polar.original-conditional-reference-input/1',
+                        'polar.original-conditional-reference-input/2'), 'INPUT_SCHEMA')
+    model = descriptor.get('model')
+    if version.endswith('/1'):
+        require(model in (MODEL, AAOI_MODEL, AAWW_MODEL), 'UNSUPPORTED_OWNER_MODEL')
+    else:
+        require(type(descriptor.get('model_semantics')) is dict and
+                descriptor['model_semantics'] == MODEL_SEMANTICS, 'UNSUPPORTED_MODEL_SEMANTICS')
+        require(type(model) is dict and set(model) == set(MODEL) and
+                all(type(model[k]) is str and model[k] == MODEL[k]
+                    for k in ('holder_multiplier', 'common_cash', 'other_entitlements')),
+                'UNSUPPORTED_OWNER_MODEL')
+        label = model['unit_currency']
+        require(type(label) is str and 1 <= len(label) <= 256 and label.isprintable() and
+                label == label.strip(), 'UNSUPPORTED_OWNER_MODEL')
+        ref = descriptor.get('source_use_owner')
+        require(type(ref) is dict and set(ref) == {'path', 'sha256', 'bytes'} and
+                type(ref['path']) is str and Path(ref['path']).is_absolute() and
+                type(ref['bytes']) is int and 0 < ref['bytes'] <= LIMIT,
+                'OWNER_REFERENCE')
+        hash_value(ref['sha256'])
     require(descriptor['required_output']['counts'] == {'closes': 253, 'adjacent_gross_factors': 252}, 'INPUT_COUNTS')
     require(descriptor['required_output']['status'] == STATUS, 'INPUT_STATUS')
-    require(type(rows) is list and len(rows) == 253, 'CLOSE_COUNT_NO_FILL')
+    return version.endswith('/2')
+
+
+def admit_owner(descriptor, owner):
+    require(type(owner) is dict and owner.get('schema') ==
+            'polar.quant-conditional-reference-owner-model/1', 'OWNER_SCHEMA')
+    require(owner.get('record_id') == descriptor['record_id'], 'OWNER_RECORD')
+    require(owner.get('owner_model') == descriptor['model'], 'OWNER_MODEL')
+    interval = owner.get('interval')
+    require(type(interval) is list and len(interval) == 2 and
+            all(type(day) is str for day in interval), 'OWNER_INTERVAL')
+
+
+def admit_grid(grid, owner=None):
     dates = grid['dates']
     require(type(dates) is list and len(dates) == 253 and all(type(d) is str for d in dates), 'GRID_COUNT')
     require(dates == sorted(set(dates)), 'GRID_NOT_STRICTLY_ORDERED')
     for day in dates:
         require(date.fromisoformat(day).isoformat() == day, 'INVALID_DATE')
+    if owner is not None:
+        require(owner['interval'] == [dates[0], dates[-1]], 'OWNER_INTERVAL')
+    return dates
+
+
+def build(descriptor, rows, grid, invalidations=(), *, owner=None):
+    """Pure operation. V2 callers supply decoded owner metadata; no hidden reads."""
+    v2 = admit_descriptor(descriptor)
+    if v2:
+        admit_owner(descriptor, owner)
+    dates = admit_grid(grid, owner if v2 else None)
+    require(type(rows) is list and len(rows) == 253, 'CLOSE_COUNT_NO_FILL')
     require([r['reference_date'] for r in rows] == dates, 'MISSING_DUPLICATE_OR_REORDERED_DATE_NO_FILL')
     prices = []
     ordinals = []
@@ -112,7 +160,7 @@ def build(descriptor, rows, grid, invalidations=()):
                         'raw_clock': {'estimated_K': raw_k, 'observed_historical_K': None,
                                       'label': 'MAX_ENDPOINT_RAW_ESTIMATE_ONLY' if raw_k else 'UNBOUND_ENDPOINT_ESTIMATE_MISSING'},
                         **{k: None for k in K_FIELDS}, **{k + '_status': 'UNBOUND' for k in K_FIELDS}})
-    result = {'schema': 'polar.original-conditional-reference-output/1', 'status': STATUS,
+    result = {'schema': 'polar.original-conditional-reference-output/' + ('2' if v2 else '1'), 'status': STATUS,
               'record_id': descriptor['record_id'], 'profile_id': descriptor['profile_id'],
               'model': descriptor['model'].copy(), 'closes': rows, 'adjacent_gross_factors': factors,
               'counts': {'closes': 253, 'adjacent_gross_factors': 252,
@@ -122,23 +170,37 @@ def build(descriptor, rows, grid, invalidations=()):
               'decision_admissibility': 'NOT_ESTABLISHED_INFORMATION_K_UNBOUND',
               'economic_N': None, 'financial': 'NOT_RUN',
               **{k: None for k in K_FIELDS}, **{k + '_status': 'UNBOUND' for k in K_FIELDS}}
+    if v2:
+        result['model_semantics'] = descriptor['model_semantics'].copy()
+        result['input_refs'] = {'source_use_owner': descriptor['source_use_owner'].copy()}
     # Detach from caller-owned objects; reject non-JSON values and binary floats.
     return decode(canonical(result))
 
 
 def construct(descriptor_ref, output_root, invalidations_ref=None):
-    """Read only declared operands/grid, publish under existing immutable store."""
+    """Read declared inputs (including the v2 owner), then publish immutably."""
     raw = read_ref(descriptor_ref)
     require(len(raw) <= LIMIT, 'DESCRIPTOR_LIMIT')
     descriptor = decode(raw)
-    operand_raw = read_ref(descriptor['close_operands'])
+    v2 = admit_descriptor(descriptor)
+    owner = None
+    if v2:
+        owner_raw = read_ref(descriptor['source_use_owner'])
+        require(len(owner_raw) <= LIMIT, 'OWNER_LIMIT')
+        owner = decode(owner_raw)
+        admit_owner(descriptor, owner)
     grid_raw = read_ref(descriptor['date_grid'])
-    require(len(operand_raw) <= LIMIT and len(grid_raw) <= LIMIT, 'INPUT_LIMIT')
+    require(len(grid_raw) <= LIMIT, 'INPUT_LIMIT')
+    admit_grid(decode(grid_raw), owner)
+    operand_raw = read_ref(descriptor['close_operands'])
+    require(len(operand_raw) <= LIMIT, 'INPUT_LIMIT')
     rows = [decode(line) for line in operand_raw.splitlines()]
     invalidations = decode(read_ref(invalidations_ref)) if invalidations_ref is not None else []
-    report = build(descriptor, rows, decode(grid_raw), invalidations)
+    report = build(descriptor, rows, decode(grid_raw), invalidations, owner=owner)
     report['input_refs'] = {'descriptor': descriptor_ref, 'close_operands': descriptor['close_operands'],
                             'date_grid': descriptor['date_grid'], 'invalidations': invalidations_ref}
+    if v2:
+        report['input_refs']['source_use_owner'] = descriptor['source_use_owner']
     code = ('conditional_reference.py', 'gym_contract.py', 'history_bundle.py', 'history_store.py')
     report['builder_code_sha256'] = {f: sha(Path(__file__).with_name(f).read_bytes()) for f in code}
     body = canonical(report)

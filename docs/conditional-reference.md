@@ -31,3 +31,46 @@ Qualified contrary event/series/unit/revision evidence must be supplied with `--
 Publication reuses `HistoryStore` locking, exact immutable comparison, atomic rename and fsync. The supplied existing output directory must be private (no group/other permissions), outside Git and free of symlink traversal. The two-file artifact is `conditional-references/conditionalref-SHA256/{report.json,manifest.json}`. The manifest binds report bytes/hash; the content ID hashes canonical report bytes. Exact repeats return the same ID without rewriting it; conflicting existing bytes fail. Both files are read back before success. Errors emit stable codes without operand values or private paths. Input and output snapshots have explicit 4 MiB bounds (the shared ref reader also has its own bound); the store cap is 64 MiB. No environment timestamp enters semantic output.
 
 Author and independent qualification use invented fixtures only. DE retains first private construction and Quant retains source-use/consumer interpretation. A source or invented-test PASS does not imply private construction, information-time admissibility, economic N or financial acceptance.
+
+## Version 2: typed owner-assumed model metadata
+
+The existing `polar.original-conditional-reference-input/1` contract still admits
+only its three exact legacy models. Unknown v1 labels remain unsupported; adding
+v2 metadata to a v1 descriptor does not upgrade it.
+
+A separate immutable `polar.original-conditional-reference-input/2` descriptor
+supports the same single cash-zero/holder-one mechanism with explicit typed
+semantics. `model_semantics` must be exactly:
+
+```json
+{"schema":"polar.conditional-owner-model-semantics/1","currency":"USD","quantity_unit":"OWNER_ASSUMED_PARENT_COMMON_SHARE"}
+```
+
+The model remains a closed four-field object: `holder_multiplier` is the string
+`"1"`, `common_cash` is `"0"`, and `other_entitlements` is
+`"OWNER_EXPLICIT_NONE_FOR_LOCAL_PREPARATION"`. Its `unit_currency` is now opaque
+owner provenance: 1–256 printable characters, without controls or surrounding
+whitespace. The supplied label is retained verbatim; the builder neither parses
+an issuer nor infers a currency, class, or source fact from it. Other fields,
+changed assumptions and other typed semantics are rejected.
+
+V2 also requires `source_use_owner`, an absolute-path reference with exact
+`sha256` and positive `bytes` bounded by the existing 4 MiB input limit. This is
+the only additional document opened. It must have schema
+`polar.quant-conditional-reference-owner-model/1`, the descriptor's `record_id`,
+an exactly equal complete `owner_model`, and a two-date `interval` matching the
+first and last fixed-grid dates. Its other metadata and evidence references are
+not recursively opened. Descriptor/model admission, owner integrity and
+consistency, and the grid endpoint check occur before close operands are read.
+This establishes metadata consistency only, not source, action, identity or
+vintage completeness.
+
+The pure API remains `build(descriptor, rows, grid, invalidations=(), *,
+owner=None)`; v2 requires the explicitly decoded owner argument and performs no
+hidden reads. `construct` and the CLI have unchanged arguments. V2 reports use
+`polar.original-conditional-reference-output/2`, retain the exact model and
+`model_semantics`, and preserve the owner pin in `input_refs`. The two-file
+immutable envelope is unchanged. Exact arithmetic, 253 closes/252 adjacent
+factors, invalidations, raw estimated K, null UNBOUND information K,
+`financial: NOT_RUN`, `economic_N: null`, publication readback and conflict
+behavior remain the same. Existing immutable v1 outputs are not rewritten.
