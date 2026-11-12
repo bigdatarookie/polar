@@ -15,7 +15,10 @@ Three sorted declared source aliases, four unique scale `[1,1]` legs with rules
 two rules. Full context holds the configured full_symbol. Monthly calendar/1
 continues to bind exact source schedule, all full civil month ends and warmup;
 FINAL only. Timezone pin must contain UTC bytes; K is next UTC midnight, D+60s,
-then next pinned reference close, including early closes. Terminal EXIT is separate.
+then next pinned reference close, including early closes. All event and terminal
+K/D/close inequalities are checked from metadata during prepare, before both any
+price read and FIRST_START. The planner repeats that complete check before its
+first operand access. Terminal EXIT is separate.
 
 Scores are exact Fraction(Pmicro[t-21],Pmicro[t-252])-1, not current close or
 float/12dp scores. Descending exact rank, ascending literal-symbol ties, top1

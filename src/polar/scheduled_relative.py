@@ -42,6 +42,20 @@ def validate_profile(p):
     require(len(p['subperiods'])<=3,'SCHEDULED_RELATIVE_ERAS')
 
 
+def validate_clock_metadata(schedule,grids,tz):
+    """All formation and terminal clocks, before price reads/start/scoring."""
+    rows={r['date']:r for r in schedule};days=list(rows)
+    for grid in grids.values():
+        events=[(e['signal_date'],e['execution_date']) for e in grid['decisions']]
+        terminal=grid['terminal'];events.append((days[days.index(terminal)-1],terminal))
+        for formation,entry in events:
+            known=datetime.combine(date.fromisoformat(formation)+timedelta(days=1),time(),tzinfo=tz)
+            decision=known+timedelta(seconds=60)
+            close=datetime.fromisoformat(rows[entry]['reference_close_utc'])
+            require(known.utcoffset()==timedelta(0) and nanoseconds(known)<nanoseconds(decision)<nanoseconds(close),
+                    'SCHEDULED_RELATIVE_PREFLIGHT_CLOCK')
+
+
 def _weights(profile,winner):
     symbols=profile['symbols'];full=profile['policy']['full_symbol']
     return {l['id']:{s:([1,3] if l['rule']=='EQUAL_WEIGHT' else
@@ -55,6 +69,7 @@ def plan_phase(market,profile,grid,tz):
     validate_profile(profile)
     symbols=profile['symbols'];days=market['dates'];rows={r['date']:r for r in market['schedule']}
     require(market['symbols']==symbols,'SCHEDULED_RELATIVE_SYMBOLS')
+    validate_clock_metadata(market['schedule'],{'FINAL':grid},tz)
     close=lambda d:nanoseconds(datetime.fromisoformat(rows[d]['reference_close_utc']))
     signals=[];decisions=[];counts=expected_counts(0)
     for event in grid['decisions']:

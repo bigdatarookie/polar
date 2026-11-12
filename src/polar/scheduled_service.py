@@ -94,6 +94,8 @@ def prepare(service, config, *, load_prices=True):
     if profile['schema'].endswith('/7'):
         require(all(tz.utcoffset(datetime.fromisoformat(d))==timedelta(0) for g in grids.values() for d in g['nav_dates']),
                 'SCHEDULED_RELATIVE_UTC_METADATA')
+        from .scheduled_relative import validate_clock_metadata
+        validate_clock_metadata(schedule,grids,tz)
     # Preparation performs no features/weights/policy decision or native operation.
     market = load_reference(config['input_ref']) if load_prices else None
     return profile, calendar, schedule, grids, tz, market
