@@ -62,7 +62,7 @@ def prepare(service, config, *, load_prices=True):
     manifest = decode(read_ref(config['input_ref'])); calendar = decode(calendar_raw)
     from .reference_input import schedule_binding_matches
     require(manifest['schema'] in ('polar.synthetic-reference-source-input/1','polar.synthetic-reference-source-input/2') and
-            schedule_binding_matches(manifest,calendar['parent_schedule' if profile['schema'].endswith('/5') else 'source_schedule']), 'SCHEDULED_SOURCE_CALENDAR')
+            schedule_binding_matches(manifest,calendar['parent_schedule' if profile['schema'].endswith(('/5','/8')) else 'source_schedule']), 'SCHEDULED_SOURCE_CALENDAR')
     if config['namespace'] == 'INVENTED':
         require(str(manifest.get('parent_dataset_revision', '')).startswith('INVENTED-') and
                 manifest.get('rights') == 'INVENTED_PUBLIC_TEST' and manifest.get('provenance') ==
@@ -84,13 +84,13 @@ def prepare(service, config, *, load_prices=True):
         require(len(labels)==1259 and labels[0]==lo and labels[-1]==hi and all(hi<g['initial'] for g in calendar['phases'].values()),'SCHEDULED_TEMPORAL_CALIBRATION_GRID')
     require((profile['schema'] == 'polar.scheduled-reference-profile/3') ==
             (calendar.get('schema') == 'polar.daily-gate-policy-calendar/1'), 'SCHEDULED_CALENDAR_POLICY')
-    require((profile['schema']=='polar.scheduled-reference-profile/5') ==
+    require((profile['schema'] in ('polar.scheduled-reference-profile/5','polar.scheduled-reference-profile/8')) ==
             (calendar.get('schema')=='polar.prospective-fixed-allocation-calendar/1'),'SCHEDULED_CALENDAR_POLICY')
     grids = calendar_value(calendar, schedule)
     list(operation_phases(profile, grids))
-    history = 0 if profile['schema'].endswith('/5') else profile['policy']['window']-1 if profile['schema'] == 'polar.scheduled-reference-profile/3' else profile['policy']['lookback']
+    history = 0 if profile['schema'].endswith(('/5','/8')) else profile['policy']['window']-1 if profile['schema'] == 'polar.scheduled-reference-profile/3' else profile['policy']['lookback']
     require(all(days.index(g['initial']) >= history for g in grids.values()), 'SCHEDULED_WARMUP')
-    tz = ZoneInfo.from_file(io.BytesIO(tz_raw), key='UTC' if profile['schema'].endswith(('/5','/7')) else 'America/New_York')
+    tz = ZoneInfo.from_file(io.BytesIO(tz_raw), key='UTC' if profile['schema'].endswith(('/5','/7','/8')) else 'America/New_York')
     if profile['schema'].endswith('/7'):
         require(all(tz.utcoffset(datetime.fromisoformat(d))==timedelta(0) for g in grids.values() for d in g['nav_dates']),
                 'SCHEDULED_RELATIVE_UTC_METADATA')
@@ -106,7 +106,7 @@ def account_count(profile, grids):
 
 
 def operation_phases(profile, grids):
-    if profile['schema'].endswith(('/2','/4','/6','/7')):
+    if profile['schema'].endswith(('/2','/4','/6','/7','/8')):
         require(set(grids) == {'FINAL'}, 'SCHEDULED_UNCERTAINTY_FINAL_ONLY')
         for scenario in profile['cost_scenarios']:
             yield ('FINAL' if scenario['id'] == 'BASE' else 'FINAL_COST_STRESS'), 'FINAL', scenario
@@ -274,6 +274,8 @@ def run(service, config):
         finish = {'status': 'SUCCESS', 'attempt_id': aid, 'semantic_id': sid, 'results': publications,
                   'fit_calls': 0, 'predict_calls': 0, 'model_calls': 0, 'native_accounts': completed,
                   'financial_acceptance': 'NOT_REVIEWED', 'finished_ns': time.time_ns()}
+        if profile['schema'].endswith('/8'):
+            finish.update(score_calls=0,rank_calls=0,estimator_calls=0,optimizer_calls=0,bootstrap_samples=0)
         if profile['schema'].endswith('/7'):
             from .scheduled_relative import expected_counts
             require(signal_counts==expected_counts(sum(len(g['decisions']) for g in grids.values())),'SCHEDULED_RELATIVE_COMPLETION_COUNTS')
@@ -328,9 +330,17 @@ def recompute(service, semantic_id):
     expected_members = MEMBERS | ({'uncertainty.json'} if profile['schema'].endswith(('/2','/4','/6','/7')) else set())
     require(set(files) == expected_members, 'SCHEDULED_PROFILE_MEMBER_SET')
     require(files['bindings.json']['code'] == code_binding(), 'SCHEDULED_REPRODUCTION_CODE_BINDING')
-    if profile['schema'].endswith(('/4','/6','/7')):
+    if profile['schema'].endswith(('/4','/6','/7','/8')):
         base=files['phases.json']['FINAL']['plan'];stress=files['phases.json']['FINAL_COST_STRESS']['plan']
         require({k:v for k,v in base.items() if k!='cost_profile'}=={k:v for k,v in stress.items() if k!='cost_profile'},'SCHEDULED_GMV_STRESS_SHARED_PLAN')
+    if profile['schema'].endswith('/8'):
+        expected={'FINAL':profile['cost_scenarios'][0], 'FINAL_COST_STRESS':profile['cost_scenarios'][1]}
+        require(set(files['phases.json'])==set(expected),'SCHEDULED_FIXED_COST_PHASES')
+        for phase,scenario in expected.items():
+            data=files['phases.json'][phase]
+            require(data.get('reference_phase')=='FINAL' and data.get('cost_scenario')==scenario and
+                    data['plan'].get('cost_profile')==data['simulation'].get('cost_profile')==scenario['cost_profile'],
+                    'SCHEDULED_FIXED_COST_BINDING')
     expected_diagnostics = {}
     # Only saved output arrays are used; no source, policy feature, model or native call.
     calendar = files['calendar.json']
@@ -357,6 +367,8 @@ def recompute(service, semantic_id):
         require(canonical(actual) == canonical(files['uncertainty.json']), 'SCHEDULED_UNCERTAINTY_RECOMPUTE')
     result={'status': 'REPRODUCED', 'semantic_id': semantic_id, 'fit_calls': 0, 'model_calls': 0,
             'predict_calls': 0, 'native_calls': 0, 'store_writes': 0}
+    if profile['schema'].endswith('/8'):
+        result.update(score_calls=0,rank_calls=0,estimator_calls=0,optimizer_calls=0,bootstrap_samples=0)
     if profile['schema'].endswith('/7'):
         from .scheduled_relative import expected_counts
         result['actual_signal_counts']=expected_counts(0)
@@ -534,7 +546,7 @@ def diagnose_phase(tape,schedule,profile,plan,*,subperiods=()):
     if profile['schema'].endswith('/7'):
         from .scheduled_relative import diagnose_relative
         return diagnose_relative(tape,schedule,subperiods=subperiods)
-    if profile['schema'].endswith('/5'):
+    if profile['schema'].endswith(('/5','/8')):
         from .scheduled_fixed import diagnose_fixed
         return diagnose_fixed(tape,schedule,plan['prices'],subperiods=subperiods)
     if profile['schema'].endswith('/6'):
