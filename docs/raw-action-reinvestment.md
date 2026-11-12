@@ -164,3 +164,24 @@ Diagnostics reuse exact saved-NAV arithmetic: signed lowest ceil(n/20) tail,
 earliest equal peak with censored recovery, raw/cash/claim exposure, and two
 carried BASE eras at the last2020 NAV anchor. STRESS eras are NOT_REQUESTED.
 No fee-only causal explanation or reset/re-execution of carried eras occurs.
+
+
+## Raw-action content ID codec (future technical correction)
+
+Event IDs are `eodhd-vti-div-` followed by SHA256 of UTF-8 JSON with exactly
+`source_sha256`, `json_pointer`, and `record_sha256`: keys sorted, compact
+comma/colon separators, ASCII escaping, and **no trailing newline**. This is
+what the retained dataset producer specifies. The reader now uses a scoped
+content-ID codec; global Gym operation/config/family canonicalization still
+includes its newline and is unchanged. No alternate LF form is accepted.
+
+Admission reports `RAW_CONTENT_SOURCE_REF`, `RAW_CONTENT_RAW_POINTER`, and
+`RAW_CONTENT_EVENT_ID` separately. Source identity, pointer equality, and digest
+equality all remain mandatory; errors do not print payload values. Invented
+producer-shaped fixtures use their own serialization and a fixed digest vector.
+
+This source correction cannot validate a retained record or establish the
+exclusive cause of the original B7 failure. The exact original offending record
+and conjunct remain UNKNOWN. Its charged FAILED_UNFINALIZED attempt, immutable
+source/event IDs, and ineligible SUCCESS-only stored allocation are preserved.
+No rerun, refund, new scientific family or financial result is authorized here.
