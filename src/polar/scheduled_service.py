@@ -420,8 +420,9 @@ def recompute(service, semantic_id):
     calendar = files['calendar.json']
     for phase, data in files['phases.json'].items():
         if profile['schema'].endswith('/11'):
-            from .scheduled_curve import verify_plan
+            from .scheduled_curve import verify_plan,verify_consumed_operands
             verify_plan(data['plan'],profile,calendar['source_schedule_rows'],calendar['phases']['FINAL'])
+            verify_consumed_operands(data['plan'],data['simulation'])
         if profile['schema'].endswith('/10'):
             from .reference_model_price import verify_plan
             verify_plan(data['plan'],profile)

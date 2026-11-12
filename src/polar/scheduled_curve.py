@@ -101,6 +101,10 @@ def metadata(pin, namespace):
     # arbitrary nested raw/source/value references found inside them.
     for key in ('purpose_ref','source_delivery_ref'):
         pinned_bytes(d[key])
+    if namespace=='RETAINED':
+        require(d['provenance'].get('source_unit')=='PERCENT_ANNUALIZED_NOMINAL_PAR_YIELD_NOT_RETURN_OR_SPENDABLE_CASH' and
+                d['provenance'].get('vti_unit')=='SCALE1_ADJUSTED_SYNTHETIC_REFERENCE_UNIT_NOT_PHYSICAL_SHARE', 'CURVE_DECLARED_UNITS')
+        pinned_bytes(d['provenance']['source_quality'])
     index_raw = pinned_bytes(d['macro_index_ref'])
     _index(decode(index_raw), d['macro_records_ref'])
     joins_raw = pinned_bytes(d['source_date_join_ref'])
@@ -121,6 +125,8 @@ def context(value, expected_sha):
 
 def date_joins(value, profile, schedule, grids):
     d, source, proof = context(value, profile['input_sha256'])
+    if value['namespace']=='RETAINED':
+        require(d['provenance'].get('protocol',{}).get('sha256')==profile['protocol_sha256'], 'CURVE_PROTOCOL_PURPOSE_BINDING')
     require(set(grids) == {'FINAL'}, 'CURVE_FINAL_ONLY')
     grid = grids['FINAL']; days = [r['date'] for r in schedule]; by_day = {r['date']:r for r in schedule}
     require(len(grid['decisions']) == 47 and len(grid['nav_dates']) == 967 and
@@ -291,3 +297,67 @@ def diagnose_curve(tape, schedule, prices, *, subperiods=()):
         segments.append(segment)
     result['subperiods']=segments
     return result
+
+
+def verify_consumed_operands(plan, simulation):
+    """Check saved actual call-site operands; never reconstruct a missing witness."""
+    from .obs158_math import cent_round_micro
+    from .ci_research import fee_cents
+    require(plan.get('capture_consumed_sizing') is True and
+            {leg['id'] for leg in simulation['legs']}==set(LEGS), 'CURVE_CONSUMED_WITNESSES_REQUIRED')
+    cost=plan['cost_profile'];events={d['day']:d for d in plan['decisions']}
+    for leg in simulation['legs']:
+        fills=leg['fills']
+        require(fills==sorted(fills,key=lambda f:f['at_ns']), 'CURVE_SAVED_FILL_ORDER')
+        def before(instant):
+            cash=10000000;held={'VTI':0}
+            for f in fills:
+                if f['at_ns']>=instant:break
+                require(f['symbol']=='VTI' and f['side'] in ('BUY','SELL') and
+                        f['fee_cents']==fee_cents(f['q'],f['price_micro'],cost_profile=cost) and
+                        f['settled_cents']==cent_round_micro(f['q']*f['price_micro']), 'CURVE_SAVED_FILL_MONEY')
+                sign=1 if f['side']=='BUY' else -1;held['VTI']+=sign*f['q']
+                cash-=sign*f['settled_cents']+f['fee_cents']
+                require(cash==f['cash_after_cents'] and cash>=0 and held['VTI']>=0,'CURVE_SAVED_FILL_STATE')
+            return cash,held
+        require(len(leg['intents'])==len(events),'CURVE_CONSUMED_INTENT_COUNT')
+        intents={i['day']:i for i in leg['intents']}
+        for day,d in events.items():
+            i=intents[day];instruction=d['instructions'][leg['id']]
+            require(i['decision_ns']==d['decision_ns'] and i['instruction_kind']==instruction['kind'] and
+                    i['decision_id']==leg['id']+'/'+day,'CURVE_CONSUMED_DECISION_ID')
+            if instruction['kind']=='EXIT':
+                require(i['sizing_witness'] is None and i['sizing_status']=='NOT_APPLICABLE_EXIT', 'CURVE_EXIT_NO_FABRICATED_SIZING')
+                continue
+            w=i['sizing_witness'];cash,held=before(i['decision_ns']);prices={'VTI':plan['prices'][d['formation']]['VTI']['close_micro']}
+            require(w['schema']=='polar.target-sizing-witness/1' and w['cash_cents']==cash and w['holdings']==held and
+                    w['eligible_prices_micro']==prices and w['weights']==instruction['weights'] and
+                    w['nav_cents']==cash+sum(cent_round_micro(held[s]*prices[s]) for s in held) and
+                    w['lot_size']==1 and w['quantity_unit']=='WHOLE_SYNTHETIC_REFERENCE_UNIT_NOT_RAW_SHARE' and
+                    w['eligible_quote']=={'date':d['formation'],'at_ns':d['formation_close_ns'],
+                        'source_identity':plan['price_evidence'][d['formation']]},'CURVE_CONSUMED_D_OPERANDS')
+            require(w['targets']==i['targets']=={s:w['nav_cents']*10000*pair[0]//(prices[s]*pair[1])
+                    for s,pair in instruction['weights'].items()}, 'CURVE_CONSUMED_TARGET_FLOOR')
+        require(len(leg['orders'])==2*len(events),'CURVE_CONSUMED_ROUTE_COUNT')
+        for o in leg['orders']:
+            w=o['consumed_operands'];day=w['quote_day'];d=events[day];cash,held=before(o['at_ns']);p=plan['prices'][day]['VTI']['close_micro']
+            target=intents[day]['targets']['VTI'];desired=max(held['VTI']-target,0) if o['side']=='SELL' else max(target-held['VTI'],0)
+            require(o['id']==leg['id']+'/'+day+'/'+o['side']+'/VTI' and o['symbol']=='VTI' and
+                    o['at_ns']==d['open_ns']+(100 if o['side']=='SELL' else 200) and
+                    w['decision_id']==leg['id']+'/'+day and w['target']==target and w['holdings_before']==held and
+                    w['cash_before_cents']==cash and w['price_micro']==p and w['quote_at_ns']==d['open_ns'] and
+                    w['cost_profile']==cost and w['desired_delta']==o['intended_quantity']==desired,
+                    'CURVE_CONSUMED_ROUTE_OPERANDS')
+            q=o['routed_quantity']
+            if o['side']=='BUY':
+                a=w['affordability']
+                require(a['schema']=='polar.affordability-witness/1' and a['desired']==desired and
+                        a['price_micro']==p and a['cash_cents']==a['effective_spend_cap_cents']==cash and
+                        a['budget_cents_input'] is None and a['cost_profile']==cost and a['returned_quantity']==q and
+                        0<=q<=desired and cent_round_micro(q*p)+fee_cents(q,p,cost_profile=cost)<=cash and
+                        (q==desired or cent_round_micro((q+1)*p)+fee_cents(q+1,p,cost_profile=cost)>cash),
+                        'CURVE_CONSUMED_AFFORDABLE_BOUND')
+            else:require(q==min(desired,held['VTI']) and w['affordability'] is None,'CURVE_CONSUMED_SELL_BOUND')
+            require(o['reason']==('ZERO_DELTA_NO_ORDER' if desired==0 else 'FEE_AWARE_BUDGET_CAP' if q<desired else None),
+                    'CURVE_CONSUMED_ROUTE_REASON')
+    return {'status':'VERIFIED_CONSUMED_OPERANDS','source_calls':0,'policy_calls':0,'native_calls':0,'store_writes':0}
