@@ -93,6 +93,9 @@ def schedule_binding_matches(manifest,calendar_schedule):
 
 def prepare_input(config, root, limit):
     """Called only by the owning source consumer after applicable qualification."""
+    if type(config) is dict and config.get('schema')=='polar.reference-input-conversion-config/3':
+        from .reference_composition import prepare_composition
+        return prepare_composition(config,root,limit)
     selected=type(config) is dict and config.get('schema')=='polar.reference-input-conversion-config/2'
     if selected:
         from .selected_reference_input import PROFILE,metadata

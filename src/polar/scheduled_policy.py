@@ -18,6 +18,7 @@ CONDITIONS = {
     'POSITIVE_GROWTH': set(), 'DRAWDOWN_LE': {'right_id'}, 'VOL_LE': {'right_id'},
     'VOL_RATIO_BETWEEN': {'right_id', 'lower', 'upper'},
     'DRAWDOWN_SCALED_LE': {'right_id', 'factor'},
+    'TERMINAL_SCALED_GE': {'right_id', 'factor'}, 'VOL_SCALED_LE': {'right_id', 'factor'},
 }
 
 
@@ -118,9 +119,16 @@ def profile_value(p):
     for c in p['criteria']:
         require(c['kind'] in CONDITIONS and set(c) == {'id', 'description', 'kind', 'left_id'} | CONDITIONS[c['kind']], 'SCHEDULED_CRITERION_SCHEMA')
         require(c['left_id'] in ids and ('right_id' not in c or c['right_id'] in ids and c['right_id'] != c['left_id']), 'SCHEDULED_CRITERION_LEGS')
-        if c['kind'] == 'DRAWDOWN_SCALED_LE':
+        if c['kind'] in ('DRAWDOWN_SCALED_LE','TERMINAL_SCALED_GE','VOL_SCALED_LE'):
             require(type(c['factor']) is list and len(c['factor']) == 2 and all(type(v) is int for v in c['factor']) and
                     0 <= c['factor'][0] <= c['factor'][1] <= 1000000 and c['factor'][1] > 0, 'SCHEDULED_CRITERION_FACTOR')
+        if c['kind']=='VOL_SCALED_LE':
+            # Preserve the prospective canonical-D50 operation; nonterminating
+            # factors would add an undeclared preliminary rounding step.
+            denominator=Fraction(*c['factor']).denominator
+            for prime in (2,5):
+                while denominator%prime==0:denominator//=prime
+            require(denominator==1,'SCHEDULED_VOL_FACTOR_NONTERMINATING')
         for key in ('threshold', 'lower', 'upper'):
             if key in c:
                 require(type(c[key]) is str and len(c[key]) <= 64 and Decimal(c[key]).is_finite(), 'SCHEDULED_CRITERION_NUMBER')
@@ -240,10 +248,14 @@ def evaluate_policy(simulation, profile, phase):
                 av = by_id[a]['metrics']['sharpe_252_rf0']['value']; bv = by_id[b]['metrics']['sharpe_252_rf0']['value']
                 if av is not None and bv is not None: passed = Decimal(av)-Decimal(bv) >= Decimal(c['threshold'])
             elif kind == 'TERMINAL_GE': passed = exact[a]['terminal'] >= exact[b]['terminal']
+            elif kind == 'TERMINAL_SCALED_GE': passed = exact[a]['terminal'] >= Fraction(*c['factor'])*exact[b]['terminal']
             elif kind == 'TERMINAL_GT': passed = exact[a]['terminal'] > exact[b]['terminal']
             elif kind == 'POSITIVE_GROWTH': passed = exact[a]['terminal'] > INITIAL_CENTS
             elif kind == 'DRAWDOWN_LE': passed = exact[a]['max_drawdown'] <= exact[b]['max_drawdown']
             elif kind == 'DRAWDOWN_SCALED_LE': passed = exact[a]['max_drawdown'] <= Fraction(*c['factor'])*exact[b]['max_drawdown']
+            elif kind == 'VOL_SCALED_LE':
+                av=by_id[a]['metrics']['annual_vol_252']['value'];bv=by_id[b]['metrics']['annual_vol_252']['value']
+                if av is not None and bv is not None:passed=Decimal(av)<=(Decimal(c['factor'][0])/Decimal(c['factor'][1]))*Decimal(bv)
             elif kind == 'VOL_LE':
                 av=by_id[a]['metrics']['annual_vol_252']['value'];bv=by_id[b]['metrics']['annual_vol_252']['value']
                 if av is not None and bv is not None:passed=Decimal(av)<=Decimal(bv)
