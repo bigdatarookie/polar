@@ -70,7 +70,7 @@ function appContext(fetcher) {
   const location=new URL('http://component.invalid/ui/'),history={entries:[],pushState(_,__,url){this.entries.push(String(url));location.href=String(url);},replaceState(_,__,url){location.href=String(url);}};
   const stored=new Map(),context=vm.createContext({module:{exports:{}},console,AbortController,URL,fetch:fetcher,location,history,
     sessionStorage:{getItem:k=>stored.get(k)||null,setItem:(k,v)=>stored.set(k,v)},localStorage:{getItem:()=>null},
-    document:{querySelector:node,getElementById:id=>node('#'+id),querySelectorAll:()=>[],createElement:tag=>new Node(tag)},
+    document:{documentElement:new Node('html'),querySelector:node,getElementById:id=>node('#'+id),querySelectorAll:()=>[],createElement:tag=>new Node(tag)},
     matchMedia:()=>({matches:false}),innerWidth:800,innerHeight:900,scrollX:0,scrollY:0,cancelAnimationFrame(){},requestAnimationFrame(){},
     getComputedStyle:()=>({getPropertyValue:()=> '#7132c4'}),window:{scrollTo(){}},setTimeout,clearTimeout});
   for(const file of ['data.js','chart-ui.js','interaction.js','history.js','research.js','app.js'])vm.runInContext(fs.readFileSync(path.join(web,file),'utf8'),context,{filename:file});
