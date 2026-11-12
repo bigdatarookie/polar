@@ -339,3 +339,43 @@ def diagnose(tape, schedule_rows, *, subperiods=()):
             'exposure': _exposure(nav), 'subperiods': [evaluate_segment(tape, a, b) for a, b in subperiods],
             'factor_attribution': {'status': 'NOT_ESTIMATED', 'reason': 'NO_QUALIFIED_ALIGNED_FACTOR_METHOD_FOR_THIS_COMPARISON'},
             'scope': 'DESCRIPTIVE_SAVED_NET_LEDGER_ONLY_NO_POLICY_MODEL_NATIVE_OR_SOURCE_CALL'}
+
+
+def diagnose_temporal_anchors(tape, schedule_rows, *, subperiods=()):
+    """Prospective temporal recipe: pairs are saved NAV anchors, not return dates.
+
+    All legacy return-date and fixed-allocation helpers retain their semantics.
+    Never call this on an old artifact to replace its published diagnostics.
+    """
+    result=diagnose(tape,schedule_rows)
+    result['schema']='polar.temporal-saved-diagnostics/2'
+    result['subperiod_semantics']='SAVED_NAV_ANCHOR_THEN_NEXT_SAVED_RETURN'
+    nav,reason=_nav(tape)
+    segments=[]
+    if reason:
+        result['subperiods']=[_unavailable(reason,requested_initial_anchor=a,last_return_date=b)
+                              for a,b in subperiods]
+        return result
+    result['drawdown']=_drawdown(nav,latest_equal_peak=True)
+    indices={r['date']:i for i,r in enumerate(nav)}
+    for anchor,last in subperiods:
+        context={'requested_initial_anchor':anchor,'last_return_date':last,
+                 'subperiod_semantics':'SAVED_NAV_ANCHOR_THEN_NEXT_SAVED_RETURN'}
+        if anchor not in indices:
+            segments.append(_unavailable('SAVED_NAV_ANCHOR_MISSING',**context));continue
+        if last not in indices:
+            segments.append(_unavailable('SUBPERIOD_BOUNDARY_MISSING',**context));continue
+        begin,end=indices[anchor],indices[last]
+        if begin>=end:
+            segments.append(_unavailable('NO_RETURN_AFTER_SAVED_NAV_ANCHOR' if begin==end else
+                                         'SAVED_NAV_ANCHOR_AFTER_END',**context));continue
+        first=nav[begin+1]['date']
+        segment=evaluate_segment(tape,first,last)
+        segment.update(context)
+        if segment['status']=='OK':
+            # Existing helper owns preceding-close costs/fills exactly once.
+            if segment['initial_date']!=anchor:raise ValueError('TEMPORAL_SAVED_ANCHOR_MAPPING')
+            segment['drawdown']=_drawdown(nav[begin:end+1],latest_equal_peak=True)
+        segments.append(segment)
+    result['subperiods']=segments
+    return result

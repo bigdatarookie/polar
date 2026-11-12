@@ -493,18 +493,10 @@ def diagnose_phase(tape,schedule,profile,plan,*,subperiods=()):
     if profile['schema'].endswith('/5'):
         from .scheduled_fixed import diagnose_fixed
         return diagnose_fixed(tape,schedule,plan['prices'],subperiods=subperiods)
-    result=diagnose(tape,schedule,subperiods=subperiods)
     if profile['schema'].endswith('/6'):
-        from .scheduled_diagnostics import _nav,_drawdown
-        nav,reason=_nav(tape)
-        if not reason:
-            result['schema']='polar.temporal-saved-diagnostics/1'
-            result['drawdown']=_drawdown(nav,latest_equal_peak=True)
-            for segment in result['subperiods']:
-                if segment['status']=='OK':
-                    selected=[r for r in nav if segment['initial_date']<=r['date']<=segment['last_return_date']]
-                    segment['drawdown']=_drawdown(selected,latest_equal_peak=True)
-    return result
+        from .scheduled_diagnostics import diagnose_temporal_anchors
+        return diagnose_temporal_anchors(tape,schedule,subperiods=subperiods)
+    return diagnose(tape,schedule,subperiods=subperiods)
 
 
 def project_estimation(record,counts):
