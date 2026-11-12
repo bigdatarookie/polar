@@ -165,6 +165,8 @@ def test_scope_namespace_and_legacy_request_identity_stay_distinct(tmp_path):
     req={**TEMPLATE,'symbols':'INVENTED0'}
     broad=ImportStore(tmp_path,64*1024**3,raw_sip=True,raw_profile=PROFILE)
     assert broad.base=='imports-adjustedsip100-v1/'+SCOPE_SHA
+    assert SCOPE_SHA=='d123cb78e0e1e5e091bbc6de04e1693ebc08181775eb72ebe3434fd89d21c077'
+    assert job_id({**TEMPLATE,'symbols':'VTI'},PROFILE)=='673daa8e3d3b9ae62af4a75af0672e40bbfb864b33e44a20016e71996f9fe115'
     assert job_id(req,PROFILE)==digest({'adapter':ADAPTER,'request':req})
     assert job_id(req,PROFILE)!=job_id(req,SELECTED_PROFILE)
     with pytest.raises(ImportError):raw_request(req)
@@ -205,3 +207,42 @@ def test_selected_http_child_uses_exact_new_asof_before_mock_network(tmp_path,mo
     assert observed['method']=='GET' and observed['query']['asof']==['2026-11-06']
     assert observed['query']['symbols']==['INVENTED'] and observed['query']['adjustment']==['all']
     assert observed['closed'] and json.loads(output.getvalue())['status']==200
+
+
+
+def test_selected_provider_execution_authority_and_transport_dispatch(tmp_path,monkeypatch):
+    import sys
+    import polar.import_raw_transport as transport
+    from polar.import_service import code_projection
+    facade,s,pid,cfg,_=setup(tmp_path,mode='provider')
+    aid=str(uuid.uuid4())
+    authority={'schema':'polar.adjusted-sip-execution-authority/1',
+      'unit_sha256':cfg['scope_ref']['sha256'],'source_projection':code_projection(),
+      'python_sha256':sha(Path(sys.executable).read_bytes()),'binding_refs':[cfg['scope_ref']],
+      'attempt_id':aid,'credential_reference':s.load(pid)['unit']['credentials']['reference'],
+      'terminal_owner':'invented-DE'}
+    ap=tmp_path/'authority.json';ap.write_bytes(canonical(authority))
+    observed=[]
+    class MockTransport:
+        def __init__(self,credential_reference,profile):
+            assert profile==SELECTED_PROFILE
+            observed.append(('initialized',credential_reference))  # path only; never opened
+        def get(self,start,index,timeout):
+            # The physical-start record is durable before the selected request.
+            assert s.store.exists('requests/'+start['request_id']+'.json')
+            observed.append(start['request'])
+            return {'status':200,'headers':{'content-type':'application/json'},
+                    'body':canonical(body(start['request']['symbols'])),'truncated':False,'error':None}
+    monkeypatch.setattr(transport,'RawHttpTransport',MockTransport)
+    bad={**authority,'unit_sha256':'0'*64};ap.write_bytes(canonical(bad))
+    with pytest.raises(ImportError):facade.import_execute(pid,network=True,attempt_id=aid,
+        scope={'path':str(ap),'sha256':sha(ap.read_bytes())})
+    assert observed==[] and facade.import_attempts(pid)['attempts']==[]
+    ap.write_bytes(canonical(authority))
+    # Synthetic clock used only by this mocked provider test; no real sleeps/GETs.
+    from polar.import_transport import FixtureClock
+    s.clock=FixtureClock(START)
+    result=s.execute(pid,network=True,attempt_id=aid,scope={'path':str(ap),'sha256':sha(ap.read_bytes())})
+    assert result['status']=='complete' and result['counts']['success']==3
+    assert [r['symbols'] for r in observed[1:]]==['INVENTED0','INVENTED1','INVENTED2']
+    assert all(r['asof']=='2026-11-06' for r in observed[1:])
