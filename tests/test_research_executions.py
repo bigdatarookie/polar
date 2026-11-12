@@ -89,3 +89,14 @@ def test_http_page_validation_no_original_mutation(tmp_path):
     assert client.get(path+'?series_id=missing').status_code==422
     assert client.get(path+'?limit=101').status_code==422
     assert before=={str(p):sha(p.read_bytes()) for p in tmp_path.rglob('*') if p.is_file()}
+
+
+def test_input_bound_navigation_never_ticker_only():
+    from polar.research_executions import navigation
+    r=invented_result();r['bindings']['data_sha256']='070ea3eb9363894aa37ec4254997be34116b745166b173e1ab1e7dcc4182e3cd'
+    x=navigation(r,'AAPL')
+    assert x['status']=='BOUND' and x['instrument_id']=='hist-us-0001' and x['mapping_status']=='DECLARED_CURRENT_ONLY'
+    assert 'histrev-8513' in x['dataset_revision']
+    r['bindings']['data_sha256']='9'*64
+    assert navigation(r,'AAPL')['status']=='UNRESOLVED'
+    assert navigation(r,'UNKNOWN')['instrument_id'] is None

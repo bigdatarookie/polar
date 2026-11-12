@@ -1,0 +1,58 @@
+{
+  "evidence_metadata_sha256": [
+    "e5588b2c98f45b3acf26b3bb641cb3fcced5215f268cf038786372997cace882",
+    "fc577397e3ab9dcd05b3329b12a22e9be333b9422f14973be24f99872ef95e7a",
+    "8c139f180f820153ce69254ce396d6b81374bbf9c1cf7608dbb31758e559a545",
+    "84df8d3c70dd3953d594d0f5dde931f1b0c4a1ffcea3036003c53c1240455ac6"
+  ],
+  "evidence_sha256": "5adb80a3383d2e777940500682037738286d696aaf6e253e90cdd260f6c73158",
+  "input_sha256": "070ea3eb9363894aa37ec4254997be34116b745166b173e1ab1e7dcc4182e3cd",
+  "mapping": [
+    {
+      "basis_relation": "Research uses adjusted-reference close; history OHLC remains raw vendor basis, no price/quantity equivalence implied.",
+      "dataset_id": "history-private-us-demo-01",
+      "dataset_revision": "histrev-8513a1cfd4042eca2da45051ed8a1f14ac62b19bdb14ef7d7ad05fc0d65bddae",
+      "instrument_id": "hist-us-0001",
+      "instrument_type": "equity",
+      "mapping_status": "DECLARED_CURRENT_ONLY",
+      "native_symbol": "AAPL",
+      "source_member_sha256": "332e8712fe80bdaf6e4b249d8dcab49a4256dab03ffdd043cc3a01ea7035165c",
+      "source_symbol": "AAPL.US"
+    },
+    {
+      "basis_relation": "Research uses adjusted-reference close; history OHLC remains raw vendor basis, no price/quantity equivalence implied.",
+      "dataset_id": "history-private-us-demo-01",
+      "dataset_revision": "histrev-8513a1cfd4042eca2da45051ed8a1f14ac62b19bdb14ef7d7ad05fc0d65bddae",
+      "instrument_id": "hist-us-0002",
+      "instrument_type": "equity",
+      "mapping_status": "DECLARED_CURRENT_ONLY",
+      "native_symbol": "AMZN",
+      "source_member_sha256": "52938ebda493ffef8d6699aab2908ddd1f03db43c3336947d6e7705996fb6d92",
+      "source_symbol": "AMZN.US"
+    },
+    {
+      "basis_relation": "Research uses adjusted-reference close; history OHLC remains raw vendor basis, no price/quantity equivalence implied.",
+      "dataset_id": "history-private-us-demo-01",
+      "dataset_revision": "histrev-8513a1cfd4042eca2da45051ed8a1f14ac62b19bdb14ef7d7ad05fc0d65bddae",
+      "instrument_id": "hist-us-0003",
+      "instrument_type": "equity",
+      "mapping_status": "DECLARED_CURRENT_ONLY",
+      "native_symbol": "TSLA",
+      "source_member_sha256": "861531df9ec25e7c12802da1edc470ea1e9083f9a9d1aac08f785932eb52dc6f",
+      "source_symbol": "TSLA.US"
+    },
+    {
+      "basis_relation": "Research uses adjusted-reference close; history OHLC remains raw vendor basis, no price/quantity equivalence implied.",
+      "dataset_id": "history-private-us-demo-01",
+      "dataset_revision": "histrev-8513a1cfd4042eca2da45051ed8a1f14ac62b19bdb14ef7d7ad05fc0d65bddae",
+      "instrument_id": "hist-us-0004",
+      "instrument_type": "ETF",
+      "mapping_status": "DECLARED_CURRENT_ONLY",
+      "native_symbol": "VTI",
+      "source_member_sha256": "ddc7cd629d5e41a805506b416042ba0c3bcffe6972d67d4ebc3d9eafdafe21f5",
+      "source_symbol": "VTI.US"
+    }
+  ],
+  "quotes_sha256": "e88bf180e830840c81899ec708f99daab6b840e28a768b7d1d033e2a477fa597",
+  "schema": "polar.saved-execution-navigation/1"
+}

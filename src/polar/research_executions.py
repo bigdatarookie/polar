@@ -5,6 +5,7 @@ members are not opened. No service runner/evaluator/predictor is imported.
 """
 import re
 from fractions import Fraction
+from pathlib import Path
 from datetime import datetime, timezone
 from .history_bundle import read_file, decode, sha
 from .research_results import ResearchError
@@ -36,6 +37,19 @@ def utc(ns):
     integer(ns)
     seconds, nano=divmod(ns,10**9)
     return datetime.fromtimestamp(seconds,timezone.utc).strftime('%Y-%m-%dT%H:%M:%S') + (f'.{nano:09d}' if nano else '') + 'Z'
+
+
+def navigation(record, symbol):
+    # Versioned metadata relation keyed by input content, never by strategy name
+    # or ticker equality alone. No source quote file is opened.
+    mapping=decode(Path(__file__).with_name('research_navigation.json').read_bytes())
+    rows=[x for x in mapping['mapping'] if x['native_symbol']==symbol] if record['bindings']['data_sha256']==mapping['input_sha256'] else []
+    if len(rows)!=1:
+        return {'status':'UNRESOLVED','reason':'SOURCE_INSTRUMENT_MAPPING_NOT_BOUND',
+                'dataset_id':None,'dataset_revision':None,'instrument_id':None}
+    row=rows[0]
+    return {'status':'BOUND','reason':None,**{k:v for k,v in row.items() if k!='native_symbol'},
+            'evidence_sha256':mapping['evidence_sha256'],'input_sha256':mapping['input_sha256']}
 
 
 def project(results, result_id, series_id=None, limit=100, offset=0):
@@ -123,9 +137,14 @@ def project(results, result_id, series_id=None, limit=100, offset=0):
             require(fill['symbol']==symbol and fill['side']==side and fill['at_ns']==at and fill['q']==q)
             price=integer(fill['price_micro'],1);fee=integer(fill['fee_cents']);settled=integer(fill['settled_cents'])
         else:price=fee=settled=None
+        parts=oid.split('/')
+        require(len(parts)==4 and parts[0]==series['id'] and parts[2]==side and parts[3]==symbol and re.fullmatch(r'\d{4}-\d{2}-\d{2}',parts[1]))
+        datetime.strptime(parts[1],'%Y-%m-%d')
         events.append({'order_id':oid,'symbol':symbol,'side':side,'timestamp_ns':str(at),'timestamp':utc(at),
             'intended_quantity':str(desired),'routed_quantity':str(q),'filled_quantity':str(q) if fill else '0',
             'status':'FILLED' if fill else 'NOT_ROUTED','reason':order.get('reason'),
+            'session_date':parts[1],'timestamp_semantics':'NATIVE_ORDER_SUBMISSION_AND_MATCHED_FILL',
+            'instrument':navigation(r,symbol),
             'price_micro':str(price) if fill else None,'fee_cents':str(fee) if fill else None,
             'settled_notional_cents':str(settled) if fill else None})
     events.sort(key=lambda x:(int(x['timestamp_ns']),x['order_id']))
@@ -134,6 +153,7 @@ def project(results, result_id, series_id=None, limit=100, offset=0):
         'semantic_manifest_sha256':h,'member':member_name,'member_sha256':member_hash,
         'quote_basis':'SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT' if synthetic else 'MODELED_RAW_SHARE_PRICE',
         'quantity_unit':simulation.get('quantity_unit','WHOLE_SHARE'),
+        'price_unit':'USD_PER_SYNTHETIC_REFERENCE_UNIT' if synthetic else 'USD_PER_MODELED_SHARE',
         'raw_ohlc_overlay_compatible':False,
         'compatibility_reason':'EXACT_PRICE_BASIS_MATCH_REQUIRED_NO_TICKER_ONLY_ATTRIBUTION',
         'total':len(events),'next_offset':end if end<len(events) else None,'items':events[offset:end]}
