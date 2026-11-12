@@ -141,7 +141,7 @@ test('global row sorting reads every ten-item API page and retains research sour
  const offsets=[],client={load:async offset=>{offsets.push(offset);return {catalog:{total:2,offset,items:[{}],next_offset:offset===0?1:null},details:[offset===0?a:b]};}};
  const all=await researchLoadAll(client);assert.deepEqual(offsets,[0,1]);assert.equal(all.offsets[b.result_id],1);assert.equal(researchSortRows(all.details,'sharpe')[0].result_id,b.result_id);assert.equal(researchRowMetric(a,'sharpe').display,'1.23');
  assert.equal(await researchLoadAll(client,()=>false),null);
- await assert.rejects(()=>researchLoadAll({load:async offset=>({catalog:{total:offset===0?2:3,next_offset:offset===0?1:null},details:[offset===0?a:b]})}),/RESEARCH_CATALOG_CHANGED/);
+ await assert.rejects(()=>researchLoadAll({load:async offset=>({catalog:{total:offset===0?2:3,items:[],next_offset:offset===0?1:null},details:[offset===0?a:b]})}),/RESEARCH_CATALOG_CHANGED/);
 });
 test('full tape loading includes recent second-page fill independent of card pagination and rejects drift/duplicates',async()=>{
  const {createResearchExecutionClient,researchLoadAllExecutions}=require('../src/polar/web/research.js'),saved=fixture().detail;

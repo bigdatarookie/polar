@@ -95,6 +95,11 @@ test('ordinary history compact rows select actual saved comparison and retain a 
   vm.runInContext("selectedExecutionId='model/2026-11-06/SELL/VTI';executions={resultId:mainResearchSelection,page:{status:'OK',total:148},allItems:[],offset:100,loading:false,error:null};state.rangeId='3M';state.lo=12;state.hi=34;selectMainResearch(mainResearchSelection,true,true)",ctx);
   assert.equal(vm.runInContext('selectedExecutionId',ctx),'model/2026-11-06/SELL/VTI');assert.equal(vm.runInContext('executions.offset',ctx),100);assert.equal(vm.runInContext('state.rangeId',ctx),'3M');assert.deepEqual(Array.from(vm.runInContext('[state.lo,state.hi]',ctx)),[12,34]);
 
+  ctx.nextSaved={...ctx.saved,assessment:{financial:'INDETERMINATE',financial_evidence:{status:'INSUFFICIENT_EVIDENCE'}}};ctx.snapshot={catalog:{items:[ctx.nextSaved],total:1,offset:0,next_offset:null},items:[ctx.nextSaved],details:[ctx.nextSaved],offsets:{[id]:0}};
+  ctx.fakeWorkspace.isLoading=()=>false;ctx.fakeWorkspace.applyAutomaticSnapshot=snapshot=>{ctx.autoApplied=snapshot;return true;};
+  vm.runInContext("state.measurement={source:'assetClose',start:12,end:34};mainMetricSort={key:'drawdown',direction:'asc'};commitAutomaticResearch(snapshot)",ctx);
+  assert.equal(vm.runInContext('selectedExecutionId',ctx),'model/2026-11-06/SELL/VTI');assert.equal(vm.runInContext('executions.offset',ctx),100);assert.equal(vm.runInContext('state.rangeId',ctx),'3M');assert.deepEqual(Array.from(vm.runInContext('[state.lo,state.hi]',ctx)),[12,34]);assert.equal(vm.runInContext('state.measurement.end',ctx),34);assert.equal(vm.runInContext('mainMetricSort.direction',ctx),'asc');assert.equal(vm.runInContext('selectedMainResearch().assessment.financial',ctx),'INDETERMINATE');assert.equal(ctx.autoApplied,ctx.snapshot);
+  vm.runInContext("mainResearch.loading=true",ctx);assert.equal(vm.runInContext('commitAutomaticResearch(snapshot)',ctx),false);vm.runInContext("mainResearch.loading=false",ctx);
   vm.runInContext("mainResearch.page={catalog:{items:[],total:0,offset:0,next_offset:null},details:[]};renderRows()",ctx);
   assert.match(list.textContent,/No saved research records/);assert.equal(env.node('#runs-next').disabled,true);
 });
