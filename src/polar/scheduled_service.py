@@ -76,7 +76,10 @@ def prepare(service, config, *, load_prices=True):
         for package, version in [('nautilus-trader', '1.231.0'), ('numpy', '2.2.6'), ('threadpoolctl', '3.6.0')]:
             require(importlib.metadata.version(package) == version, 'SCHEDULED_RUNTIME_VERSION')
     schedule, days = reference_schedule(decode(pinned_bytes(manifest['schedule'])))
-    require(manifest['symbols'] == profile['symbols'], 'SCHEDULED_PROFILE_SYMBOLS')
+    require(set(profile['symbols']) <= set(manifest['symbols']) if profile['schema'].endswith('/6') else manifest['symbols']==profile['symbols'], 'SCHEDULED_PROFILE_SYMBOLS')
+    if profile['schema'].endswith('/6'):
+        lo,hi=profile['policy']['calibration'];labels=[d for d in days if lo<=d<=hi]
+        require(len(labels)==1259 and labels[0]==lo and labels[-1]==hi and all(hi<g['initial'] for g in calendar['phases'].values()),'SCHEDULED_TEMPORAL_CALIBRATION_GRID')
     require((profile['schema'] == 'polar.scheduled-reference-profile/3') ==
             (calendar.get('schema') == 'polar.daily-gate-policy-calendar/1'), 'SCHEDULED_CALENDAR_POLICY')
     require((profile['schema']=='polar.scheduled-reference-profile/5') ==
@@ -96,7 +99,7 @@ def account_count(profile, grids):
 
 
 def operation_phases(profile, grids):
-    if profile['schema'].endswith(('/2','/4')):
+    if profile['schema'].endswith(('/2','/4','/6')):
         require(set(grids) == {'FINAL'}, 'SCHEDULED_UNCERTAINTY_FINAL_ONLY')
         for scenario in profile['cost_scenarios']:
             yield ('FINAL' if scenario['id'] == 'BASE' else 'FINAL_COST_STRESS'), 'FINAL', scenario
@@ -111,6 +114,9 @@ def preflight(service, config):
             'operation_binding_sha256': sha(canonical(binding(config))), 'policy_execution': 'NOT_RUN',
             'scientific_starts': 0, 'fit_calls': 0, 'predict_calls': 0,
             'expected_native_accounts': account_count(p, grids)}
+    if p['schema'].endswith('/6'):
+        n=sum(len(g['decisions']) for g in grids.values())
+        result['expected_estimator_counts']={'estimator_calls':n+1,'calibration_estimates':1,'rolling_estimates':n,'completed_estimates':n+1}
     if p['schema'].endswith('/4'):
         n=sum(len(g['decisions']) for g in grids.values())
         result['expected_optimizer_counts']={'covariance_estimates':n,'spd_certifications':n,'portfolio_optimizations':n,'support_linear_system_attempts':15*n}
@@ -125,6 +131,9 @@ def authority_for(service, config, profile, grids):
             authority.get('binding_sha256') == sha(canonical(binding(config))) and
             authority.get('allowed_fit_calls') == 0 and authority.get('allowed_predict_calls') == 0 and
             authority.get('allowed_native_accounts') == account_count(profile, grids), 'SCHEDULED_OPERATION_NOT_BOUND')
+    if profile['schema'].endswith('/6'):
+        require(authority.get('allowed_estimator_calls')==1+sum(len(g['decisions']) for g in grids.values()) and
+                authority.get('allowed_optimizer_calls')==0,'SCHEDULED_TEMPORAL_OPERATION_BOUND')
     method = decode(read_ref(authority['method_ref']))
     require(method.get('schema') == 'polar.prospective-method-disposition/1' and method.get('method_verdict') == 'PASS' and
             method.get('protocol', {}).get('sha256') == config['protocol_ref']['sha256'] and
@@ -174,12 +183,15 @@ def run(service, config):
             'config.json': canonical(config), 'authority.json': canonical(authority)})
     completed = 0
     optimizer_counts = optimization_counts([])
+    estimator_counts={'estimator_calls':0,'calibration_estimates':0,'rolling_estimates':0,'completed_estimates':0}
     try:
         market = load_reference(config['input_ref'])
         phases = {}; diagnostics = {}; plans = {}
         for phase, reference_phase, scenario in operation_phases(profile, grids):
             if reference_phase not in plans:
                 plans[reference_phase] = plan_phase(market, profile, grids[reference_phase], tz)
+                if profile['schema'].endswith('/6'):
+                    estimator_counts=plans[reference_phase]['actual_estimator_counts']
                 if profile['schema'].endswith('/4'):
                     optimizer_counts = optimization_counts([s for plan in plans.values() for s in plan['signals']])
             # Stress reuses every frozen signal/weight/time but re-executes its
@@ -204,14 +216,12 @@ def run(service, config):
         manifest = {'schema': 'polar.scheduled-reference-semantic-manifest/1',
                     'files': {n: {'sha256': sha(b), 'bytes': len(b)} for n, b in files.items()}}
         uncertainty = None
-        if profile['schema'].endswith(('/2','/4')):
-            from .scheduled_uncertainty import bootstrap
+        if profile['schema'].endswith(('/2','/4','/6')):
             base = phases['FINAL']['simulation']
-            uncertainty = bootstrap(base, profile['primary_strategy'],
-                                    [x['id'] for x in profile['legs'] if x['id'] != profile['primary_strategy']], seed=profile['uncertainty']['seed'])
+            uncertainty = uncertainty_for(base,profile)
             screens_met = all(c['status'] == 'MET' for phase in phases.values() for c in phase['evaluation']['criteria'])
             uncertainty['point_screens_all_met'] = screens_met
-            uncertainty['robustness'] = robustness(uncertainty, screens_met)
+            uncertainty['robustness'] = 'INSUFFICIENT_EVIDENCE' if profile['schema'].endswith('/6') else robustness(uncertainty, screens_met)
             files['uncertainty.json'] = canonical(uncertainty)
             manifest['files']['uncertainty.json'] = {'sha256':sha(files['uncertainty.json']), 'bytes':len(files['uncertainty.json'])}
         raw = canonical(manifest); sid = SEMANTIC+sha(raw)
@@ -232,12 +242,18 @@ def run(service, config):
                 project_gate_accounting(record, data['plan'], data['simulation'])
             if uncertainty is not None:
                 project_uncertainty(record, uncertainty)
+            if profile['schema'].endswith('/6'):
+                project_estimation(record,estimator_counts)
             if profile['schema'].endswith('/4'):
                 project_optimization(record, optimizer_counts)
             publications[phase] = service.results.publish(record)
         finish = {'status': 'SUCCESS', 'attempt_id': aid, 'semantic_id': sid, 'results': publications,
                   'fit_calls': 0, 'predict_calls': 0, 'model_calls': 0, 'native_accounts': completed,
                   'financial_acceptance': 'NOT_REVIEWED', 'finished_ns': time.time_ns()}
+        if profile['schema'].endswith('/6'):
+            n=sum(len(g['decisions']) for g in grids.values())
+            require(estimator_counts=={'estimator_calls':n+1,'calibration_estimates':1,'rolling_estimates':n,'completed_estimates':n+1},'SCHEDULED_TEMPORAL_COMPLETION_COUNTS')
+            finish['actual_estimator_counts']=estimator_counts
         if profile['schema'].endswith('/4'):
             n=sum(len(g['decisions']) for g in grids.values())
             require(optimizer_counts=={'covariance_estimates':n,'spd_certifications':n,'portfolio_optimizations':n,'support_linear_system_attempts':15*n},'SCHEDULED_GMV_COMPLETION_COUNTS')
@@ -246,6 +262,11 @@ def run(service, config):
         finish = {'status': 'FAILED_UNFINALIZED', 'attempt_id': aid, 'error': str(exc)[:240],
                   'fit_calls': 0, 'predict_calls': 0, 'model_calls': 0, 'completed_native_accounts': completed,
                   'refund': False, 'automatic_retry': False, 'finished_ns': time.time_ns()}
+        if profile['schema'].endswith('/6'):
+            from .scheduled_temporal import TemporalEstimationError
+            if isinstance(exc,TemporalEstimationError):finish['scientific_status']='INVALID'
+            events=getattr(exc,'events',{})
+            finish['actual_estimator_counts']=events.get('actual_counts',estimator_counts) if isinstance(events,dict) else estimator_counts
         if profile['schema'].endswith('/4'):
             events=getattr(exc,'events',{})
             finish['actual_optimizer_counts'] = events.get('actual_counts',optimizer_counts) if isinstance(events,dict) else optimizer_counts
@@ -271,16 +292,19 @@ def recompute(service, semantic_id):
         require(len(body) == pin['bytes'] and sha(body) == pin['sha256'], 'SCHEDULED_MEMBER_HASH')
         files[name] = decode(body)
     profile = profile_value(files['profile.json'])
-    expected_members = MEMBERS | ({'uncertainty.json'} if profile['schema'].endswith(('/2','/4')) else set())
+    expected_members = MEMBERS | ({'uncertainty.json'} if profile['schema'].endswith(('/2','/4','/6')) else set())
     require(set(files) == expected_members, 'SCHEDULED_PROFILE_MEMBER_SET')
     require(files['bindings.json']['code'] == code_binding(), 'SCHEDULED_REPRODUCTION_CODE_BINDING')
-    if profile['schema'].endswith('/4'):
+    if profile['schema'].endswith(('/4','/6')):
         base=files['phases.json']['FINAL']['plan'];stress=files['phases.json']['FINAL_COST_STRESS']['plan']
         require({k:v for k,v in base.items() if k!='cost_profile'}=={k:v for k,v in stress.items() if k!='cost_profile'},'SCHEDULED_GMV_STRESS_SHARED_PLAN')
     expected_diagnostics = {}
     # Only saved output arrays are used; no source, policy feature, model or native call.
     calendar = files['calendar.json']
     for phase, data in files['phases.json'].items():
+        if profile['schema'].endswith('/6'):
+            from .scheduled_temporal_plan import verify_plan
+            verify_plan(data['plan'],profile,calendar['source_schedule_rows'])
         if profile['schema'].endswith('/4'):
             verify_gmv_plan(data['plan'], profile)
         if profile['schema'] == 'polar.scheduled-reference-profile/3':
@@ -291,14 +315,14 @@ def recompute(service, semantic_id):
             subperiods=profile['subperiods'] if data.get('reference_phase', phase) == 'FINAL' and data.get('cost_scenario',{}).get('id','BASE') == 'BASE' else ()) for t in data['simulation']['legs']}
     require(canonical(expected_diagnostics) == canonical(files['diagnostics.json']), 'SCHEDULED_DIAGNOSTIC_RECOMPUTE')
     if 'uncertainty.json' in files:
-        from .scheduled_uncertainty import bootstrap
-        actual = bootstrap(files['phases.json']['FINAL']['simulation'], profile['primary_strategy'],
-                           [x['id'] for x in profile['legs'] if x['id'] != profile['primary_strategy']], seed=profile['uncertainty']['seed'])
+        actual = uncertainty_for(files['phases.json']['FINAL']['simulation'],profile)
         met = all(c['status'] == 'MET' for phase in files['phases.json'].values() for c in phase['evaluation']['criteria'])
-        actual['point_screens_all_met'] = met; actual['robustness'] = robustness(actual, met)
+        actual['point_screens_all_met'] = met; actual['robustness'] = 'INSUFFICIENT_EVIDENCE' if profile['schema'].endswith('/6') else robustness(actual, met)
         require(canonical(actual) == canonical(files['uncertainty.json']), 'SCHEDULED_UNCERTAINTY_RECOMPUTE')
     result={'status': 'REPRODUCED', 'semantic_id': semantic_id, 'fit_calls': 0, 'model_calls': 0,
             'predict_calls': 0, 'native_calls': 0, 'store_writes': 0}
+    if profile['schema'].endswith('/6'):
+        result['actual_estimator_counts']={'estimator_calls':0,'calibration_estimates':0,'rolling_estimates':0,'completed_estimates':0}
     if profile['schema'].endswith('/4'):
         result['actual_optimizer_counts']=optimization_counts([])
     return result
@@ -454,8 +478,34 @@ def project_optimization(record, counts):
                'Shared forecast risk uses the same fixed50percent diagonal-shrunk covariance for strategy and both new controls; no future-risk guarantee.'})
 
 
-def diagnose_phase(tape, schedule, profile, plan, *, subperiods=()):
+def uncertainty_for(simulation,profile):
+    from .scheduled_uncertainty import bootstrap
+    temporal=profile['schema'].endswith('/6')
+    wanted={x['id'] for x in profile['legs'] if not temporal or x['rule']!='CASH'}
+    base={'legs':[l for l in simulation['legs'] if l['id'] in wanted]}
+    return bootstrap(base,profile['primary_strategy'],[x['id'] for x in profile['legs']
+        if x['id'] in wanted and x['id']!=profile['primary_strategy']],seed=profile['uncertainty']['seed'],
+        recipe='TEMPORAL_DESCRIPTIVE' if temporal else 'LEGACY')
+
+
+def diagnose_phase(tape,schedule,profile,plan,*,subperiods=()):
     if profile['schema'].endswith('/5'):
         from .scheduled_fixed import diagnose_fixed
-        return diagnose_fixed(tape, schedule, plan['prices'], subperiods=subperiods)
-    return diagnose(tape, schedule, subperiods=subperiods)
+        return diagnose_fixed(tape,schedule,plan['prices'],subperiods=subperiods)
+    result=diagnose(tape,schedule,subperiods=subperiods)
+    if profile['schema'].endswith('/6'):
+        from .scheduled_diagnostics import _nav,_drawdown
+        nav,reason=_nav(tape)
+        if not reason:
+            result['schema']='polar.temporal-saved-diagnostics/1'
+            result['drawdown']=_drawdown(nav,latest_equal_peak=True)
+            for segment in result['subperiods']:
+                if segment['status']=='OK':
+                    selected=[r for r in nav if segment['initial_date']<=r['date']<=segment['last_return_date']]
+                    segment['drawdown']=_drawdown(selected,latest_equal_peak=True)
+    return result
+
+
+def project_estimation(record,counts):
+    record['limitations'].append({'code':'ORIGINAL_VOLATILITY_ESTIMATION_COUNTS','scope':'EXPERIMENT',
+        'text':f"Original estimator calls {counts['estimator_calls']}: one preperiod calibration {counts['calibration_estimates']}, causal rolling estimates {counts['rolling_estimates']}, completed {counts['completed_estimates']}. One saved weight sequence shared by both cost accounts. Zero ML fits/predictions/optimizations; computational completeness is not financial or robustness acceptance."})
