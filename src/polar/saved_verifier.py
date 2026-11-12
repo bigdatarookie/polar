@@ -25,6 +25,7 @@ PROFILE = "scheduled-reference-flat100-bps10/1"
 MAX_MEMBER = 32 * 1024**2  # Existing saved-semantic producer member envelope.
 MEMBERS = {"profile.json", "calendar.json", "phases.json", "diagnostics.json", "bindings.json"}
 HASH = re.compile(r"[a-f0-9]{64}")
+WIRE_DECIMAL = re.compile(r"-?(?:0|[1-9][0-9]{0,255})(?:\.[0-9]{1,4096})?")
 ALIASES = {"net_total_return": "adjusted_reference_return_after_costs",
            "net_cagr_act36525": "adjusted_reference_cagr_after_costs"}
 
@@ -118,6 +119,27 @@ class Checks:
 def record(value):
     return {"value": decimal_token(value), "status": "OK" if value is not None else "UNAVAILABLE",
             "reason": None if value is not None else "ZERO_VARIANCE"}
+
+
+def public_money_matches(token, cents):
+    """Match the public decimal-token domain to integer cents, with no rounding.
+
+    Public USD fields permit fixed-cent text and equivalent decimal zeroes.
+    Representation is not arithmetic: reject floats, exponents and nonfinite
+    values rather than coercing them, and never apply a comparison tolerance.
+    """
+    if type(token) is not str or WIRE_DECIMAL.fullmatch(token) is None:
+        return False
+    try:
+        return Fraction(token) == Fraction(cents, 100)
+    except ValueError:
+        return False
+
+
+def public_money_record_matches(actual, cents):
+    return (type(actual) is dict and set(actual) == {"value", "status", "reason"} and
+            actual["status"] == "OK" and actual["reason"] is None and
+            public_money_matches(actual["value"], cents))
 
 
 def integer(value, minimum=0):
@@ -314,12 +336,15 @@ def verify_phase(name, saved, public, profile, calendar, checks, initial_cents):
             checks.check("clocks", row["date"] == day and row["nominal_ns"] == close(day) and
                          row["sample_ns"] == close(day) + 1000, address + f".nav[{index}].clock")
             checks.check("public_correspondence", utc_ns(public["grid"][index]) == row["nominal_ns"] and
-                         public_leg["values"][index] == record(Fraction(row["nav_cents"], 100)), address + f".public.nav[{index}]")
+                         public_money_record_matches(public_leg["values"][index], row["nav_cents"]),
+                         address + f".public.nav[{index}]")
             ledger = public_leg["ledger"][index]
-            checks.check("public_correspondence", all(ledger.get(k) == decimal_token(Fraction(row[v], 100))
-                         for k, v in [("cash", "cash_cents"), ("exposure", "exposure_cents"),
-                                      ("cumulative_flat_fees", "flat_cents"), ("cumulative_bps_fees", "bps_cents")]) and
-                         ledger["positions"] == row["positions"], address + f".public.ledger[{index}]")
+            for key, saved_key in [("cash", "cash_cents"), ("exposure", "exposure_cents"),
+                                   ("cumulative_flat_fees", "flat_cents"), ("cumulative_bps_fees", "bps_cents")]:
+                checks.check("public_correspondence", public_money_matches(ledger.get(key), row[saved_key]),
+                             address + f".public.ledger[{index}]." + key)
+            checks.check("public_correspondence", ledger["positions"] == row["positions"],
+                         address + f".public.ledger[{index}].positions")
         checks.check("orders", order_index == len(orders), address + ".all_orders_accounted")
         checks.check("terminal_liquidation", not any(held.values()) and not any(nav[-1]["positions"].values()) and
                      nav[-1]["exposure_cents"] == 0 and nav[-1]["nav_cents"] == nav[-1]["cash_cents"], address + ".terminal")
@@ -451,7 +476,7 @@ def verify(packet, packet_sha256=None):
         ("financial_adoption", "SEPARATE_VALIDATOR_INTERPRETATION_REQUIRED")]]
     source_hashes = {p.name: digest(p.read_bytes()) for p in [Path(__file__), Path(__file__).with_name("saved_verifier_math.py")]}
     return {"schema": "polar.saved-verifier-report/1", "profile": packet.get("profile"), "subject": subject,
-            "packet_sha256": packet_sha256 or digest(raw), "checker": {"version": "1.1", "source_sha256": source_hashes},
+            "packet_sha256": packet_sha256 or digest(raw), "checker": {"version": "1.2", "source_sha256": source_hashes},
             "covered_verdict": verdict, "overall_verdict": "FAIL" if verdict == "FAIL" else "UNKNOWN",
             "checks": checks.groups, "unverified_properties": unverified,
             "summary": dict(Counter(v["status"] for v in checks.groups.values())),

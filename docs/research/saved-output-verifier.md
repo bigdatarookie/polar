@@ -134,3 +134,13 @@ qualified-checker-ready, actual start/finish, report-ready and independent
 conclusion separately; retain pre-readiness wait. Cumulative token coverage and
 time saved remain UNKNOWN unless reliably observed, with no old scientific run
 repeated for benchmarking.
+
+
+Public USD NAV and ledger amounts use the existing public decimal-token domain.
+Checker 1.2 compares those amounts to saved integer cents as exact rationals;
+`100000.00` and `100000` are equal. No rounding, float coercion, or tolerance is
+applied. Status/reason and value-record fields remain exact; exponent/nonfinite,
+whitespace, numeric JSON values and changed cent/subcent amounts fail. Metric
+and return serialization checks retain their existing canonical representation.
+This corrects a verifier representation defect found by the unchanged A2
+consumer; it does not modify any saved subject or its financial assessment.
