@@ -172,3 +172,77 @@ test('minimal accepted INVALID report keeps unavailable portfolio and actual dia
   ctx.document.querySelectorAll=()=>[];vm.runInContext("state.infoId='run-1'",ctx);ctx.renderRecord();
   assert(env.node('#record-detail').textContent.includes('financial verdict INVALID'));assert(!env.node('#record-detail').textContent.includes('financial evaluation NOT_RUN'));
 });
+
+test('deferred DOM restoration never undoes a newer user list or workspace scroll',()=>{
+ const {context:ctx,node}=appContext(async()=>{throw Error('no request');});let frame;ctx.requestAnimationFrame=fn=>{frame=fn;return 1;};
+ node('#strategy-list').scrollTop=12;node('#workspace').scrollTop=0;
+ vm.runInContext("keepScroll(()=>{document.querySelector('#strategy-list').scrollTop=0;})",ctx);assert.equal(node('#strategy-list').scrollTop,12);
+ node('#strategy-list').scrollTop=144;node('#workspace').scrollTop=63;frame();assert.equal(node('#strategy-list').scrollTop,144);assert.equal(node('#workspace').scrollTop,63);
+ vm.runInContext("keepScroll(()=>{document.querySelector('#strategy-list').scrollTop=0;})",ctx);frame();assert.equal(node('#strategy-list').scrollTop,144);
+});
+test('named price references remain independent, preserve saved benchmark, and share only transport demand',()=>{
+ const {context:ctx,stored}=appContext(async()=>{throw Error('no request');});let refreshes=0;ctx.refreshHistoryOverlays=()=>refreshes++;
+ vm.runInContext("comparisonBenchmark=false;toggleHistoryReference('asset',true)",ctx);assert.equal(refreshes,1);assert.deepEqual(Array.from(vm.runInContext('[referenceSelection.asset,referenceSelection.benchmark,state.benchmark,comparisonBenchmark]',ctx)),[true,false,true,false]);
+ const saved=JSON.parse(stored.get('polar-retained-workspace-v1'));assert.deepEqual(saved.history_reference_selection,{asset:true,benchmark:false});assert.equal(saved.research_benchmark,false);
+ vm.runInContext("toggleHistoryReference('benchmark',true);toggleHistoryReference('asset',false)",ctx);assert.equal(refreshes,1);assert.deepEqual(Array.from(vm.runInContext('[referenceSelection.asset,referenceSelection.benchmark,state.benchmark]',ctx)),[false,true,true]);
+ vm.runInContext("toggleHistoryReference('benchmark',false)",ctx);assert.equal(refreshes,2);assert.equal(vm.runInContext('state.benchmark',ctx),false);
+});
+
+test('retained-test return restores pinned real dates and never treats synthetic timestamps as history dates',()=>{
+ const {context:ctx}=appContext(async()=>{throw Error('no request');});ctx.renderRail=()=>{};ctx.loadSelection=()=>{};ctx.loadHistorySelection=request=>{ctx.returnRequest=request;};
+ vm.runInContext("state.dataMode='real';state.rangeId='Custom';state.lo=0;state.hi=1;dataset={kind:'history'};historyContext={revision:{dataset_id:'pinned-data',dataset_revision:'pinned-revision'},instrument:{instrument_id:'actual-instrument'}};view.bars=[{time:'2026-08-06'},{time:'2026-09-07'}];setDataMode('retained-test');view.bars=[{time:'2024-01-02T21:00:00Z'},{time:'2024-01-03T21:00:00Z'}];setDataMode('real')",ctx);
+ assert.deepEqual(JSON.parse(JSON.stringify(ctx.returnRequest)),{datasetId:'pinned-data',revision:'pinned-revision',instrumentId:'actual-instrument',rangeId:'Custom',window:{start:'2026-08-06',end_exclusive:'2026-09-08'}});
+ const result=vm.runInContext("historyWindow({instrument:{first_date:'2020-01-01',last_date:'2026-11-06'}},'Custom',{first:'2024-01-02T21:00:00Z',last:'2024-01-03T21:00:00Z'},null)",ctx);assert.match(result.start,/^\d{4}-\d{2}-\d{2}$/);assert(result.start>='2020-01-01'&&result.start<result.end_exclusive);assert.equal(result.end_exclusive,'2026-11-07');
+});
+
+test('indicator status rendering never parses retained test timestamps as history session dates',()=>{
+ const {context:ctx,node}=appContext(async()=>{throw Error('no request');});
+ vm.runInContext("state.dataMode='retained-test';dataset={dataset_id:'synthetic'};state.lo=0;state.hi=1;view.bars=[{time:'2024-01-02T21:00:00Z'},{time:'2024-01-03T21:00:00Z'}];renderSeriesState()",ctx);assert.equal(node('#series-state').hidden,true);assert.equal(vm.runInContext('visibleHistoryWindow()',ctx),null);
+ vm.runInContext("dataset={kind:'history'}",ctx);assert.equal(vm.runInContext('visibleHistoryWindow()',ctx),null);
+});
+
+test('custom retained bounds use each supplied bar and recover from nonoverlapping real dates',()=>{
+ const {context:ctx}=appContext(async()=>{throw Error('no request');});ctx.supplied={bars:[{time:'2024-01-02T21:00:00Z',endTime:'2024-01-02T21:00:00Z'},{time:'2024-01-03T21:00:00Z',endTime:'2024-01-03T21:00:00Z'},{time:'2024-01-04T21:00:00Z',endTime:'2024-01-04T21:00:00Z'}]};
+ const included=vm.runInContext("boundsForSelection(supplied,{rangeId:'Custom'},{first:'2024-01-03',last:'2024-01-04T23:00:00Z'})",ctx);assert.equal(included.lo,1);assert.equal(included.hi,2);
+ const outside=vm.runInContext("boundsForSelection(supplied,{rangeId:'Custom'},{first:'2026-08-03',last:'2026-11-04'})",ctx);assert.equal(outside.lo,0);assert.equal(outside.hi,2);assert.equal(outside.rangeId,'All');
+});
+
+test('real history commits atomically over a retained ISO viewport without constructing a synthetic session window',async()=>{
+ const {context:ctx}=appContext(async()=>{throw Error('no request');});ctx.nextHistory={revision:{dataset_id:'real-data',dataset_revision:'real-revision'},instrument:{instrument_id:'real-id',display_symbol:'REAL',first_date:'2026-01-02',last_date:'2026-01-03'},assets:[{instrument_id:'real-id',display_symbol:'REAL'}],rows:[],bars:{},loadedWindow:{start:'2026-01-02',end_exclusive:'2026-01-04'}};ctx.buildHistoryView=()=>({bars:[{time:'2026-01-02',endTime:'2026-01-02',price_status:'OBSERVED',close:'10'},{time:'2026-01-03',endTime:'2026-01-03',price_status:'OBSERVED',close:'11'}],equity:[],markers:[],sma:[],cPoints:[]});
+ vm.runInContext("historyClient.load=async()=>nextHistory;state.dataMode='retained-test';state.rangeId='Custom';state.lo=0;state.hi=1;for(const key of ['sma','ema','rsi','bollinger','benchmark'])state[key]=false;dataset={dataset_id:'synthetic',instrument:{instrument_id:'synthetic',ticker_history:[{ticker:'SYN'}]}};view.bars=[{time:'2024-01-02T21:00:00Z',endTime:'2024-01-02T21:00:00Z'},{time:'2024-01-03T21:00:00Z',endTime:'2024-01-03T21:00:00Z'}]",ctx);
+ await vm.runInContext("loadHistorySelection({datasetId:'real-data',revision:'real-revision',instrumentId:'real-id',rangeId:'Custom',window:{start:'2026-01-02',end_exclusive:'2026-01-04'}})",ctx);assert.equal(vm.runInContext('loadError',ctx),null);assert.equal(vm.runInContext('dataset.kind',ctx),'history');assert.equal(vm.runInContext('visibleHistoryWindow().start',ctx),'2026-01-02');
+});
+
+test('order menu sorts exact nanoseconds newest first, filters supplied identity and preserves source order',()=>{
+ const {context:ctx}=appContext(async()=>{throw Error('no request');});
+ vm.runInContext("executions.allItems=[{order_id:'older',timestamp_ns:'9007199254740993001',symbol:'TEST',session_date:'2024-01-01'},{order_id:'newer',timestamp_ns:'9007199254740993002',symbol:'TEST',session_date:'2024-01-02'}]",ctx);
+ assert.deepEqual(Array.from(vm.runInContext('executionMenuItems().map(e=>e.order_id)',ctx)),['newer','older']);
+ assert.equal(vm.runInContext('executions.allItems[0].order_id',ctx),'older');vm.runInContext("executionQuery='older'",ctx);assert.equal(vm.runInContext('executionMenuItems()[0].order_id',ctx),'older');
+});
+test('marker zoom size is monotonic and selected size is retained until exact trade clear',()=>{
+ const {context:ctx}=appContext(async()=>{throw Error('no request');});
+ assert(vm.runInContext('executionMarkerBaseSize(900,15)>executionMarkerBaseSize(900,180)',ctx));
+ vm.runInContext("selectedExecutionId='exact-a';executions.resultId='result';executions.page={content_sha256:'content',series_id:'strategy'};executionMarkerSizes(22)",ctx);
+ assert.equal(vm.runInContext('executionMarkerSizes(9).selected',ctx),22);vm.runInContext("selectedExecutionId=null;executionMarkerSizes(9)",ctx);assert.equal(vm.runInContext('executionMarkerSizes(9).selected',ctx),9);
+ assert.equal(vm.runInContext('markerSizingCommit=true;markerUpdateDuration()',ctx),100);ctx.matchMedia=()=>({matches:true});assert.equal(vm.runInContext('markerUpdateDuration()',ctx),0);
+});
+test('only exact overlap choices are selection clicks, chooser dismissal is elsewhere',()=>{
+ const {context:ctx}=appContext(async()=>{throw Error('no request');});
+ const target=kind=>({closest:selector=>selector.split(',').includes(kind)?{}:null});
+ assert.equal(ctx.isTradeSelectionTarget(target('[data-execution-choice]')),true);
+ assert.equal(ctx.isTradeSelectionTarget(target('.saved-order')),true);
+ assert.equal(ctx.isTradeSelectionTarget(target('.execution-choices')),false);
+ assert.equal(ctx.isTradeSelectionTarget(target('.close-choices')),false);
+});
+test('marker sizing never resets a native slider drag and resumes on release',()=>{
+ const {context:ctx}=appContext(async()=>{throw Error('no request');});let queued=0;ctx.requestAnimationFrame=()=>++queued;
+ vm.runInContext('executionPointerHeld=true;scheduleExecutionMarkerSizing()',ctx);assert.equal(queued,0);
+ vm.runInContext('executionPointerHeld=false;scheduleExecutionMarkerSizing()',ctx);assert.equal(queued,1);
+});
+test('outside clear removes only trade state and same-result navigation cannot resurrect it',async()=>{
+ const {context:ctx}=appContext(async()=>{throw Error('no request');}),query=ctx.document.querySelector;
+ ctx.document.querySelector=selector=>selector==='.execution-choices'?null:query(selector);ctx.updateExecutionMarkers=()=>{};
+ vm.runInContext("selectedExecutionId='exact-order';executionChoices=[{order_id:'exact-order'}];executions.offset=100;executionQuery='TEST';state.measurement={source:'assetClose',a:1,b:3};state.lo=1;state.hi=3;state.rangeId='Custom';state.assetId='asset';state.mode='Orders';mainResearchSelection='same-result';mainResearch.page={details:[{result_id:'same-result'}]};beforeClear=JSON.stringify(state);clearTradeSelection()",ctx);
+ assert.equal(vm.runInContext('JSON.stringify(state)===beforeClear',ctx),true);assert.equal(vm.runInContext('selectedExecutionId',ctx),null);assert.equal(vm.runInContext('executionChoices',ctx),null);assert.equal(vm.runInContext('executions.offset',ctx),100);assert.equal(vm.runInContext('executionQuery',ctx),'TEST');
+ await ctx.selectMainResearch('same-result',true,true);assert.equal(vm.runInContext('selectedExecutionId',ctx),null);assert.equal(vm.runInContext('JSON.stringify(state)===beforeClear',ctx),true);
+});
