@@ -11,9 +11,9 @@ DATES=('2020-01-02','2020-01-03','2020-01-06','2020-01-07','2020-01-08')
 
 
 def action(**kw):
-    return Action(**dict(event_id='INVENTED-D1', instrument='INVENTED', source_ref='invented-source',
+    return replace(Action(event_id='INVENTED-D1', instrument='INVENTED', source_ref='invented-source',
                         raw_pointer='/invented/actions/0', ex_date=DATES[0], payment_date=DATES[1],
-                        amount_token='0.125', reference_dates=DATES, **kw)) if not kw else replace(action(), **kw)
+                        amount_token='0.125', reference_dates=DATES), **kw)
 
 
 def state(q=10, cash=0):
@@ -73,6 +73,11 @@ def test_integer_split_conserves_raw_value_and_existing_claim():
     with pytest.raises(ClaimError, match='FRACTIONAL'): split(state(1),'INVENTED',1,2,DATES[0],same_day_ex=False)
     with pytest.raises(ClaimError, match='AMBIGUOUS'): split(state(),'INVENTED',2,1,DATES[0],same_day_ex=True)
     with pytest.raises(ClaimError, match='AMBIGUOUS'): split(due,'INVENTED',2,1,DATES[0],same_day_ex=False)
+    first=split(state(),'INVENTED',2,1,DATES[0],same_day_ex=False)
+    with pytest.raises(ClaimError, match='AMBIGUOUS'): recognize(first,action(),DATES[0])
+    with pytest.raises(ClaimError, match='DUPLICATE_SPLIT'): split(first,'INVENTED',2,1,DATES[0],same_day_ex=False)
+    saved=record(changed);saved['splits'][0]['quantity_after']=21
+    with pytest.raises(ClaimError,match='SPLIT_EVIDENCE'):restore(saved)
 
 
 @pytest.mark.parametrize('kw',[{'currency':'EUR'},{'basis':'ADJUSTED'}, {'payment_date':'2019-12-31'},

@@ -113,12 +113,29 @@ class Claim:
 
 
 @dataclass(frozen=True)
+class Split:
+    instrument: str
+    session_date: str
+    numerator: int
+    denominator: int
+    quantity_before: int
+    quantity_after: int
+
+    def __post_init__(self):
+        token(self.instrument); day(self.session_date)
+        for v in (self.numerator, self.denominator, self.quantity_before, self.quantity_after): integer(v, 10**24)
+        require(self.numerator > 0 and self.denominator > 0 and
+                self.quantity_before*self.numerator == self.quantity_after*self.denominator, 'CLAIM_SPLIT_EVIDENCE')
+
+
+@dataclass(frozen=True)
 class State:
     session_date: str
     phase: Phase
     available_cash_cents: int
     holdings: tuple[tuple[str, int], ...]
     claims: tuple[Claim, ...] = ()
+    splits: tuple[Split, ...] = ()
 
     def __post_init__(self):
         day(self.session_date); integer(self.available_cash_cents)
@@ -135,6 +152,13 @@ class State:
             require(c.action.instrument in dict(self.holdings) and c.action.ex_date <= self.session_date and
                     (c.paid_at is None or c.paid_at <= self.session_date), 'CLAIM_STATE_CLOCK_IDENTITY')
         require(len({c.action.event_id for c in self.claims}) == len(self.claims), 'CLAIM_DUPLICATE_EVENT')
+        require(type(self.splits) is tuple and len(self.splits) <= 10000, 'CLAIM_SPLIT_HISTORY')
+        for s in self.splits:
+            require(type(s) is Split, 'CLAIM_SPLIT_HISTORY'); s.__post_init__()
+            require(s.instrument in dict(self.holdings) and s.session_date <= self.session_date, 'CLAIM_SPLIT_HISTORY')
+            require(not any(c.action.instrument == s.instrument and c.action.ex_date == s.session_date for c in self.claims),
+                    'CLAIM_SPLIT_EX_AMBIGUOUS')
+        require(len({(s.instrument, s.session_date) for s in self.splits}) == len(self.splits), 'CLAIM_DUPLICATE_SPLIT')
 
 
 def clock(state, session_date, phase):
@@ -148,6 +172,8 @@ def recognize(state, action, session_date, phase=Phase.PRE_SESSION):
     require(phase == Phase.PRE_SESSION and session_date == action.ex_date, 'CLAIM_ENTITLEMENT_PHASE')
     require(action.event_id not in {c.action.event_id for c in state.claims}, 'CLAIM_DUPLICATE_EVENT')
     require(action.instrument in dict(state.holdings), 'CLAIM_INSTRUMENT')
+    require(not any(s.instrument == action.instrument and s.session_date == session_date for s in state.splits),
+            'CLAIM_SPLIT_EX_AMBIGUOUS')
     quantity = dict(state.holdings)[action.instrument]
     exact = quantity * nominal(action.amount_token) * 100
     cents = half_even(exact); residue = exact - cents
@@ -189,10 +215,13 @@ def split(state, instrument, numerator, denominator, session_date, *, same_day_e
             not any(c.action.instrument == instrument and c.action.ex_date == session_date for c in state.claims),
             'CLAIM_SPLIT_EX_AMBIGUOUS')
     require(instrument in dict(state.holdings), 'CLAIM_INSTRUMENT')
+    require(not any(s.instrument == instrument and s.session_date == session_date for s in state.splits), 'CLAIM_DUPLICATE_SPLIT')
     q = Fraction(dict(state.holdings)[instrument]*numerator, denominator)
     require(q.denominator == 1, 'CLAIM_FRACTIONAL_SPLIT_UNSUPPORTED')
     holdings = tuple((s, q.numerator if s == instrument else n) for s, n in state.holdings)
-    return replace(state, session_date=session_date, phase=Phase.PRE_SESSION, holdings=holdings)
+    evidence = Split(instrument, session_date, numerator, denominator, dict(state.holdings)[instrument], q.numerator)
+    return replace(state, session_date=session_date, phase=Phase.PRE_SESSION, holdings=holdings,
+                   splits=state.splits+(evidence,))
 
 
 def valuation(state, position_marks_cents, *, terminal=False):
@@ -219,16 +248,18 @@ def record(state):
 
 
 def restore(value):
-    require(type(value) is dict and set(value) == {'schema','session_date','phase','available_cash_cents','holdings','claims'}
+    require(type(value) is dict and set(value) == {'schema','session_date','phase','available_cash_cents','holdings','claims','splits'}
             and value['schema'] == 'polar.distribution-claim-state/1', 'CLAIM_RECORD_SCHEMA')
     try:
+        require(type(value['claims']) in (list, tuple) and len(value['claims']) <= 10000 and
+                type(value['splits']) in (list, tuple) and len(value['splits']) <= 10000, 'CLAIM_RECORD_SIZE')
         claims=[]
         for c in value['claims']:
             a = dict(c['action']); a['reference_dates'] = tuple(a['reference_dates'])
             claims.append(Claim(Action(**a), c['entitled_quantity'], c['cents'], tuple(c['residue']), c['paid_at']))
             require(set(c) == {'action','entitled_quantity','cents','residue','paid_at'}, 'CLAIM_RECORD_FIELDS')
         return State(value['session_date'], Phase[value['phase']], value['available_cash_cents'],
-                     tuple(tuple(x) for x in value['holdings']), tuple(claims))
+                     tuple(tuple(x) for x in value['holdings']), tuple(claims), tuple(Split(**s) for s in value['splits']))
     except (TypeError, KeyError, AttributeError):
         raise ClaimError('CLAIM_RECORD_FIELDS') from None
 

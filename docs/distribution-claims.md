@@ -38,7 +38,9 @@ before decisions; a standalone state does not prove omitted actions absent.
 apply reciprocal raw quote scaling and explicitly declare same-day ex presence.
 An already recognized same-day ex claim or `same_day_ex=True` rejects because
 contemporaneous-share basis/order is not qualified here. Fractional/CIL results
-reject without flooring. Prior fixed nominal claims never multiply. This is not
+reject without flooring. Immutable split history also rejects a later same-day
+ex recognition and repeated split application, whichever operation came first.
+Prior fixed nominal claims never multiply. This is not
 a split-coverage claim, adjusted-to-raw inversion or qualified native position
 mutation.
 
@@ -61,7 +63,7 @@ claims to10000, encoded transition evidence to16MiB, quantities to10^24, and
 cent amounts to10^60 for finite exact-arithmetic inputs. These are component
 input safety bounds, not scientific/test/CPU-share budgets.
 
-Public entry points: frozen `Action`, `Claim`, `State`, `Evidence`; `Phase`;
+Public entry points: frozen `Action`, `Claim`, `Split`, `State`, `Evidence`; `Phase`;
 `recognize`, `pay`, `settled_snapshot`, `split`, `valuation`, `record`, `restore`,
 `transition`, `verify`. Instantiate `Action` with invented/bound metadata;
 serialize it with `dataclasses.asdict` when passing transition inputs. Evidence
