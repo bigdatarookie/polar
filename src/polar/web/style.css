@@ -181,3 +181,6 @@
  .plot-toolbar label{font-size:9px}.plot-toolbar #asset-search,.plot-toolbar select,.plot-toolbar #volume-toggle{height:32px;font-size:10px;padding:4px}.volume-control #volume-toggle{min-height:32px}
  .strategy-section .list-heading{padding:6px 10px}.strategy-section .list-heading h2{font-size:12px}
 }
+
+.chart-card>.data-diagnostics{order:3}
+#selection-state[data-mode=retained-test] #selection-context{position:static;width:auto;height:auto;clip-path:none;white-space:normal}
