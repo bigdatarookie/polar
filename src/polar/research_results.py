@@ -281,6 +281,17 @@ class ResearchResults(HistoryStore):
         if not isinstance(result_id, str) or not re.fullmatch(r"research-[a-f0-9]{64}", result_id):
             raise ResearchError("RESEARCH_INVALID_ID", 422)
         safe_root(self.root)
+        # read_file deliberately merges OS errors into an integrity error. Only
+        # absent namespace/subject directories mean a subject not delivered yet;
+        # an existing malformed directory or missing payload is still corruption.
+        import stat
+        for directory in (self.root/"research-results", self.root/"research-results"/result_id):
+            try:
+                mode = directory.lstat().st_mode
+            except FileNotFoundError:
+                raise ResearchError("RESEARCH_NOT_FOUND", 404) from None
+            if not stat.S_ISDIR(mode):
+                raise ResearchError("RESEARCH_UNSAFE_DIRECTORY")
         try:
             raw = read_file(self.root, "research-results/" + result_id + "/result.json", MAX_RESULT)
         except FileNotFoundError:
