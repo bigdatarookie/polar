@@ -115,12 +115,17 @@ def observe(response):
         value=json.loads(body,parse_float=Number,parse_int=Number,parse_constant=lambda x:(_ for _ in ()).throw(ValueError()),object_pairs_hook=pairs)
         require(type(value) is dict and type(value.get('quotes')) is list and len(value['quotes'])<=10,'QUOTE_RESPONSE_SCHEMA')
         cursor=value.get('next_page_token');require(cursor is None or type(cursor) is str,'QUOTE_CURSOR_SCHEMA')
+        nodes=0
         def typed(v):
+            nonlocal nodes
+            nodes+=1;require(nodes<=4096,'QUOTE_SCHEMA_OBSERVATION_BOUND')
             if isinstance(v,Number):return {'type':'number','lexical_token':str(v)}
             if v is None:return {'type':'null','value':None}
             if type(v) is bool:return {'type':'boolean','value':v}
             if type(v) is str:return {'type':'string','value':v}
-            if type(v) is list:return {'type':'array','items':[typed(x) for x in v]}
+            if type(v) is list:
+                require(len(v)<=64,'QUOTE_SCHEMA_ARRAY_BOUND')
+                return {'type':'array','items':[typed(x) for x in v]}
             require(type(v) is dict and len(v)<=64,'QUOTE_ROW_FIELD_BOUND')
             return {'type':'object','fields':{k:typed(x) for k,x in v.items()}}
         quotes=[typed(row) for row in value['quotes']]

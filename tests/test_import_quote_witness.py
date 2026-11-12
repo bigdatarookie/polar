@@ -110,3 +110,10 @@ def test_http_child_one_get_fixed_path_no_redirect_or_pagination(monkeypatch):
     assert response['status']==403 and 'location' not in response['headers']
     assert len(calls)==2 and calls[-1]=='CLOSED'
     assert calls[0][0][0]=='GET' and calls[0][0][1].startswith('/v2/stocks/AAA/quotes?') and 'page_token' not in calls[0][0][1]
+
+
+def test_complex_schema_fails_observation_without_losing_raw(tmp_path):
+    store,cfg,_=fixture(tmp_path);body=canonical({'quotes':[{'c':['R']*65}],'next_page_token':None})
+    reply=execute(cfg,store,Mock(body));saved=json.loads(Path(reply['result_path']).read_bytes())
+    assert saved['status']=='SCHEMA_UNEXPECTED_NO_RETRY' and saved['observation']['schema_observation']=='UNAVAILABLE'
+    assert (store.root/saved['raw_body_path']).read_bytes()==body
