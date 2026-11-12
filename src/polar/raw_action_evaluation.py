@@ -62,11 +62,11 @@ def diagnose(tape, schedule, *, base):
                     'initial_state':{k:subset[0][k] for k in ('cash_cents','receivable_cents','positions','position_cents')},
                     'terminal_state':{k:subset[-1][k] for k in ('cash_cents','receivable_cents','positions','position_cents')},
                     'metrics':_statistics(subset),'costs':_costs(tape,subset[0],subset[-1]),
-                    'exposure':exposure(subset),'drawdown':_fixed_drawdown({'nav':subset}),
+                    'exposure':exposure(subset),'drawdown':_fixed_drawdown(subset),
                     'scope':'CARRIED_NAV_ANCHORS_NO_RESET_NO_DOUBLE_COUNT_NO_EXTRA_LIQUIDATION'})
     return {'schema':'polar.raw-action-saved-diagnostics/1','daily_tail':_daily_tail(nav),
         'rolling_extrema':horizons,'calendar_months':_calendar_months(nav,schedule),
-        'drawdown':_fixed_drawdown(tape),'exposure':exposure(nav),'subperiods':eras,
+        'drawdown':_fixed_drawdown(nav),'exposure':exposure(nav),'subperiods':eras,
         'subperiod_status':'BASE_CARRIED_2020_ANCHOR' if base else 'NOT_REQUESTED',
         'uncertainty':'NOT_REQUESTED','robustness':'INSUFFICIENT_EVIDENCE'}
 

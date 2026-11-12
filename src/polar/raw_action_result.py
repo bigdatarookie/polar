@@ -48,7 +48,7 @@ class Basis(Closed):
 
 
 class PrivateResult(Closed):
-    schema: Literal['polar.private-raw-action-result/1']
+    schema_version: Literal['polar.private-raw-action-result/1'] = Field(alias='schema')
     phase: Literal['BASE','STRESS']
     bindings: dict
     basis: Basis
@@ -77,4 +77,4 @@ class PrivateResult(Closed):
 
 
 def validate(value):
-    return PrivateResult.model_validate(value).model_dump(mode='json')
+    return PrivateResult.model_validate(value).model_dump(mode='json',by_alias=True)
