@@ -6,6 +6,7 @@ their respective jobs. This module neither fetches data nor pays yield to cash.
 from bisect import bisect_right
 from datetime import date, datetime, timedelta, timezone
 from fractions import Fraction
+import re
 
 from .ci_research import require
 from .gym_contract import canonical, sha, fraction
@@ -97,6 +98,11 @@ def metadata(pin, namespace):
     if namespace == 'INVENTED':
         require(d['provenance'] == {'kind':'DETERMINISTIC_INVENTED_FIXTURE','source_payloads':'NONE'},
                 'CURVE_INVENTED_PROVENANCE')
+    for key in ('reference_input_ref','macro_records_ref','macro_index_ref','source_date_join_ref','purpose_ref','source_delivery_ref'):
+        ref=d[key]
+        require(type(ref) is dict and set(ref)=={'path','sha256','bytes'} and type(ref['path']) is str and ref['path'].startswith('/') and
+                type(ref['sha256']) is str and re.fullmatch('[a-f0-9]{64}',ref['sha256']) and
+                type(ref['bytes']) is int and 0<ref['bytes']<=256*1024**2,'CURVE_REFERENCE_FIELDS')
     # Source-purpose/review custody pins these metadata objects; do not follow
     # arbitrary nested raw/source/value references found inside them.
     for key in ('purpose_ref','source_delivery_ref'):
@@ -120,6 +126,8 @@ def context(value, expected_sha):
     require(sha(value['descriptor_raw'].encode()) == expected_sha and d['schema'] == INPUT and
             sha(value['index_raw'].encode()) == d['macro_index_ref']['sha256'] and
             sha(value['joins_raw'].encode()) == d['source_date_join_ref']['sha256'], 'CURVE_SAVED_METADATA_BINDING')
+    require(value['namespace'] in ('INVENTED','RETAINED') and
+            d['rights']==('INVENTED_PUBLIC_TEST' if value['namespace']=='INVENTED' else RIGHTS), 'CURVE_SAVED_NAMESPACE')
     return d, _index(decode(value['index_raw'].encode()), d['macro_records_ref']), decode(value['joins_raw'].encode())
 
 
@@ -197,10 +205,10 @@ def plan_phase(market, profile, grid, tz):
                 row['source_date'] == j['source_date'] and row['historical_K'] is None and
                 row['historical_available_at'] is None and set(row['tokens']) == {'NEW_DATE',*FIELDS},
                 'CURVE_RATE_ROW_BINDING')
-            require(type(row['tokens']['NEW_DATE']) is str and row['tokens']['NEW_DATE'][:10] == j['source_date'] and
+            require(type(row['tokens']['NEW_DATE']) is str and datetime.fromisoformat(row['tokens']['NEW_DATE']).date().isoformat() == j['source_date'] and
                     set(row['raw_pointers']) == {'NEW_DATE',*FIELDS}, 'CURVE_RAW_DATE_POINTERS')
             require(type(row['raw_ref']) is dict and set(row['raw_ref'])=={'path','sha256','bytes'} and
-                    type(row['raw_ref']['sha256']) is str and len(row['raw_ref']['sha256'])==64 and
+                    type(row['raw_ref']['sha256']) is str and re.fullmatch('[a-f0-9]{64}',row['raw_ref']['sha256']) and
                     type(row['raw_ref']['bytes']) is int and row['raw_ref']['bytes']>0, 'CURVE_RAW_SOURCE_REF')
             for field,pointer in row['raw_pointers'].items():
                 require(type(pointer) is dict and set(pointer)=={'field','byte_start','byte_end_exclusive','xml_entry_ordinal_zero_based'} and
@@ -340,6 +348,7 @@ def verify_consumed_operands(plan, simulation):
                     for s,pair in instruction['weights'].items()}, 'CURVE_CONSUMED_TARGET_FLOOR')
         require(len(leg['orders'])==2*len(events),'CURVE_CONSUMED_ROUTE_COUNT')
         for o in leg['orders']:
+            require(o['side'] in ('BUY','SELL'),'CURVE_CONSUMED_ORDER_SIDE')
             w=o['consumed_operands'];day=w['quote_day'];d=events[day];cash,held=before(o['at_ns']);p=plan['prices'][day]['VTI']['close_micro']
             target=intents[day]['targets']['VTI'];desired=max(held['VTI']-target,0) if o['side']=='SELL' else max(target-held['VTI'],0)
             require(o['id']==leg['id']+'/'+day+'/'+o['side']+'/VTI' and o['symbol']=='VTI' and
@@ -354,6 +363,7 @@ def verify_consumed_operands(plan, simulation):
                 require(a['schema']=='polar.affordability-witness/1' and a['desired']==desired and
                         a['price_micro']==p and a['cash_cents']==a['effective_spend_cap_cents']==cash and
                         a['budget_cents_input'] is None and a['cost_profile']==cost and a['returned_quantity']==q and
+                        a['settlement']=='HALF_EVEN_CENT' and a['commission']=='FLAT_PLUS_CEILING_BPS_EXACT_MICRO' and
                         0<=q<=desired and cent_round_micro(q*p)+fee_cents(q,p,cost_profile=cost)<=cash and
                         (q==desired or cent_round_micro((q+1)*p)+fee_cents(q+1,p,cost_profile=cost)>cash),
                         'CURVE_CONSUMED_AFFORDABLE_BOUND')
