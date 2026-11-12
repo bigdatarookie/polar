@@ -64,55 +64,80 @@ def validate_source(value, members, relations):
             parent['source_record_ids'] == job['source_record_ids'], 'REFERENCE_PARENT_RELATION')
 
 
+def project_schedule(parent_schedule,date_range):
+    """Lossless calendar clipping only: preserve original metadata/session clocks."""
+    schedule=deepcopy(parent_schedule)
+    schedule['rows']=[r for r in schedule['rows'] if date_range['start']<=r['date']<=date_range['end']]
+    days=[r['date'] for r in schedule['rows']]
+    require(days==sorted(set(days)) and len(days)==date_range['count'] and days and
+            days[0]==date_range['start'] and days[-1]==date_range['end'],'REFERENCE_CONVERSION_SCHEDULE')
+    for i,row in enumerate(schedule['rows']):
+        nxt=days[i+1] if i+1<len(days) else None
+        row['next_reference_date']=nxt
+        row['month_end_in_reference_range']=nxt[:7]!=days[i][:7] if nxt else None
+    reference_schedule(schedule)
+    return schedule
+
+
+def schedule_binding_matches(manifest,calendar_schedule):
+    if calendar_schedule['sha256']==manifest['schedule']['sha256']:return True
+    if manifest['schema']!='polar.synthetic-reference-source-input/2':return False
+    provenance=manifest.get('conversion_metadata',manifest.get('provenance',{}))
+    parent=provenance.get('parent_schedule')
+    if not isinstance(parent,dict) or parent.get('sha256')!=calendar_schedule['sha256']:return False
+    original=decode(pinned_bytes(calendar_schedule))
+    expected=project_schedule(original,manifest['dates'])
+    actual=decode(pinned_bytes(manifest['schedule']))
+    return canonical(expected)==canonical(actual)
+
+
 def prepare_input(config, root, limit):
     """Called only by the owning source consumer after applicable qualification."""
-    require(type(config) is dict and set(config) == {'schema', 'profile_id', 'binding',
-            'definition_packet', 'schedule', 'date_range'} and
-            config['schema'] == 'polar.reference-input-conversion-config/1' and
-            config['profile_id'] in (C, INVENTED), 'REFERENCE_CONVERSION_CONFIG')
-    require(config['date_range'].keys() == {'start', 'end', 'count'}, 'REFERENCE_CONVERSION_RANGE')
-    if config['profile_id'] == C:
-        require(all(config[k]['sha256'] == v for k, v in C_PINS.items()) and
-                config['date_range'] == {'start': '2016-01-04', 'end': '2026-11-06', 'count': 2728},
-                'REFERENCE_FROZEN_C_PINS')
-    binding = decode(pinned_bytes(config['binding']))
-    if config['profile_id'] == INVENTED:
-        require(binding.get('rights') == 'INVENTED_PUBLIC_TEST' and
-                binding.get('provenance', {}).get('kind') == 'DETERMINISTIC_INVENTED_FIXTURE',
-                'REFERENCE_INVENTED_POSITIVE_PROVENANCE_REQUIRED')
-    packet = decode(pinned_bytes(config['definition_packet']))
-    definition = decode(pinned_bytes(packet['contract']))
-    ledger = decode(pinned_bytes(packet['eligibility_ledger']))
-    require(binding['schema'] == 'polar.C-source-consumer-metadata-binding/1' and
-            packet['schema'] == 'polar.prospective-definition-packet/1' and
-            definition['clock_binding']['schedule'] == config['schedule'], 'REFERENCE_CONVERSION_METADATA')
-    symbols = binding['portfolio_symbol_order']; records = binding['records']
-    require(type(symbols) is list and symbols == sorted(set(symbols)) and 1 <= len(symbols) <= 256
-            and all(type(s) is str and re.fullmatch('[A-Z][A-Z0-9.]{0,31}', s) for s in symbols),
-            'REFERENCE_CONVERSION_SYMBOLS')
-    require(len(records) == len({r['literal_alias'] for r in records}) <= 100 and
-            symbols == sorted(r['literal_alias'] for r in records if r['eligible_for_C'] is True) ==
-            ledger['eligible_aliases_fixed_order'], 'REFERENCE_FROZEN_ELIGIBILITY')
-    if config['profile_id'] == C:
-        require(len(records) == 100 and len(symbols) == 54, 'REFERENCE_FROZEN_C_GRID')
-    parent_schedule = decode(pinned_bytes(config['schedule']))
-    schedule = deepcopy(parent_schedule)
-    schedule['rows'] = [r for r in schedule['rows']
-                        if config['date_range']['start'] <= r['date'] <= config['date_range']['end']]
-    days = [r['date'] for r in schedule['rows']]
-    require(days == sorted(set(days)) and len(days) == config['date_range']['count'] and
-            days[0] == config['date_range']['start'] and days[-1] == config['date_range']['end'],
-            'REFERENCE_CONVERSION_SCHEDULE')
-    for i, row in enumerate(schedule['rows']):
-        nxt = days[i+1] if i+1 < len(days) else None
-        row['next_reference_date'] = nxt
-        row['month_end_in_reference_range'] = nxt[:7] != days[i][:7] if nxt else None
-    reference_schedule(schedule)  # Fail before publishing any invalid calendar.
+    selected=type(config) is dict and config.get('schema')=='polar.reference-input-conversion-config/2'
+    if selected:
+        from .selected_reference_input import PROFILE,metadata
+        require(set(config)=={'schema','profile_id','namespace','binding','purpose','schedule','date_range'} and
+                config['profile_id']==PROFILE,'REFERENCE_CONVERSION_CONFIG')
+        require(type(config['date_range']) is dict and set(config['date_range'])=={'start','end','count'},'REFERENCE_CONVERSION_RANGE')
+        binding,symbols,records,ledger,selected_dates=metadata(config)
+    else:
+        require(type(config) is dict and set(config) == {'schema', 'profile_id', 'binding',
+                'definition_packet', 'schedule', 'date_range'} and
+                config['schema'] == 'polar.reference-input-conversion-config/1' and
+                config['profile_id'] in (C, INVENTED), 'REFERENCE_CONVERSION_CONFIG')
+        require(config['date_range'].keys() == {'start', 'end', 'count'}, 'REFERENCE_CONVERSION_RANGE')
+        if config['profile_id'] == C:
+            require(all(config[k]['sha256'] == v for k, v in C_PINS.items()) and
+                    config['date_range'] == {'start': '2016-01-04', 'end': '2026-11-06', 'count': 2728},
+                    'REFERENCE_FROZEN_C_PINS')
+        binding = decode(pinned_bytes(config['binding']))
+        if config['profile_id'] == INVENTED:
+            require(binding.get('rights') == 'INVENTED_PUBLIC_TEST' and
+                    binding.get('provenance', {}).get('kind') == 'DETERMINISTIC_INVENTED_FIXTURE',
+                    'REFERENCE_INVENTED_POSITIVE_PROVENANCE_REQUIRED')
+        packet = decode(pinned_bytes(config['definition_packet']))
+        definition = decode(pinned_bytes(packet['contract']))
+        ledger = decode(pinned_bytes(packet['eligibility_ledger']))
+        require(binding['schema'] == 'polar.C-source-consumer-metadata-binding/1' and
+                packet['schema'] == 'polar.prospective-definition-packet/1' and
+                definition['clock_binding']['schedule'] == config['schedule'], 'REFERENCE_CONVERSION_METADATA')
+        symbols = binding['portfolio_symbol_order']; records = binding['records']
+        require(type(symbols) is list and symbols == sorted(set(symbols)) and 1 <= len(symbols) <= 256
+                and all(type(s) is str and re.fullmatch('[A-Z][A-Z0-9.]{0,31}', s) for s in symbols),
+                'REFERENCE_CONVERSION_SYMBOLS')
+        require(len(records) == len({r['literal_alias'] for r in records}) <= 100 and
+                symbols == sorted(r['literal_alias'] for r in records if r['eligible_for_C'] is True) ==
+                ledger['eligible_aliases_fixed_order'], 'REFERENCE_FROZEN_ELIGIBILITY')
+        if config['profile_id'] == C:
+            require(len(records) == 100 and len(symbols) == 54, 'REFERENCE_FROZEN_C_GRID')
+    schedule=project_schedule(decode(pinned_bytes(config['schedule'])),config['date_range'])
+    days=[r['date'] for r in schedule['rows']]
+    if selected:require(days==selected_dates,'REFERENCE_SELECTED_DATE_GRID')
     if config['profile_id'] == C:
         require(sum(r['early_close_reference'] is True for r in schedule['rows']) == 21,
                 'REFERENCE_C_EARLY_CLOSES')
     collection = decode(pinned_bytes(binding['source_collection']))
-    if config['profile_id'] == INVENTED:
+    if config['profile_id'] == INVENTED or selected and config['namespace']=='INVENTED':
         require(collection.get('rights') == 'INVENTED_PUBLIC_TEST' and
                 collection.get('provenance', {}).get('kind') == 'DETERMINISTIC_INVENTED_FIXTURE',
                 'REFERENCE_INVENTED_POSITIVE_PROVENANCE_REQUIRED')
@@ -152,7 +177,7 @@ def prepare_input(config, root, limit):
     require(set(jobs) == set(by_job), 'REFERENCE_MISSING_PARENT')
     output_bytes = 0
     for record in records:
-        if record['eligible_for_C'] is not True:
+        if record['selected_for_purpose' if selected else 'eligible_for_C'] is not True:
             continue  # Preserve every excluded metadata record; never read its bar payload for the projection.
         symbol = record['literal_alias']; row_offset = 0
         require(record['request']['symbols'] == symbol and record['request']['adjustment'] == 'all',
@@ -227,8 +252,12 @@ def prepare_input(config, root, limit):
     relations = {'schema': 'polar.reference-source-relations/1', 'records': records,
                  'eligibility_ledger': ledger, 'jobs': jobs, 'parent_relations': parents,
                  'source_coverage_records': coverage,
-                 'source_binding': config['binding'], 'definition_packet': config['definition_packet']}
-    semantic = {'converter': VERSION, 'profile_id': config['profile_id'], 'config': config,
+                 'source_binding': config['binding'], 'definition_packet': config.get('definition_packet')}
+    if selected:
+        relations.pop('definition_packet')
+        relations['source_purpose']=config['purpose']
+    version='polar.reference-input-converter/2' if selected else VERSION
+    semantic = {'converter': version, 'profile_id': config['profile_id'], 'config': config,
                 'quotes_sha256': sha(quote_raw), 'schedule_sha256': sha(canonical(schedule)),
                 'relations_sha256': sha(canonical(relations))}
     revision = 'reference-input-'+sha(canonical(semantic)); destination = Path(root)/'reference-inputs'/revision
@@ -243,9 +272,13 @@ def prepare_input(config, root, limit):
                 'source_relations': output_pin('source-relations.json', canonical(relations)),
                 'source_members': list(members.values()), 'parent_dataset_revision': binding['source_collection']['sha256'],
                 'rights': 'INVENTED_PUBLIC_TEST' if config['profile_id'] == INVENTED else binding['rights'],
-                'provenance': {'converter': VERSION, 'profile': config['profile_id'], 'source_collection': binding['source_collection'],
+                'provenance': {'converter': version, 'profile': config['profile_id'], 'source_collection': binding['source_collection'],
                                'parent_schedule': config['schedule'], 'semantic': semantic,
                                'economic_distinct_count': 'NOT_ESTABLISHED', 'model_execution': 'UNSUPPORTED_BY_THIS_CONVERTER'}}
+    if selected and config['namespace']=='INVENTED':
+        manifest['parent_dataset_revision']='INVENTED-'+binding['source_collection']['sha256']
+        manifest['conversion_metadata']=manifest['provenance']
+        manifest['provenance']={'kind':'DETERMINISTIC_INVENTED_FIXTURE','producer':'polar-public-tests','source_payloads':'NONE'}
     files = {'manifest.json': canonical(manifest), 'quotes.ndjson': quote_raw,
              'schedule.json': canonical(schedule), 'source-relations.json': canonical(relations),
              'quality.json': canonical({'rows': len(quotes), 'symbols': len(symbols), 'dates': len(days),
