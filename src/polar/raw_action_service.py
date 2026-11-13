@@ -71,7 +71,7 @@ def prepare(service, config):
     return profile,d,grid,rows
 
 
-def authority(service, config, profile):
+def authority(service, config, profile, descriptor=None):
     value=authority_for(service,config,profile,{'FINAL':{}})
     if value is not None:
         require(all(value.get(k)==0 for k in ('allowed_score_calls','allowed_rank_calls','allowed_estimator_calls',
@@ -83,11 +83,14 @@ def authority(service, config, profile):
             review.get('reviewer') not in (None,'','platform-engineer@polar-rig') and
             type(review.get('report_ref')) is dict,'RAW_INDEPENDENT_TECHNICAL_BINDING')
         read_ref(review['report_ref'])
+        if value.get('action')=='CORRECTIVE_RAW_ACTION_E1':
+            from .raw_action_corrective import amendment
+            amendment(value,config,profile,descriptor)
     return value
 
 
 def preflight(service,config):
-    p,d,g,r=prepare(service,config);authority(service,config,p)
+    p,d,g,r=prepare(service,config);authority(service,config,p,d)
     return {'schema':'polar.raw-action-preflight/1','status':'READY_FOR_BOUND_OPERATION',
         'operation_binding_sha256':sha(canonical(binding(config))),'scientific_starts':0,
         'expected_native_accounts':8,'expected_ex_recognitions':8*len(d['event_dates']),
@@ -113,18 +116,26 @@ def private_result(config, phase, simulation, evaluation, diagnostics, initial, 
 
 
 def run(service,config):
-    p,d,g,rows=prepare(service,config);grant=authority(service,config,p)
+    p,d,g,rows=prepare(service,config);grant=authority(service,config,p,d)
     family=sha(canonical({'protocol_id':p['protocol_id'],'input':config['input_ref']['sha256'],'namespace':config['namespace']}))
     parent='scheduled-reference-attempts/'+family;aid=str(uuid.uuid4())
+    lineage=None
+    started_ns=time.time_ns()
     with service.store.locked():
         directory=service.store.root/parent
         prior=sorted(x.name for x in directory.iterdir()) if directory.exists() else []
-        require(not directory.is_symlink() and not prior,'RAW_ORIGINAL_ALREADY_RECORDED')
+        require(not directory.is_symlink(),'RAW_ORIGINAL_ALREADY_RECORDED')
+        if grant is not None and grant.get('action')=='CORRECTIVE_RAW_ACTION_E1':
+            from .raw_action_corrective import admit_locked
+            lineage=admit_locked(service,config,p,d,grant,parent,family,prior)
+        else:require(not prior,'RAW_ORIGINAL_ALREADY_RECORDED')
         if grant is not None:require(grant.get('expected_prior_attempts')==prior,'RAW_PRIOR_ATTEMPTS')
-        service.store._publish(parent,aid,{'start.json':canonical({'status':'FIRST_START_CONSERVATIVE_DEBIT',
-            'attempt_id':aid,'binding':binding(config),'started_ns':time.time_ns()}),'config.json':canonical(config),
+        started_ns=time.time_ns()
+        start={'status':'FIRST_START_CONSERVATIVE_DEBIT','attempt_id':aid,'binding':binding(config),'started_ns':started_ns}
+        if lineage is not None:start['corrective_lineage']=lineage
+        service.store._publish(parent,aid,{'start.json':canonical(start),'config.json':canonical(config),
             'authority.json':canonical(grant)})
-    completed=0
+    completed=0;completed_lifecycle={'recognize':0,'pay':0}
     try:
         market=load(d,g['dates'],rows)  # FIRST financial-value parse, after durable debit.
         plan={'profile':{'kind':'RAW_ACTION_REINVEST'},'instrument':d['source_instrument'],
@@ -135,7 +146,13 @@ def run(service,config):
         for scenario in COSTS:
             phase=scenario['id'];current={**plan,'cost_profile':scenario['cost_profile']}
             simulation=bounded_native(current);completed+=len(simulation['legs'])
-            for tape in simulation['legs']:verify_tape(tape,current)
+            for tape in simulation['legs']:
+                verify_tape(tape,current)
+                if lineage is not None:
+                    for key in completed_lifecycle:
+                        actual=sum(e['operation']==key for e in tape['claim_events'])
+                        require(type(tape['component_counts'][key]) is int and tape['component_counts'][key]==actual,'RAW_CORRECTIVE_LIFECYCLE_COUNT')
+                        completed_lifecycle[key]+=actual
             initial=initial_control(simulation);evaluation=evaluate(simulation)
             diagnostics={t['id']:diagnose(t,rows,base=phase=='BASE') for t in simulation['legs']}
             result=private_result(config,phase,simulation,evaluation,diagnostics,initial,d)
@@ -146,6 +163,8 @@ def run(service,config):
             files.update(phasefiles)
             with service.store.locked():
                 service.store._publish(parent+'/'+aid+'/phases',phase,phasefiles,file_limit=32*1024**2)
+        if lineage is not None:
+            require(completed==8 and completed_lifecycle=={'recognize':lineage['allowed_ex_recognitions'],'pay':lineage['allowed_payments']},'RAW_CORRECTIVE_LIFECYCLE_COUNT')
         manifest={'schema':'polar.raw-action-semantic-manifest/1','files':
             {name:{'sha256':sha(body),'bytes':len(body)} for name,body in files.items()}}
         raw=canonical(manifest);sid=SEMANTIC+sha(raw)
@@ -157,13 +176,22 @@ def run(service,config):
             'financial_acceptance':'NOT_REVIEWED','finished_ns':time.time_ns()}
     except BaseException as exc:
         events=getattr(exc,'events',[])
+        if not isinstance(events,list):events=[]
         finish={'status':'FAILED_UNFINALIZED','attempt_id':aid,'error':str(exc)[:240],
             'completed_native_accounts':completed+sum(e.get('phase')=='ACCOUNT_COMPLETED' for e in events),
             'native_run_entries_in_failed_phase':sum(e.get('phase')=='NATIVE_RUN_ENTERED' for e in events),
             'refund':False,'automatic_retry':False,'finished_ns':time.time_ns()}
+        if lineage is not None:
+            finish['completed_verified_lifecycle_counts']=dict(completed_lifecycle)
+            from .raw_action_corrective import account_finish
+            account_finish(finish,lineage,started_ns)
         with service.store.locked():service.store._publish(parent+'/'+aid,'finish',
             {'record.json':canonical(finish),'diagnostics.json':canonical(getattr(exc,'events',[]))},file_limit=32*1024**2)
         raise
+    if lineage is not None:
+        finish['completed_verified_lifecycle_counts']=dict(completed_lifecycle)
+        from .raw_action_corrective import account_finish
+        account_finish(finish,lineage,started_ns)
     with service.store.locked():service.store._publish(parent+'/'+aid,'finish',{'record.json':canonical(finish)})
     return finish
 
