@@ -45,16 +45,23 @@ def amendment(authority,config,profile,family):
     return value
 
 
-def admit_locked(service,config,profile,authority,parent,family,prior):
-    """Called only while the existing store lock is held, before new debit."""
-    value=amendment(authority,config,profile,family);old=value['prior_attempt_id']
-    require(prior==[old] and authority.get('expected_prior_attempts')==prior,'CORRECTIVE_PRIOR_HISTORY')
+def read_prior_members(service,parent,old,pins):
+    """Shared bounded five-member integrity reader; no source values."""
+    require(type(pins) is dict and set(pins)==MEMBERS,'CORRECTIVE_PRIOR_MEMBER_SET')
     saved={}
-    for name,pin in value['prior_members'].items():
+    for name,pin in pins.items():
         require(type(pin) is dict and set(pin)=={'sha256','bytes'} and type(pin['bytes']) is int and
                 0<pin['bytes']<=32*1024**2 and type(pin['sha256']) is str and bool(re.fullmatch('[a-f0-9]{64}',pin['sha256'])), 'CORRECTIVE_PRIOR_PIN')
         raw=read_file(service.store.root,parent+'/'+old+'/'+name,32*1024**2)
         require(len(raw)==pin['bytes'] and sha(raw)==pin['sha256'],'CORRECTIVE_PRIOR_INTEGRITY');saved[name]=decode(raw)
+    return saved
+
+
+def admit_locked(service,config,profile,authority,parent,family,prior):
+    """Called only while the existing store lock is held, before new debit."""
+    value=amendment(authority,config,profile,family);old=value['prior_attempt_id']
+    require(prior==[old] and authority.get('expected_prior_attempts')==prior,'CORRECTIVE_PRIOR_HISTORY')
+    saved=read_prior_members(service,parent,old,value['prior_members'])
     start=saved['start.json'];finish=saved['finish/record.json'];diagnostic=saved['finish/diagnostics.json'];oldconfig=saved['config.json']
     require(start.get('attempt_id')==finish.get('attempt_id')==old and start.get('status')=='FIRST_START_CONSERVATIVE_DEBIT' and
             finish.get('status')=='FAILED_UNFINALIZED' and finish.get('scientific_status')=='INVALID' and
