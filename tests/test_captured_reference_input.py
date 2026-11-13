@@ -132,3 +132,30 @@ def test_bridge_to_profile12_six_native_accounts_and_source_absent_readonly_repl
     replay=service.recompute(result['semantic_id'])
     assert replay['status']=='REPRODUCED' and replay['native_calls']==replay['store_writes']==0
     assert snapshot(root)==before
+
+
+@pytest.mark.parametrize('marker',['plan','provenance'])
+def test_explicit_fixture_markers_cannot_be_relabelled_as_retained(tmp_path,marker,monkeypatch):
+    from polar.selected_reference_input import RIGHTS
+    root,cfg,_=captured_fixture(tmp_path)
+    capture=json.loads(Path(cfg['capture_return']['path']).read_bytes());plan=json.loads(Path(capture['plan_ref']['path']).read_bytes())
+    if marker=='plan':capture.pop('provenance')
+    else:plan.pop('mode')
+    capture['plan_ref']=put(tmp_path/'rehashed-plan.json',plan)
+    exact=json.loads(Path(cfg['exact_tokens']['path']).read_bytes());exact['request_plan']=capture['plan_ref']
+    token=put(tmp_path/'rehashed-token.json',exact)
+    capture['rights']='PRIVATE_SOLE_OWNER_NONCOMMERCIAL_NO_PUBLIC_REPO_OR_REDISTRIBUTION'
+    cp=put(tmp_path/'rehashed-capture.json',capture)
+    acceptance=put(tmp_path/'rehashed-acceptance.json',{'schema':'polar.B9-exact-retained-source-date-basis-binding/1',
+        'selected_source_pins':{'BIL_exact_tokens':token,'BIL_raw':capture['body_ref']},'schedule':cfg['schedule']})
+    purpose=json.loads(Path(cfg['purpose']['path']).read_bytes());purpose.update(capture_return=cp,exact_tokens=token,
+        source_acceptance=acceptance,rights=RIGHTS)
+    bad={**cfg,'namespace':'RETAINED','capture_return':cp,'exact_tokens':token,'purpose':put(tmp_path/'rehashed-purpose.json',purpose)}
+    import polar.captured_reference_input as module
+    original_read=module.pinned_bytes
+    def metadata_only(pin):
+        assert pin['sha256'] not in (token['sha256'],capture['body_ref']['sha256']),'VALUE_READ_BEFORE_NAMESPACE_REJECTION'
+        return original_read(pin)
+    monkeypatch.setattr(module,'pinned_bytes',metadata_only)
+    with pytest.raises(ValueError,match='CAPTURE_RETAINED_NAMESPACE'):prepare_input(bad,root,10**8)
+    assert not (root/'reference-inputs').exists()

@@ -64,6 +64,11 @@ def prepare_capture(config,root,limit):
                 plan.get('mode')=='fixture','REFERENCE_CAPTURE_INVENTED_PROVENANCE')
     else:
         require(capture.get('rights')=='PRIVATE_SOLE_OWNER_NONCOMMERCIAL_NO_PUBLIC_REPO_OR_REDISTRIBUTION','REFERENCE_CAPTURE_RIGHTS')
+        provenance=capture.get('provenance')
+        require(plan.get('mode') in (None,'provider') and
+                (provenance is None or type(provenance) is dict and
+                 provenance.get('kind')!='DETERMINISTIC_INVENTED_FIXTURE' and provenance.get('source_payloads')!='NONE'),
+                'REFERENCE_CAPTURE_RETAINED_NAMESPACE')
     query=plan['query'];require(type(query) is dict and all(query.get(k)==v for k,v in
             {'symbols':'BIL','timeframe':'1Day','feed':'sip','currency':'USD','adjustment':'all','sort':'asc'}.items()),
             'REFERENCE_CAPTURE_REQUEST_BASIS')

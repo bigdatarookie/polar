@@ -99,6 +99,15 @@ def test_scale1_native_witnesses_and_true_two_cost_accounts(monkeypatch):
         with pytest.raises(ValueError,match='D_OPERANDS_FLOOR'):verify(current,bad,p,saved)
         bad=deepcopy(sim);bad['legs'][0]['nav'][1]['date']='2099-01-01'
         with pytest.raises(ValueError,match='NATIVE_MARK'):verify(current,bad,p,saved)
+        # The captured native ledger fields feed the accepted eighteen scalars.
+        # They must be bound as well as cash/positions/total NAV.
+        for field in ('exposure_cents','position_cents','flat_cents','bps_cents','exact_notional_micro'):
+            bad=deepcopy(sim)
+            if field=='exact_notional_micro':bad['legs'][0]['fills'][0][field]+=1
+            elif field=='position_cents':bad['legs'][0]['nav'][1][field]['BIL']+=1
+            else:bad['legs'][0]['nav'][1][field]+=1
+            with pytest.raises(ValueError,match='PARKING_CONSUMED_METRIC_BINDING'):verify(current,bad,p,saved)
+
     assert simulations[0]['legs'][0]['fills'][0]['fee_cents']!=simulations[1]['legs'][0]['fills'][0]['fee_cents']
 
 

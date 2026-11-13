@@ -22,7 +22,8 @@ synthetic reference units. It opts into existing native sizing and fee-aware
 order call-site capture under `polar.fixed-reference-consumed-operands/1`.
 The saved verifier binds each D cash/holdings/eligible price/NAV/floor and every
 pre-order cash/holdings/quote/fee clip/maximality/zero reason/fill ID, plus native
-mark dates/clocks/holdings/NAV. The unit is WHOLE_SYNTHETIC_REFERENCE_UNIT_NOT_RAW_SHARE;
+mark dates/clocks/holdings/NAV, each rounded position amount and total exposure,
+per-mark accumulated flat/bps costs, exact fill notional and rounding residuals. The unit is WHOLE_SYNTHETIC_REFERENCE_UNIT_NOT_RAW_SHARE;
 there is no coarse100 mapping. Saved verification checks the fixed calendar and
 saved metadata/operands without source, policy or native invocation, and never
 backfills absent prior witnesses. Existing `ReferenceResearchService.recompute`
@@ -57,3 +58,9 @@ fitness. Actual DE source acceptance/current purpose, independent qualification,
 accepted runtime and existing operation custody remain required before retained
 use. No provider call, secret/account change, automatic retry or scientific grant
 is part of this source package.
+
+Explicit fixture-mode or deterministic-invented/NONE provenance metadata is
+rejected in the RETAINED capture namespace before numeric values are opened.
+The actual retained single-GET capture plan has no mode field; absence or provider
+mode is permitted with its independently pinned observed capture metadata.
+No historical importer mode or collection is invented to satisfy this guard.

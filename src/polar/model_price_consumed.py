@@ -58,6 +58,10 @@ def verify(plan,simulation,profile,calendar=None):
                     'MODEL_CONSUMED_FILL_LINK')
             require(f['fee_cents']==fee_cents(q,p,cost_profile=cost) and
                     f['settled_cents']==cent_round_micro(q*p),'MODEL_CONSUMED_FILL_MONEY')
+            if parking:
+                epsilon=f['settled_cents']*10000-q*p
+                require(same(f['exact_notional_micro'],q*p) and same(f['settlement_epsilon_micro'],epsilon) and
+                        same(f['cash_rounding_micro'],(-1 if side=='BUY' else 1)*epsilon),'PARKING_CONSUMED_METRIC_BINDING')
             sign=1 if side=='BUY' else -1
             cash-=sign*f['settled_cents']+f['fee_cents'];held[s]+=sign*q
             require(cash>=0 and min(held.values())>=0 and same(cash,f['cash_after_cents']), 'MODEL_CONSUMED_FILL_STATE')
@@ -124,6 +128,12 @@ def verify(plan,simulation,profile,calendar=None):
             require(same(n.get('date'),g['date']) and same(n['nominal_ns'],g['nominal_ns']) and same(n['sample_ns'],g['sample_ns']) and
                     same(n['cash_cents'],cash) and same(n['positions'],held) and
                     same(n['nav_cents'],cash+sum(cent_round_micro(held[s]*prices[s]) for s in symbols)), 'MODEL_CONSUMED_NATIVE_MARK')
+            if parking:
+                amounts={s:cent_round_micro(held[s]*prices[s]) for s in symbols}
+                observed=[f for f in fills if f['at_ns']<g['sample_ns']]
+                flat=len(observed)*cost['flat_cents'];bps=sum(f['fee_cents']-cost['flat_cents'] for f in observed)
+                require(same(n['position_cents'],amounts) and same(n['exposure_cents'],sum(amounts.values())) and
+                        same(n['flat_cents'],flat) and same(n['bps_cents'],bps),'PARKING_CONSUMED_METRIC_BINDING')
     return {'status':'VERIFIED_NEW_FIXED_CONSUMED_OPERANDS' if parking else 'VERIFIED_NEW_MODEL_CONSUMED_OPERANDS','source_reads':0,'policy_calls':0,'native_calls':0,'store_writes':0,
             'old_missing_witnesses':'UNAVAILABLE_NOT_BACKFILLED'}
 
