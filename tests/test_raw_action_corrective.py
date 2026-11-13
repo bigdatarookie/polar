@@ -129,3 +129,24 @@ def test_concurrent_calls_create_one_additional_debit(tmp_path,monkeypatch):
     with ThreadPoolExecutor(max_workers=2) as pool:results=list(pool.map(one,range(2)))
     assert sorted(results)==['INVENTED_E1_FAILURE','RAW_CORRECTIVE_PRIOR_HISTORY']
     assert len(list(root.rglob('start.json')))==2
+
+
+def test_injected_native_failure_keeps_partial_completed_phase_counts_and_diagnostics(tmp_path,monkeypatch):
+    root,cfg,p,d,service,old,a,g=setup(tmp_path,monkeypatch);current=bind(tmp_path,cfg,a,g);before=snapshot(old)
+    import polar.raw_action_service as module
+    from polar.ci_research_service import NativeFailure
+    native=module.bounded_native;calls=[]
+    injected=[{'phase':'NATIVE_RUN_ENTERED'},{'phase':'ACCOUNT_COMPLETED'}]
+    def partial(plan):
+        calls.append(plan['cost_profile'])
+        if len(calls)==2:raise NativeFailure('INVENTED_NATIVE_PHASE_FAILURE',injected)
+        return native(plan)
+    monkeypatch.setattr(module,'bounded_native',partial)
+    with pytest.raises(NativeFailure,match='INVENTED_NATIVE_PHASE_FAILURE'):service.run(current)
+    path=next(f for f in root.rglob('finish/record.json') if f.parent.parent!=old)
+    finish=json.loads(path.read_bytes())
+    assert finish['completed_native_accounts']==finish['cumulative_completed_native_accounts']==5
+    assert finish['native_run_entries_in_failed_phase']==1
+    assert finish['completed_verified_lifecycle_counts']=={'recognize':12,'pay':12}
+    assert json.loads(path.with_name('diagnostics.json').read_bytes())==injected
+    assert snapshot(old)==before and finish['refund'] is finish['automatic_retry'] is False
