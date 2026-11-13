@@ -102,13 +102,14 @@ class Service:
         return self._research_call("read", result_id)
 
     def research_executions(self, result_id, series_id=None, limit=100, offset=0):
-        return self._research_call("executions", result_id, series_id, limit, offset)
+        return self._research_call("executions", result_id, series_id, limit, offset,
+                                   registered_lookup=self.history_registry.research_navigation)
 
-    def _research_call(self, operation, *args):
+    def _research_call(self, operation, *args, **kwargs):
         from .history_bundle import HistoryError
         from .research_results import ResearchError
         try:
-            return getattr(self._research(), operation)(*args)
+            return getattr(self._research(), operation)(*args, **kwargs)
         except HistoryError:
             raise ResearchError("RESEARCH_INTEGRITY_ERROR") from None
 

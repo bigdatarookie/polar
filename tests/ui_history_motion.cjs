@@ -58,3 +58,39 @@ test('small admitted daily history uses full window; larger supplied context get
  assert.equal(historyBufferNeedsPrefetch(large,b,{start:rows[3130].session_date,end_exclusive:rows[3150].session_date}),true);
  assert.equal(historyBufferNeedsPrefetch(c,window,window),false);
 });
+
+test('retained SIP raw and adjusted bases remain distinct and cannot enter raw-only calculations',async()=>{
+ const {historyBasisSupported,historySupportsSeries,historyOHLCLabel,createHistoryClient}=require('../src/polar/web/history.js');
+ const adjusted={ohlc_basis:'VENDOR_ALL_ADJUSTED_REFERENCE',adjusted_close_basis:'NOT_SUPPLIED',volume_basis:'VENDOR_RESPONSE_UNITS_ADJUSTMENT_ALL_NOT_RAW_SHARES',price_unit:'USD/vendor all-adjusted reference unit',volume_unit:'vendor all-adjusted response units'};
+ const raw={ohlc_basis:'VENDOR_RAW_UNADJUSTED',adjusted_close_basis:'NOT_SUPPLIED',volume_basis:'VENDOR_RAW_RESPONSE_UNITS',price_unit:'USD/vendor raw reference unit',volume_unit:'vendor raw response units'};
+ assert(historyBasisSupported(adjusted));assert(historyBasisSupported(raw));assert(!historySupportsSeries({basis:adjusted}));assert(!historySupportsSeries({basis:raw}));
+ assert.equal(historyOHLCLabel({basis:adjusted}),'Vendor all-adjusted OHLC');assert.equal(historyOHLCLabel({basis:raw}),'Raw vendor OHLC');
+ assert(!historyBasisSupported({...adjusted,ohlc_basis:'VENDOR_RAW_UNADJUSTED'}));assert(!historyBasisSupported({...raw,volume_basis:'VENDOR_SPLIT_ADJUSTED'}));
+ const client=createHistoryClient(()=>{throw Error('must not request raw-only calculations');});
+ assert.throws(()=>client.series({...context(),revision:{...context().revision,basis:adjusted}},controls(),window),/CALCULATIONS_NOT_QUALIFIED/);
+});
+
+test('retained SIP history load keeps exact tokens and null adjusted close through existing transport',async()=>{
+ for(const all of [false,true]){
+  const basis=all?{ohlc_basis:'VENDOR_ALL_ADJUSTED_REFERENCE',adjusted_close_basis:'NOT_SUPPLIED',volume_basis:'VENDOR_RESPONSE_UNITS_ADJUSTMENT_ALL_NOT_RAW_SHARES',price_unit:'USD/vendor all-adjusted reference unit',volume_unit:'vendor all-adjusted response units'}:{ohlc_basis:'VENDOR_RAW_UNADJUSTED',adjusted_close_basis:'NOT_SUPPLIED',volume_basis:'VENDOR_RAW_RESPONSE_UNITS',price_unit:'USD/vendor raw reference unit',volume_unit:'vendor raw response units'};
+  const revision={schema_version:'polar.history-revision/1',dataset_id:'invented-sip',dataset_revision:'histrev-'+'1'.repeat(64),import_receipt_id:'2'.repeat(64),manifest_sha256:'3'.repeat(64),basis};
+  const asset={instrument_id:'hist-sip-AAA',source_symbol:'AAA',row_count:2,first_date:'2024-01-02',last_date:'2024-01-03',chart_fitness:'READY_WITH_LIMITS'};
+  const client=createHistoryClient(async path=>{
+   const url=new URL(path,'http://invented');let body;
+   if(url.pathname==='/v1/history/datasets')body={schema_version:'polar.history-catalog/1',items:[revision],next_cursor:null};
+   else if(url.pathname.endsWith('/assets'))body={...revision,schema_version:'polar.history-assets/1',items:[asset],item_count:1,request_identity:'assets',next_cursor:null};
+   else if(url.pathname.endsWith('/bars'))body={...revision,schema_version:'polar.history-bars/1',instrument_id:asset.instrument_id,request_identity:'bars',window:{start:url.searchParams.get('start'),end_exclusive:url.searchParams.get('end')},rows:['2024-01-02','2024-01-03'].map(session_date=>({session_date,row_role:'VISIBLE',open:'10.00',high:'12',low:'9',close:'11.00',adjusted_close:null,volume:'2.5'})),row_count:2,next_cursor:null,window_complete:true,coverage:{observed_in_window:2},fitness:{},data_status:'OBSERVED'};
+   else body=revision;
+   return response(body);
+  });
+  const loaded=await client.load({datasetId:revision.dataset_id,revision:revision.dataset_revision,instrumentId:asset.instrument_id,rangeId:'All'});
+  assert.equal(loaded.instrument.instrument_id,'hist-sip-AAA');assert.equal(loaded.rows.length,2);assert.equal(loaded.rows[0].close,'11.00');assert.equal(loaded.rows[0].adjusted_close,null);assert.deepEqual(loaded.revision.basis,basis);
+ }
+});
+
+
+test('volume series labels retain each explicit supplied source unit',()=>{
+ const {historyVolumeLabel}=require('../src/polar/web/history.js');
+ for(const unit of ['split-adjusted shares','vendor raw response units','vendor all-adjusted response units'])assert.equal(historyVolumeLabel({basis:{volume_unit:unit}}),'Volume · '+unit);
+ assert.equal(historyVolumeLabel({basis:{}}),'Volume · source units not supplied');
+});

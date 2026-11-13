@@ -10,9 +10,19 @@ function historyDate(value) {
 function historyDayAfter(value) {historyRequire(historyDate(value));const d=new Date(value+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+1);return d.toISOString().slice(0,10);}
 function historyId(value) {return typeof value==='string'&&/^[A-Za-z0-9_.:-]{1,64}$/.test(value);}
 function historyRevision(value) {return typeof value==='string'&&/^histrev-[a-f0-9]{64}$/.test(value);}
+// Closed retained SIP display bases. No missing adjusted close is fabricated.
+function historySupportsSeries(revision){return revision?.basis?.ohlc_basis==='VENDOR_RAW_UNADJUSTED'&&revision.basis.adjusted_close_basis==='VENDOR_SPLIT_AND_DIVIDEND_ADJUSTED'&&revision.basis.volume_basis==='VENDOR_SPLIT_ADJUSTED';}
+function historyOHLCLabel(revision){return revision?.basis?.ohlc_basis==='VENDOR_ALL_ADJUSTED_REFERENCE'?'Vendor all-adjusted OHLC':'Raw vendor OHLC';}
+function historyVolumeLabel(revision){return 'Volume · '+(revision?.basis?.volume_unit||'source units not supplied');}
+function historyBasisSupported(basis){
+ const legacy={ohlc_basis:'VENDOR_RAW_UNADJUSTED',adjusted_close_basis:'VENDOR_SPLIT_AND_DIVIDEND_ADJUSTED',volume_basis:'VENDOR_SPLIT_ADJUSTED',price_unit:'USD/share',volume_unit:'split-adjusted shares'};
+ const raw={ohlc_basis:'VENDOR_RAW_UNADJUSTED',adjusted_close_basis:'NOT_SUPPLIED',volume_basis:'VENDOR_RAW_RESPONSE_UNITS',price_unit:'USD/vendor raw reference unit',volume_unit:'vendor raw response units'};
+ const adjusted={ohlc_basis:'VENDOR_ALL_ADJUSTED_REFERENCE',adjusted_close_basis:'NOT_SUPPLIED',volume_basis:'VENDOR_RESPONSE_UNITS_ADJUSTMENT_ALL_NOT_RAW_SHARES',price_unit:'USD/vendor all-adjusted reference unit',volume_unit:'vendor all-adjusted response units'};
+ return historySupportsSeries({basis})||[raw,adjusted].some(known=>historyStable(known)===historyStable(basis));
+}
 function historyPin(value) {
   historyRequire(historyId(value?.dataset_id)&&historyRevision(value?.dataset_revision)&&/^[a-f0-9]{64}$/.test(value?.import_receipt_id)&&/^[a-f0-9]{64}$/.test(value?.manifest_sha256));
-  historyRequire(value.basis?.ohlc_basis==='VENDOR_RAW_UNADJUSTED'&&value.basis.adjusted_close_basis==='VENDOR_SPLIT_AND_DIVIDEND_ADJUSTED'&&value.basis.volume_basis==='VENDOR_SPLIT_ADJUSTED');
+  historyRequire(historyBasisSupported(value.basis));
   return historyStable(Object.fromEntries(['dataset_id','dataset_revision','import_receipt_id','manifest_sha256','basis'].map(k=>[k,value[k]])));
 }
 // Qualified08117a1 serving + independent System e55cb0c; UI journey remains separate.
@@ -117,6 +127,7 @@ function createHistoryClient(fetcher) {
     },
     series(context,controls,window) {
       historyRequire(HISTORY_SERIES_RUNTIME.enabled,'C_RUNTIME_NOT_QUALIFIED');
+      historyRequire(historySupportsSeries(context.revision),'CALCULATIONS_NOT_QUALIFIED_FOR_THIS_SOURCE_BASIS');
       const base=historySeriesCacheKey(context,controls),key=base+'|'+window.start+'|'+window.end_exclusive;
       for(const [k,p] of seriesPending)if(k!==key){p.controller.abort();seriesPending.delete(k);}
       for(const [k,cached] of seriesCache)if(cached.base===base&&historyWindowContains(cached.result.window,window)){seriesCache.delete(k);seriesCache.set(k,cached);return Promise.resolve(cached.result);}
@@ -180,4 +191,4 @@ function buildHistoryView(context) {
   return {history:true,bars,cPoints:dates.map(date=>points.get(date)||null),equity:bars.map(b=>({time:b.time,value:null,at:null,status:'NO_STRATEGY_RESULT'})),markers:[],sma:[],baseClose:null,initialCash:null};
 }
 
-if(typeof module!=='undefined')module.exports={historyInitialWindow,readHistoryRange,createHistoryClient,historySeriesCacheKey,historyWindowContains,historyBufferedWindow,historyBufferNeedsPrefetch,buildHistoryView};
+if(typeof module!=='undefined')module.exports={historyVolumeLabel,historyBasisSupported,historySupportsSeries,historyOHLCLabel,historyInitialWindow,readHistoryRange,createHistoryClient,historySeriesCacheKey,historyWindowContains,historyBufferedWindow,historyBufferNeedsPrefetch,buildHistoryView};

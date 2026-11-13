@@ -203,3 +203,42 @@ def test_coarse_model_zero_cannot_be_relabelled_as_raw_share_basis(tmp_path):
         record['basis']['wealth_basis']='PRICE_ONLY'
     other=republish_model(results,rid,d,name,change)
     with pytest.raises(ResearchError):project(results,other)
+
+
+def test_registered_source_navigation_is_input_scoped_and_cached_per_symbol(tmp_path):
+    from polar.research_executions import REGISTERED_NAVIGATION_INPUTS
+    results,rid,d,name=fixture(tmp_path,model=True,zero=True)
+    # This unit tests dispatch/cache using an invented lookup. Actual registration
+    # and immutable-publication correspondence are exercised in history tests.
+    import polar.research_executions as mod
+    source=results.read(rid)['record']['bindings']['data_sha256'];seen=[]
+    old=mod.REGISTERED_NAVIGATION_INPUTS
+    mod.REGISTERED_NAVIGATION_INPUTS={source}
+    def lookup(ih,symbol):
+        seen.append((ih,symbol));return {'dataset_id':'invented-history','dataset_revision':'histrev-'+'a'*64,'instrument_id':'hist-sip-AAA','source_symbol':'AAA','source_member_sha256':'b'*64,'evidence_sha256':'c'*64,'input_sha256':ih,'mapping_status':'DECLARED_CURRENT_ONLY','basis_relation':'Invented dates only; no raw price equivalence'}
+    try:
+        out=project(results,rid,registered_lookup=lookup)
+        assert seen==[(source,'AAA')] and all(x['instrument']['status']=='BOUND' for x in out['items'])
+        assert out['items'][0]['status']=='NOT_ROUTED' and out['raw_ohlc_overlay_compatible'] is False
+        seen.clear();mod.REGISTERED_NAVIGATION_INPUTS=set();project(results,rid,registered_lookup=lookup);assert seen==[]
+    finally:mod.REGISTERED_NAVIGATION_INPUTS=old
+
+
+
+def test_service_http_uses_registered_navigation_without_mutating_saved_tape(tmp_path,monkeypatch):
+    import polar.research_executions as mod
+    results,rid,_,_=fixture(tmp_path)
+    source=results.read(rid)['record']['bindings']['data_sha256']
+    monkeypatch.setattr(mod,'REGISTERED_NAVIGATION_INPUTS',{source})
+    service=Service(Settings('unused',tmp_path));calls=[]
+    def lookup(ih,symbol):
+        calls.append((ih,symbol));return {'dataset_id':'invented-history','dataset_revision':'histrev-'+'a'*64,
+            'instrument_id':'hist-sip-AAA','source_symbol':symbol,'source_member_sha256':'b'*64,
+            'evidence_sha256':'c'*64,'input_sha256':ih,'mapping_status':'DECLARED_CURRENT_ONLY',
+            'basis_relation':'Invented registered source dates, no price equivalence'}
+    monkeypatch.setattr(service.history_registry,'research_navigation',lookup)
+    before={str(p):sha(p.read_bytes()) for p in tmp_path.rglob('*') if p.is_file()}
+    response=TestClient(create_app(service)).get('/v1/research/results/'+rid+'/executions')
+    assert response.status_code==200 and response.json()['items'][0]['instrument']['status']=='BOUND'
+    assert calls==[(source,'AAA')]
+    assert before=={str(p):sha(p.read_bytes()) for p in tmp_path.rglob('*') if p.is_file()}
