@@ -47,6 +47,7 @@ def verify(plan,simulation,profile,calendar=None):
         for f in fills:
             s=f['symbol'];q=f['q'];p=f['price_micro'];side=f['side'];o=by_order.get(f['id'])
             require(s in symbols and side in ('BUY','SELL') and type(q) is int and q>0 and type(p) is int and p>0 and
+                    all(type(f[k]) is int for k in ('at_ns','fee_cents','settled_cents','cash_after_cents')) and
                     o is not None and o['symbol']==s and o['side']==side and o['routed_quantity']==q and o['at_ns']==f['at_ns'],
                     'MODEL_CONSUMED_FILL_LINK')
             require(f['fee_cents']==fee_cents(q,p,cost_profile=cost) and
