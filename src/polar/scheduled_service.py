@@ -360,7 +360,8 @@ def run(service, config):
                   'refund': False, 'automatic_retry': False, 'finished_ns': time.time_ns()}
         if profile['schema'].endswith('/11'):
             from .scheduled_curve import CurveError,expected_counts
-            finish['actual_feature_counts']=getattr(exc,'events',{}).get('actual_counts',feature_counts or expected_counts(0))
+            events=getattr(exc,'events',{})
+            finish['actual_feature_counts']=events.get('actual_counts',feature_counts or expected_counts(0)) if isinstance(events,dict) else feature_counts or expected_counts(0)
             finish['scientific_status']='INVALID'
         if profile['schema'].endswith('/10') and (str(exc).startswith('MODEL_') or
                 'MODEL_PRICE_NATIVE_DOMAIN' in str(exc)):

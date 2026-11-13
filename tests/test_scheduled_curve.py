@@ -228,3 +228,27 @@ def test_optional_consumed_operands_are_same_call_values_and_legacy_results():
     a={};q=maximum_buy(1,100000000,10000,witness=a)
     assert q==0 and a['cash_cents']==a['effective_spend_cap_cents']==10000 and a['returned_quantity']==0
     assert a['cost_profile']=={'flat_cents':100,'bps':10} and maximum_buy(1,100000000,10000)==q
+
+
+def test_native_failure_list_preserves_cached_counts_and_original_diagnostics(tmp_path,monkeypatch):
+    root,cfg,p,c,d=fixture(tmp_path,monkeypatch)
+    from polar.ci_research_service import NativeFailure
+    import polar.scheduled_service as module
+    evidence=[{'stage':'INVENTED_NATIVE_ENTRY','error':'INJECTED_FAILURE','completed_accounts':0}]
+    calls=[]
+    def fail(plan):
+        assert plan['actual_feature_counts']==expected_counts(47)
+        calls.append(plan['actual_feature_counts'])
+        raise NativeFailure('INVENTED_NATIVE_FAILURE',evidence)
+    monkeypatch.setattr(module,'bounded_native',fail)
+    service=ReferenceResearchService(root,256*1024**2)
+    with pytest.raises(NativeFailure,match='INVENTED_NATIVE_FAILURE'):service.run(cfg)
+    finish_path=next(root.rglob('finish/record.json'))
+    finish=json.loads(finish_path.read_bytes())
+    assert finish['status']=='FAILED_UNFINALIZED' and finish['scientific_status']=='INVALID'
+    assert finish['error']=='INVENTED_NATIVE_FAILURE' and finish['actual_feature_counts']==expected_counts(47)
+    assert finish['completed_native_accounts']==0 and len(calls)==1
+    assert finish['refund'] is False and finish['automatic_retry'] is False
+    assert json.loads(finish_path.with_name('diagnostics.json').read_bytes())==evidence
+    with pytest.raises(ValueError,match='ORIGINAL_ALREADY_RECORDED'):service.run(cfg)
+    assert len(calls)==1
