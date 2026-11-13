@@ -12,6 +12,11 @@ from .research_results import ResearchError
 
 LIMIT = 32 * 1024**2
 MAX_ORDERS = 100000
+# Only the two requested retained source lineages use the additive registered
+# history correspondence. All other existing mapping behavior stays unchanged.
+REGISTERED_NAVIGATION_INPUTS = {
+    '7b8dfea24660a0dadd8889fa6eed6520fd31005486f33c4fcd3571435db05f05',
+    '262b0b7a45dece5d0b05a7af05d30a11a6a62b5011389703b51ffd86026dbd26'}
 
 
 def require(ok, code="RESEARCH_EXECUTION_BINDING"):
@@ -39,11 +44,15 @@ def utc(ns):
     return datetime.fromtimestamp(seconds,timezone.utc).strftime('%Y-%m-%dT%H:%M:%S') + (f'.{nano:09d}' if nano else '') + 'Z'
 
 
-def navigation(record, symbol):
+def navigation(record, symbol, registered_lookup=None):
     # Versioned metadata relation keyed by input content, never by strategy name
     # or ticker equality alone. No source quote file is opened.
     mapping=decode(Path(__file__).with_name('research_navigation.json').read_bytes())
     rows=[x for x in mapping['mapping'] if x['native_symbol']==symbol] if record['bindings']['data_sha256']==mapping['input_sha256'] else []
+    if not rows and registered_lookup is not None and record['bindings']['data_sha256'] in REGISTERED_NAVIGATION_INPUTS:
+        bound=registered_lookup(record['bindings']['data_sha256'],symbol)
+        if bound is not None:
+            return {'status':'BOUND','reason':None,**bound}
     if len(rows)!=1:
         return {'status':'UNRESOLVED','reason':'SOURCE_INSTRUMENT_MAPPING_NOT_BOUND',
                 'dataset_id':None,'dataset_revision':None,'instrument_id':None}
@@ -52,7 +61,7 @@ def navigation(record, symbol):
             'evidence_sha256':mapping['evidence_sha256'],'input_sha256':mapping['input_sha256']}
 
 
-def project(results, result_id, series_id=None, limit=100, offset=0):
+def project(results, result_id, series_id=None, limit=100, offset=0, *, registered_lookup=None):
     if type(limit) is not int or not 1 <= limit <= 100 or type(offset) is not int or not 0 <= offset <= MAX_ORDERS:
         raise ResearchError('RESEARCH_EXECUTION_PAGE',422)
     detail=results.read(result_id);r=detail['record']
@@ -157,7 +166,7 @@ def project(results, result_id, series_id=None, limit=100, offset=0):
     require(type(orders) is list and type(fills) is list and len(orders)<=MAX_ORDERS and len(fills)<=len(orders))
     require(len({x['id'] for x in orders})==len(orders) and len({x['id'] for x in fills})==len(fills))
     fill_map={x['id']:x for x in fills};require(set(fill_map)<={x['id'] for x in orders})
-    events=[]
+    events=[];navigation_cache={}
     for order in orders:
         oid=order['id'];symbol=order['symbol'];side=order['side'];at=integer(order['at_ns'])
         require(type(oid) is str and len(oid)<=256 and type(symbol) is str and re.fullmatch('[A-Za-z0-9_.:-]{1,64}',symbol) and side in ('BUY','SELL'))
@@ -179,11 +188,12 @@ def project(results, result_id, series_id=None, limit=100, offset=0):
             require(fill['symbol']==symbol and fill['side']==side and fill['at_ns']==at and fill['q']==q)
             price=integer(fill['price_micro'],1);fee=integer(fill['fee_cents']);settled=integer(fill['settled_cents'])
         else:price=fee=settled=None
+        if symbol not in navigation_cache:navigation_cache[symbol]=navigation(r,symbol,registered_lookup)
         events.append({'order_id':oid,'symbol':symbol,'side':side,'timestamp_ns':str(at),'timestamp':utc(at),
             'intended_quantity':str(desired),'routed_quantity':str(q),'filled_quantity':str(q) if fill else '0',
             'status':'FILLED' if fill else 'NOT_ROUTED','reason':order.get('reason'),
             'session_date':parts[1],'timestamp_semantics':'NATIVE_ORDER_SUBMISSION_AND_MATCHED_FILL',
-            'instrument':navigation(r,symbol),
+            'instrument':navigation_cache[symbol],
             'price_micro':str(price) if fill else None,'fee_cents':str(fee) if fill else None,
             'settled_notional_cents':str(settled) if fill else None})
     events.sort(key=lambda x:(int(x['timestamp_ns']),x['order_id']))

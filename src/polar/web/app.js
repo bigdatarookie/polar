@@ -112,14 +112,14 @@ async function loadHistorySelection(request={}) {
       const target=request.bufferWindow||historyInitialWindow(next.instrument,requestedRange,window).buffer;
       Object.assign(next,await historyClient.range(next,target));if(!current())return;
     }
-    if(window&&historyNeedsSeries(controls)&&HISTORY_SERIES_RUNTIME.enabled){
+    if(window&&historyNeedsSeries(controls)&&HISTORY_SERIES_RUNTIME.enabled&&historySupportsSeries(next.revision)){
       const buffer=historyBufferedWindow(next,window);pendingSeriesBuffer={key:historySeriesCacheKey(next,controls),window:buffer};renderSeriesState();
       try{next.series=await historyClient.series(next,controls,buffer);}
       catch(error){if(error.message!=='HISTORY_INVALID_CURSOR'||!current())throw error;next.series=await historyClient.series(next,controls,buffer);}
       if(!current())return;
     }else next.series=null;
     next.seriesControls=next.series?controls:{...controls,sma:false,ema:false,bollinger:false,rsi:false,benchmark:false};
-    next.seriesUnavailable=historyNeedsSeries(controls)&&!HISTORY_SERIES_RUNTIME.enabled?'C_RUNTIME_NOT_QUALIFIED':null;
+    next.seriesUnavailable=historyNeedsSeries(controls)?!historySupportsSeries(next.revision)?'CALCULATIONS_NOT_QUALIFIED_FOR_THIS_SOURCE_BASIS':!HISTORY_SERIES_RUNTIME.enabled?'C_RUNTIME_NOT_QUALIFIED':null:null;
     const nextView=buildHistoryView(next),same=dataset?.kind==='history'&&dataset.dataset_id===next.revision?.dataset_id&&dataset.dataset_revision===next.revision?.dataset_revision&&dataset.instrument.instrument_id===next.instrument?.instrument_id;
     const preserveViewport=same&&request.seriesOnly&&!request.selectWindow||viewportVersion!==requestedViewportVersion,latestWindow=visibleHistoryWindow()||{start:null,end_exclusive:null};
     const displayWindow=preserveViewport&&latestWindow.start&&latestWindow.end_exclusive?latestWindow:window;
@@ -233,7 +233,7 @@ function scheduleViewportSeries(){
   clearTimeout(historyViewportTimer);renderSeriesState();
   if(!historyDisplayed()||!historyContext?.revision||loading)return;
   const raw=historyRawPrefetchWindow();if(raw){const intent=flow;historyViewportTimer=setTimeout(()=>{if(intent===flow&&!loading)loadHistorySelection({...currentHistoryRequest(),seriesOnly:true,rangeId:state.rangeId,window:visibleHistoryWindow(),bufferWindow:raw});},80);return;}
-  if(!historyNeedsSeries(state)||!HISTORY_SERIES_RUNTIME.enabled)return;
+  if(!historyNeedsSeries(state)||!HISTORY_SERIES_RUNTIME.enabled||!historySupportsSeries(historyContext.revision))return;
   const window=visibleHistoryWindow();if(!window)return;
   const key=historySeriesCacheKey(historyContext,historyControls(state));
   if(historyContext.series&&key===historySeriesCacheKey(historyContext,historyContext.series.controls)&&!historyBufferNeedsPrefetch(historyContext,historyContext.series.window,window))return;
@@ -432,7 +432,7 @@ function renderRail() {
     ['auto','light','dark'].forEach(mode=>{const b=element('button',mode[0].toUpperCase()+mode.slice(1));b.id='theme-'+mode;b.setAttribute('aria-pressed',String(state.theme===mode));b.onclick=()=>setTheme(mode);group.append(b);});settings.append(group);
     panelNote(settings,state.theme==='auto'?'Auto · system resolves '+resolvedTheme()+'.':'Manual '+state.theme+' · overrides OS changes.');body.append(settings);
     checkbox(body,'marker-toggle','Execution markers','Show attributed actual signed fills; no inferred round trips.','markers',historyDisplayed()?!matchingExecutions().length:!view.markers.length);
-    const convention=element('div',undefined,'context-note');convention.append(element('b','Display convention'),element('p',historyDisplayed()?'Raw unadjusted OHLC in '+(historyContext?.revision?.basis.price_unit||'source units')+'. Provider-adjusted close and split-adjusted volume remain separate. Price candles remain separate from saved portfolio NAV.':'Price ÷ first usable open × 100. Retained NAV ÷ report initial cash × 100. Separate bases; no range rebasing.'));body.append(convention);
+    const convention=element('div',undefined,'context-note');convention.append(element('b','Display convention'),element('p',historyDisplayed()?historyOHLCLabel(historyContext?.revision)+' in '+(historyContext?.revision?.basis.price_unit||'source units')+'. '+(historySupportsSeries(historyContext?.revision)?'Provider-adjusted close and split-adjusted volume remain separate.':'No separate adjusted close supplied. Volume: '+historyContext?.revision?.basis.volume_unit+'. Calculations for this source basis are not qualified.')+' Price candles remain separate from saved portfolio NAV and execution units.':'Price ÷ first usable open × 100. Retained NAV ÷ report initial cash × 100. Separate bases; no range rebasing.'));body.append(convention);
     panelNote(body,'Auto follows the OS. Unresolved preference uses Dark. Manual Light/Dark takes precedence until Auto or Reset.');
     const source=element('div',undefined,'settings-group');source.append(element('h4','Data source'));const choices=element('div',undefined,'theme-options');
     for(const [mode,label] of [['real','Stored history'],['retained-test','Retained test']]){const b=element('button',label);b.id='mode-'+mode;b.setAttribute('aria-pressed',String(state.dataMode===mode));b.onclick=()=>setDataMode(mode);choices.append(b);}source.append(choices);panelNote(source,'Stored history uses registered immutable revisions. Retained test records are explicitly separated synthetic fixtures, never a real-data fallback.');body.append(source);return;
@@ -623,7 +623,7 @@ function syncToolbar() {
   $('#range-caption').textContent=first&&last?(historyDisplayed()?observed+' observed provider dates'+(visible.length>observed?' / '+(visible.length-observed)+' reference-only gaps':''):(state.hi-state.lo+1)+' supplied buckets')+' · '+fmtDate(first.time)+'–'+fmtDate(last.endTime):'No available observations';
   const controls=displayedHistoryControls(),series=historyContext?.series,params=series?.metadata.parameters,reference=series?.metadata.reference_metadata;
   $('#workspace').dataset.rsi=String(historyDisplayed()&&controls.rsi&&!!series);
-  $('.index-title').textContent=historyDisplayed()?'Raw vendor OHLC · '+(historyContext?.revision?.basis.price_unit||'source units')+(controls.benchmark&&reference?' (left) · '+(reference.family==='RAW_PRICE_RELATIVE'?'raw-price':'provider-adjusted close')+' index100 at '+(reference.anchor_session||'unavailable')+' (right)':' · provider session dates'):'Separate index bases · price open '+(view.baseClose??'unavailable')+' / retained initial cash '+(view.initialCash??'unavailable');
+  $('.index-title').textContent=historyDisplayed()?historyOHLCLabel(historyContext?.revision)+' · '+(historyContext?.revision?.basis.price_unit||'source units')+(controls.benchmark&&reference?' (left) · '+(reference.family==='RAW_PRICE_RELATIVE'?'raw-price':'provider-adjusted close')+' index100 at '+(reference.anchor_session||'unavailable')+' (right)':' · provider session dates'):'Separate index bases · price open '+(view.baseClose??'unavailable')+' / retained initial cash '+(view.initialCash??'unavailable');
   $('#strategy-legend').parentElement.hidden=historyDisplayed()&&!getMainComparison()?.usable;$('#strategy-legend').textContent=(historyDisplayed()?researchReadable(getMainComparison()?.strategy?.label):getStrategy().name)+' NAV'+(anySource('strategyEquity')?'':' · unavailable');
   setLineLegend('sma-legend',historyDisplayed()?controls.sma&&!!series:state.sma&&legacySmaAvailable(),'SMA'+(params?.sma_period||20)+' · price','sma-key');
   setLineLegend('ema-legend',historyDisplayed()&&controls.ema&&!!series,'EMA'+params?.ema_period+' · price','ema-key');
