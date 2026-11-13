@@ -67,7 +67,7 @@ def fee_cents(q, price_micro, *, cost_profile=None):
     return cost['flat_cents'] + (q * price_micro * cost['bps'] + 99999999)//100000000 if q else 0
 
 
-def maximum_buy(desired, price_micro, cash_cents, budget_cents=None, *, cost_profile=None):
+def maximum_buy(desired, price_micro, cash_cents, budget_cents=None, *, cost_profile=None, witness=None):
     require(type(desired) is int and 0 <= desired <= 1000000000 and cash_cents >= 0, "BUY_DOMAIN")
     if cost_profile is not None:
         fee_cents(0, price_micro, cost_profile=cost_profile)
@@ -79,6 +79,11 @@ def maximum_buy(desired, price_micro, cash_cents, budget_cents=None, *, cost_pro
             lo = q
         else:
             hi = q - 1
+    if witness is not None:
+        witness.update(schema='polar.affordability-witness/1',desired=desired,price_micro=price_micro,
+            cash_cents=cash_cents,budget_cents_input=budget_cents,effective_spend_cap_cents=budget,
+            cost_profile=dict(cost_profile) if cost_profile is not None else {'flat_cents':100,'bps':10},
+            returned_quantity=lo,settlement='HALF_EVEN_CENT',commission='FLAT_PLUS_CEILING_BPS_EXACT_MICRO')
     return lo
 
 
