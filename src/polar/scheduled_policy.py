@@ -28,19 +28,20 @@ def profile_value(p):
               'primary_strategy', 'primary_benchmark', 'decision_delay_seconds', 'criteria',
               'question_label', 'question_summary', 'clock_description', 'partition_description',
               'additional_limitations', 'subperiods'}
+    version13 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/13'
     version12 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/12'
     version11 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/11'
     version10 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/10'
     version7 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/7'
     version9 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/9'
     version8 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/8'
-    version5 = type(p) is dict and p.get('schema') in ('polar.scheduled-reference-profile/5','polar.scheduled-reference-profile/8','polar.scheduled-reference-profile/9','polar.scheduled-reference-profile/10','polar.scheduled-reference-profile/12')
+    version5 = type(p) is dict and p.get('schema') in ('polar.scheduled-reference-profile/5','polar.scheduled-reference-profile/8','polar.scheduled-reference-profile/9','polar.scheduled-reference-profile/10','polar.scheduled-reference-profile/12','polar.scheduled-reference-profile/13')
     version6 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/6'
     version4 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/4'
     version2 = type(p) is dict and p.get('schema') in ('polar.scheduled-reference-profile/2','polar.scheduled-reference-profile/4')
     version3 = type(p) is dict and p.get('schema') == 'polar.scheduled-reference-profile/3'
-    require(type(p) is dict and set(p) == fields | ({'model_price_mapping'} if version10 else set()) | ({'cost_scenarios', 'uncertainty'} if version2 or version6 or version7 else {'cost_scenarios'} if version8 or version9 or version11 or version12 else set()) and
-            p['schema'] in (PROFILE_SCHEMA, 'polar.scheduled-reference-profile/2', 'polar.scheduled-reference-profile/3', 'polar.scheduled-reference-profile/4', 'polar.scheduled-reference-profile/5', 'polar.scheduled-reference-profile/6', 'polar.scheduled-reference-profile/7', 'polar.scheduled-reference-profile/8', 'polar.scheduled-reference-profile/9', 'polar.scheduled-reference-profile/10', 'polar.scheduled-reference-profile/11', 'polar.scheduled-reference-profile/12'), 'SCHEDULED_PROFILE_SCHEMA')
+    require(type(p) is dict and set(p) == fields | ({'model_price_mapping'} if version10 else set()) | ({'cost_scenarios', 'uncertainty'} if version2 or version6 or version7 else {'cost_scenarios'} if version8 or version9 or version11 or version12 or version13 else set()) and
+            p['schema'] in (PROFILE_SCHEMA, 'polar.scheduled-reference-profile/2', 'polar.scheduled-reference-profile/3', 'polar.scheduled-reference-profile/4', 'polar.scheduled-reference-profile/5', 'polar.scheduled-reference-profile/6', 'polar.scheduled-reference-profile/7', 'polar.scheduled-reference-profile/8', 'polar.scheduled-reference-profile/9', 'polar.scheduled-reference-profile/10', 'polar.scheduled-reference-profile/11', 'polar.scheduled-reference-profile/12','polar.scheduled-reference-profile/13'), 'SCHEDULED_PROFILE_SCHEMA')
     for key in ('protocol_sha256', 'input_sha256', 'calendar_sha256', 'timezone_sha256'):
         require(type(p[key]) is str and re.fullmatch('[a-f0-9]{64}', p[key]), 'SCHEDULED_PROFILE_HASH')
     require(type(p['protocol_id']) is str and re.fullmatch('[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}', p['protocol_id']), 'SCHEDULED_PROTOCOL_ID')
@@ -55,7 +56,10 @@ def profile_value(p):
     if version8 or version9:
         require(p['cost_scenarios']==[{'id':'BASE','cost_profile':{'flat_cents':100,'bps':10}},
                 {'id':'COST_STRESS','cost_profile':{'flat_cents':200,'bps':20}}], 'SCHEDULED_FIXED_COST_SCENARIOS')
-    if version12:
+    if version13:
+        from .scheduled_common_equity import validate_profile
+        validate_profile(p)
+    elif version12:
         from .scheduled_parking import validate_profile
         validate_profile(p)
     elif version11:
@@ -135,7 +139,7 @@ def profile_value(p):
     require(type(p['criteria']) is list and 1 <= len(p['criteria']) <= 20 and
             len({c['id'] for c in p['criteria']}) == len(p['criteria']), 'SCHEDULED_CRITERIA')
     for c in p['criteria']:
-        require((c['kind'] in CONDITIONS or version12 and c['kind']=='SR_GE') and set(c) == {'id', 'description', 'kind', 'left_id'} | ({'threshold'} if version12 and c['kind']=='SR_GE' else CONDITIONS[c['kind']]), 'SCHEDULED_CRITERION_SCHEMA')
+        require((c['kind'] in CONDITIONS or (version12 or version13) and c['kind']=='SR_GE') and set(c) == {'id', 'description', 'kind', 'left_id'} | ({'threshold'} if (version12 or version13) and c['kind']=='SR_GE' else CONDITIONS[c['kind']]), 'SCHEDULED_CRITERION_SCHEMA')
         require(c['left_id'] in ids and ('right_id' not in c or c['right_id'] in ids and c['right_id'] != c['left_id']), 'SCHEDULED_CRITERION_LEGS')
         if c['kind'] in ('DRAWDOWN_SCALED_LE','TERMINAL_SCALED_GE','VOL_SCALED_LE'):
             require(type(c['factor']) is list and len(c['factor']) == 2 and all(type(v) is int for v in c['factor']) and
@@ -159,7 +163,7 @@ def profile_value(p):
     # Reuse the current common wire's finite bounds; never spend an original on
     # a profile whose public projection cannot fit it.
     require((32 if version7 else 29 + 4*len(p['subperiods']) + (3 if version2 or version3 or version6 else 0)) <= 40 and
-            (24 + len(p['additional_limitations']) if version7 else 12 + len(p['additional_limitations']) + len(legs)*(1+len(p['subperiods'])) + (4 if version4 or version6 else 3 if version2 else 2 if version9 else 1 if version3 or version8 or version10 or version11 or version12 else 0)) <= (MAX_RESULT_LIMITATIONS if version10 else 30),
+            (24 + len(p['additional_limitations']) if version7 else 12 + len(p['additional_limitations']) + len(legs)*(1+len(p['subperiods'])) + (4 if version4 or version6 else 3 if version2 else 2 if version9 else 1 if version3 or version8 or version10 or version11 or version12 or version13 else 0)) <= (MAX_RESULT_LIMITATIONS if version10 else 30),
             'SCHEDULED_PUBLIC_WIRE_BOUND')
     if version10:
         from .reference_model_price import validate
@@ -210,13 +214,13 @@ def plan_phase(market, profile, grid, tz):
     if profile['schema'] == 'polar.scheduled-reference-profile/9':
         from .scheduled_passive import plan_phase as passive_plan
         return passive_plan(market,profile,grid)
-    if profile['schema'] in ('polar.scheduled-reference-profile/5','polar.scheduled-reference-profile/8','polar.scheduled-reference-profile/9','polar.scheduled-reference-profile/10','polar.scheduled-reference-profile/12'):
+    if profile['schema'] in ('polar.scheduled-reference-profile/5','polar.scheduled-reference-profile/8','polar.scheduled-reference-profile/9','polar.scheduled-reference-profile/10','polar.scheduled-reference-profile/12','polar.scheduled-reference-profile/13'):
         from .scheduled_fixed import plan_phase as fixed_plan
         plan=fixed_plan(market,profile,grid)
         if profile['schema'].endswith('/10'):
             from .reference_model_price import bind_plan
             return bind_plan(plan,market)
-        if profile['schema'].endswith('/12'):
+        if profile['schema'].endswith(('/12','/13')):
             from .scheduled_parking import bind_plan
             return bind_plan(plan,profile)
         return plan
@@ -275,9 +279,13 @@ def plan_phase(market, profile, grid, tz):
 
 def evaluate_policy(simulation, profile, phase):
     require(phase in ('VALIDATION', 'FINAL'), 'SCHEDULED_EVALUATION_PHASE')
-    parking = profile['schema']=='polar.scheduled-reference-profile/12'
+    common = profile['schema']=='polar.scheduled-reference-profile/13'
+    parking = common or profile['schema']=='polar.scheduled-reference-profile/12'
     if parking:
-        from .scheduled_parking import validate_profile, structural
+        if common:
+            from .scheduled_common_equity import validate_profile, structural
+        else:
+            from .scheduled_parking import validate_profile, structural
         validate_profile(profile); require(phase=='FINAL','PARKING_PHASE'); structural(simulation)
     legs, exact = evaluate_legs(simulation); by_id = {x['id']: x for x in legs}
     require(set(by_id) == {x['id'] for x in profile['legs']}, 'SCHEDULED_EVALUATION_LEGS')
@@ -299,7 +307,10 @@ def evaluate_policy(simulation, profile, phase):
             elif kind == 'DRAWDOWN_SCALED_LE': passed = exact[a]['max_drawdown'] <= Fraction(*c['factor'])*exact[b]['max_drawdown']
             elif kind == 'VOL_SCALED_LE':
                 av=by_id[a]['metrics']['annual_vol_252']['value'];bv=by_id[b]['metrics']['annual_vol_252']['value']
-                if av is not None and bv is not None:passed=Decimal(av)<=(Decimal(c['factor'][0])/Decimal(c['factor'][1]))*Decimal(bv)
+                if av is not None and bv is not None:
+                    boundary=(Decimal(bv)*Decimal(c['factor'][0])/Decimal(c['factor'][1]) if common else
+                              (Decimal(c['factor'][0])/Decimal(c['factor'][1]))*Decimal(bv))
+                    passed=Decimal(av)<=boundary
             elif kind == 'VOL_LE':
                 av=by_id[a]['metrics']['annual_vol_252']['value'];bv=by_id[b]['metrics']['annual_vol_252']['value']
                 if av is not None and bv is not None:passed=Decimal(av)<=Decimal(bv)
@@ -313,7 +324,7 @@ def evaluate_policy(simulation, profile, phase):
     comparisons = []
     a = profile['primary_strategy']
     for b in (x['id'] for x in profile['legs'] if x['id'] != a):
-        for key in ('terminal_nav_usd', 'net_cagr_act36525', 'sharpe_252_rf0', 'max_drawdown', 'total_cost_usd') + (('annual_vol_252',) if profile['schema'].endswith(('/7','/11','/12')) else ()):
+        for key in ('terminal_nav_usd', 'net_cagr_act36525', 'sharpe_252_rf0', 'max_drawdown', 'total_cost_usd') + (('annual_vol_252',) if profile['schema'].endswith(('/7','/11','/12','/13')) else ()):
             av = by_id[a]['metrics'][key]['value']; bv = by_id[b]['metrics'][key]['value']
             with localcontext(context()): delta = decimal_string(Decimal(av)-Decimal(bv)) if av is not None and bv is not None else None
             comparisons.append({'metric_id': key, 'left_id': a, 'right_id': b,

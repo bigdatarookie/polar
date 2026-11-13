@@ -36,11 +36,12 @@ def fixture(tmp_path, mutate=None, *, selected_unit_value=None, selected_plan_id
         parents={j['request']['symbols']:j for j in selected_unit_value['jobs']}
         aliases=sorted(parents)
         request=lambda symbol:parents[symbol]['request']
+    active=aliases if selected_unit_value is not None else aliases[:2]
     source_plan_jobs={s:parents[s]['job_id'] for s in aliases}
     originals = {s: {'bars': {s: [{'c': '1.234567' if s=='AAA' else '20.1', 't': d+'T00:00:00Z'} for d in days]}}
-                 for s in aliases[:2]}
+                 for s in active}
     rows = {}
-    for s in aliases[:2]:
+    for s in active:
         rows[s] = []
         for i,d in enumerate(days):
             page = 0 if i == 0 else 1
@@ -64,13 +65,13 @@ def fixture(tmp_path, mutate=None, *, selected_unit_value=None, selected_plan_id
     objects = {}; packets = []
     for part in [0,1]:
         rel = f'parts/{part:05d}/'; directory=source/rel; members = {}
-        lines = b''.join(rows[s][0] if part==0 else b''.join(rows[s][1:]) for s in aliases[:2])
+        lines = b''.join(rows[s][0] if part==0 else b''.join(rows[s][1:]) for s in active)
         m = put(directory/'bars.ndjson', lines); members['bars.ndjson']={k:m[k] for k in ['sha256','bytes']}
         cover = b''.join(canonical({**parents[s], 'canonical_job_id':'canonical-'+s,'global_job_ordinal':i,
             'this_batch':'success','this_batch_reason':None,'raw_data_state':'RECEIVED_COMPLETE',
             'raw_coverage_ref':'canonical-'+s})+b'\n' for i,s in enumerate(aliases))
         m=put(directory/'parent-coverage-ledger.ndjson',cover);members['parent-coverage-ledger.ndjson']={k:m[k] for k in ['sha256','bytes']}
-        for s in aliases[:2]:
+        for s in active:
             raw=canonical({'bars': {s: originals[s]['bars'][s][:1] if part == 0 else originals[s]['bars'][s][1:]}})
             name='objects/'+sha(raw)+'.json';m=put(directory/name,raw);members[name]={k:m[k] for k in ['sha256','bytes']}
         partition={'schema':'polar.vendor-all-adjusted-source-content/1','source_plan_id':source_plan_id,'objects':members}
@@ -78,7 +79,7 @@ def fixture(tmp_path, mutate=None, *, selected_unit_value=None, selected_plan_id
         for key,v in members.items():objects[rel+key]=v
         objects[rel+'content-manifest.json']={k:pin[k] for k in ['sha256','bytes']}
         packets.append({'manifest':rel+'content-manifest.json',**{k:pin[k] for k in ['sha256','bytes']}})
-        for n,s in enumerate(aliases[:2]):
+        for n,s in enumerate(active):
             records[n]['segments'].append({'partition_manifest':str(directory/'content-manifest.json'),
                 'partition_manifest_sha256':pin['sha256'],'normalized_member':str(directory/'bars.ndjson'),
                 'normalized_member_sha256':members['bars.ndjson']['sha256'],
@@ -95,10 +96,10 @@ def fixture(tmp_path, mutate=None, *, selected_unit_value=None, selected_plan_id
             'clock_status':'MODELED_NOT_OBSERVED','next_reference_date':all_days[i+1] if i+1<len(all_days) else None,
             'month_end_in_reference_range':False if i+1<len(all_days) else None} for i,d in enumerate(all_days)]})
     binding=put(root/'binding.json',{'schema':'polar.C-source-consumer-metadata-binding/1','source_collection':collection,
-        'source_plan_id':source_plan_id,'portfolio_symbol_order':aliases[:2],'records':records,'rights':'INVENTED_PUBLIC_TEST',
+        'source_plan_id':source_plan_id,'portfolio_symbol_order':active,'records':records,'rights':'INVENTED_PUBLIC_TEST',
         'provenance':{'kind':'DETERMINISTIC_INVENTED_FIXTURE'}})
     contract=put(root/'definition.json',{'clock_binding':{'schedule':schedule}})
-    ledger=put(root/'ledger.json',{'eligible_aliases_fixed_order':aliases[:2],'all_records':records})
+    ledger=put(root/'ledger.json',{'eligible_aliases_fixed_order':active,'all_records':records})
     packet=put(root/'packet.json',{'schema':'polar.prospective-definition-packet/1','contract':contract,'eligibility_ledger':ledger})
     cfg={'schema':'polar.reference-input-conversion-config/1','profile_id':INVENTED,'binding':binding,
          'definition_packet':packet,'schedule':schedule,'date_range':{'start':days[0],'end':days[-1],'count':3}}

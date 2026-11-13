@@ -26,8 +26,8 @@ def validate_profile(p):
     return p
 
 
-def structural(simulation):
-    legs=simulation['legs'];require([l['id'] for l in legs]==['BIL_FULL','SHY_FULL','CASH'],'PARKING_ACCOUNT_SET')
+def structural(simulation, *, expected_ids=None):
+    legs=simulation['legs'];require([l['id'] for l in legs]==(expected_ids or ['BIL_FULL','SHY_FULL','CASH']),'PARKING_ACCOUNT_SET')
     require(len(legs[0]['nav'])>=2,'PARKING_GRID')
     clocks=[(r['date'],r['nominal_ns'],r['sample_ns']) for r in legs[0]['nav']]
     for leg in legs:

@@ -99,7 +99,7 @@ def prepare_input(config, root, limit):
     if type(config) is dict and config.get('schema')=='polar.reference-input-conversion-config/4':
         from .captured_reference_input import prepare_capture
         return prepare_capture(config,root,limit)
-    if type(config) is dict and config.get('schema')=='polar.reference-input-conversion-config/3':
+    if type(config) is dict and config.get('schema') in ('polar.reference-input-conversion-config/3','polar.reference-input-conversion-config/5'):
         from .reference_composition import prepare_composition
         return prepare_composition(config,root,limit)
     selected=type(config) is dict and config.get('schema')=='polar.reference-input-conversion-config/2'

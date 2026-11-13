@@ -15,7 +15,7 @@ def same(a,b):
 
 
 def verify(plan,simulation,profile,calendar=None):
-    parking=profile['schema']=='polar.scheduled-reference-profile/12'
+    parking=profile['schema'] in ('polar.scheduled-reference-profile/12','polar.scheduled-reference-profile/13')
     if parking:
         from .scheduled_parking import verify_plan
         verify_plan(plan,profile,calendar)

@@ -70,7 +70,7 @@ def prepare(service, config, *, load_prices=True):
     calendar = decode(calendar_raw)
     from .reference_input import schedule_binding_matches
     require(manifest['schema'] in ('polar.synthetic-reference-source-input/1','polar.synthetic-reference-source-input/2') and
-            schedule_binding_matches(manifest,calendar['parent_schedule' if profile['schema'].endswith(('/5','/8','/9','/10','/12')) else 'source_schedule']), 'SCHEDULED_SOURCE_CALENDAR')
+            schedule_binding_matches(manifest,calendar['parent_schedule' if profile['schema'].endswith(('/5','/8','/9','/10','/12','/13')) else 'source_schedule']), 'SCHEDULED_SOURCE_CALENDAR')
     if config['namespace'] == 'INVENTED':
         require(str(manifest.get('parent_dataset_revision', '')).startswith('INVENTED-') and
                 manifest.get('rights') == 'INVENTED_PUBLIC_TEST' and manifest.get('provenance') ==
@@ -92,16 +92,16 @@ def prepare(service, config, *, load_prices=True):
         require(len(labels)==1259 and labels[0]==lo and labels[-1]==hi and all(hi<g['initial'] for g in calendar['phases'].values()),'SCHEDULED_TEMPORAL_CALIBRATION_GRID')
     require((profile['schema'] == 'polar.scheduled-reference-profile/3') ==
             (calendar.get('schema') == 'polar.daily-gate-policy-calendar/1'), 'SCHEDULED_CALENDAR_POLICY')
-    require((profile['schema'] in ('polar.scheduled-reference-profile/5','polar.scheduled-reference-profile/8','polar.scheduled-reference-profile/9','polar.scheduled-reference-profile/10','polar.scheduled-reference-profile/12')) ==
+    require((profile['schema'] in ('polar.scheduled-reference-profile/5','polar.scheduled-reference-profile/8','polar.scheduled-reference-profile/9','polar.scheduled-reference-profile/10','polar.scheduled-reference-profile/12','polar.scheduled-reference-profile/13')) ==
             (calendar.get('schema')=='polar.prospective-fixed-allocation-calendar/1'),'SCHEDULED_CALENDAR_POLICY')
     grids = calendar_value(calendar, schedule)
     list(operation_phases(profile, grids))
     if curve:
         from .scheduled_curve import date_joins
         date_joins(curve_context,profile,schedule,grids)
-    history = 2 if curve else 0 if profile['schema'].endswith(('/5','/8','/9','/10','/12')) else profile['policy']['window']-1 if profile['schema'] == 'polar.scheduled-reference-profile/3' else profile['policy']['lookback']
+    history = 2 if curve else 0 if profile['schema'].endswith(('/5','/8','/9','/10','/12','/13')) else profile['policy']['window']-1 if profile['schema'] == 'polar.scheduled-reference-profile/3' else profile['policy']['lookback']
     require(all(days.index(g['initial']) >= history for g in grids.values()), 'SCHEDULED_WARMUP')
-    tz = ZoneInfo.from_file(io.BytesIO(tz_raw), key='UTC' if profile['schema'].endswith(('/5','/7','/8','/9','/10','/11','/12')) else 'America/New_York')
+    tz = ZoneInfo.from_file(io.BytesIO(tz_raw), key='UTC' if profile['schema'].endswith(('/5','/7','/8','/9','/10','/11','/12','/13')) else 'America/New_York')
     if profile['schema'].endswith('/7'):
         require(all(tz.utcoffset(datetime.fromisoformat(d))==timedelta(0) for g in grids.values() for d in g['nav_dates']),
                 'SCHEDULED_RELATIVE_UTC_METADATA')
@@ -135,7 +135,7 @@ def account_count(profile, grids):
 
 
 def operation_phases(profile, grids):
-    if profile['schema'].endswith(('/2','/4','/6','/7','/8','/9','/11','/12')):
+    if profile['schema'].endswith(('/2','/4','/6','/7','/8','/9','/11','/12','/13')):
         require(set(grids) == {'FINAL'}, 'SCHEDULED_UNCERTAINTY_FINAL_ONLY')
         for scenario in profile['cost_scenarios']:
             yield ('FINAL' if scenario['id'] == 'BASE' else 'FINAL_COST_STRESS'), 'FINAL', scenario
@@ -150,6 +150,8 @@ def preflight(service, config):
             'operation_binding_sha256': sha(canonical(binding(config))), 'policy_execution': 'NOT_RUN',
             'scientific_starts': 0, 'fit_calls': 0, 'predict_calls': 0,
             'expected_native_accounts': account_count(p, grids)}
+    if p['schema'].endswith('/13'):
+        result.update(model_calls=0,score_calls=0,rank_calls=0,feature_calls=0,estimator_calls=0,optimizer_calls=0,bootstrap_samples=0)
     if p['schema'].endswith('/11'):
         from .scheduled_curve import expected_counts
         result['expected_feature_counts']=expected_counts(sum(len(g['decisions']) for g in grids.values()))
@@ -177,10 +179,12 @@ def authority_for(service, config, profile, grids):
             authority.get('binding_sha256') == sha(canonical(binding(config))) and
             authority.get('allowed_fit_calls') == 0 and authority.get('allowed_predict_calls') == 0 and
             authority.get('allowed_native_accounts') == account_count(profile, grids), 'SCHEDULED_OPERATION_NOT_BOUND')
-    if profile['schema'].endswith(('/8','/9','/10','/12')):
+    if profile['schema'].endswith(('/8','/9','/10','/12','/13')):
         require(all(authority.get(key)==0 for key in ('allowed_score_calls','allowed_rank_calls',
                 'allowed_estimator_calls','allowed_optimizer_calls','allowed_bootstrap_samples')),
                 'SCHEDULED_FIXED_COST_OPERATION_BOUND')
+    if profile['schema'].endswith('/13'):
+        require(authority.get('allowed_feature_calls')==0,'COMMON_EQUITY_FEATURE_BOUND')
     if profile['schema'].endswith('/11'):
         from .scheduled_curve import expected_counts
         require(authority.get('allowed_feature_counts')==expected_counts(sum(len(g['decisions']) for g in grids.values())) and
@@ -285,12 +289,13 @@ def run(service, config):
             if profile['schema'].endswith('/9'):
                 from .scheduled_passive import matched_initial_state
                 initial_state = matched_initial_state(simulation,profile,plan)
-            if profile['schema'].endswith(('/10','/12')):
+            if profile['schema'].endswith(('/10','/12','/13')):
                 from .model_price_consumed import verify
                 verify(plan,simulation,profile,{**calendar,'source_schedule_rows':schedule})
             evaluation = evaluate_policy(simulation, profile, reference_phase)
-            diagnostics[phase] = {t['id']: diagnose_phase(t, schedule, profile, plan,
-                subperiods=profile['subperiods'] if reference_phase == 'FINAL' and (scenario is None or scenario['id'] == 'BASE') else ()) for t in simulation['legs']}
+            diagnostics[phase] = phase_diagnostics(simulation, schedule, profile, plan,
+                cost_id=scenario['id'] if scenario else 'BASE',
+                subperiods=profile['subperiods'] if reference_phase == 'FINAL' and (scenario is None or scenario['id'] == 'BASE') else ())
             phases[phase] = {'plan': plan, 'simulation': simulation, 'evaluation': evaluation}
             if initial_state is not None:phases[phase]['initial_state_control']=initial_state
             if scenario is not None:
@@ -334,12 +339,18 @@ def run(service, config):
                     'text':'One fixed two-reference-session lag; exact47 macro features and94 rate operands shared by BASE and doubled-cost accounts. Zero ML, risk estimation, optimizer or bootstrap; nominal yields are not cash carry. Historical source availability is unknown, current-vintage/method-change and exposed-history limitations remain. Raw macro operands are private saved evidence, not public redistribution.'})
             if profile['schema'].endswith('/7'):
                 project_relative_diagnostics(record,diagnostics[phase],data['plan'])
+            elif profile['schema'].endswith('/13') and data.get('cost_scenario',{}).get('id')=='COST_STRESS':
+                record['limitations'].append({'code':'EXTRA_STRESS_DIAGNOSTICS_NOT_REQUESTED', 'scope':'COST_STRESS',
+                    'text':'All eighteen core scalar metrics are supplied. Dated recovery/tail/window/month/exposure descriptions beyond core scalars and all eras are NOT_REQUESTED, not zero.'})
             else:
                 project_diagnostics(record, diagnostics[phase])
             if profile['schema'].endswith('/9'):
                 record['limitations'].append({'code':'MATCHED_INITIAL_STATE_CONTROL','scope':'Each fresh cost scenario',
                     'text':'Executed initial holdings, residual cash, fees, fills and logical marks match between the primary annual and initial-only portfolios. Later TARGET versus HOLD paths include drift, clipping, cash and costs; this is not a pure fee effect or independent confirmation. Stored control is checked again without source or native calls.'})
-            if profile['schema'].endswith(('/8','/9','/12')):
+            if profile['schema'].endswith('/13'):
+                record['limitations'].append({'code':'COMMON_NOMINAL_EQUITY_NOT_MATCHED_EXECUTION', 'scope':'Both fresh cost scenarios',
+                    'text':'Fixed one-third VTI target weights do not guarantee matching actual equity quantities/exposure or equal portfolio risk. Whole-unit drift and own-account fee-aware clipping remain. No eras/bootstrap/inference requested; robustness and adoption remain INSUFFICIENT_EVIDENCE.'})
+            elif profile['schema'].endswith(('/8','/9','/12')):
                 record['limitations'].append({'code':'FIXED_COST_POINT_SCREEN_ONLY','scope':'Full phase and declared BASE eras',
                     'text':'Fixed annual BASE and actual doubled-cost accounts are descriptive point screens. BASE carried eras only; stress era diagnostics NOT_REQUESTED. No bootstrap, confidence interval or calibrated post-selection inference; robustness and adoption remain INSUFFICIENT_EVIDENCE regardless of point outcomes.'})
             if profile['schema'] == 'polar.scheduled-reference-profile/3':
@@ -354,8 +365,10 @@ def run(service, config):
         finish = {'status': 'SUCCESS', 'attempt_id': aid, 'semantic_id': sid, 'results': publications,
                   'fit_calls': 0, 'predict_calls': 0, 'model_calls': 0, 'native_accounts': completed,
                   'financial_acceptance': 'NOT_REVIEWED', 'finished_ns': time.time_ns()}
-        if profile['schema'].endswith(('/8','/9','/11','/12')):
+        if profile['schema'].endswith(('/8','/9','/11','/12','/13')):
             finish.update(score_calls=0,rank_calls=0,estimator_calls=0,optimizer_calls=0,bootstrap_samples=0)
+        if profile['schema'].endswith('/13'):
+            finish['feature_calls']=0
         if profile['schema'].endswith('/11'):
             from .scheduled_curve import expected_counts
             require(feature_counts==expected_counts(sum(len(g['decisions']) for g in grids.values())), 'CURVE_COMPLETION_COUNTS')
@@ -434,7 +447,7 @@ def recompute(service, semantic_id):
     expected_members = MEMBERS | ({'uncertainty.json'} if profile['schema'].endswith(('/2','/4','/6','/7')) else set())
     require(set(files) == expected_members, 'SCHEDULED_PROFILE_MEMBER_SET')
     require(files['bindings.json']['code'] == code_binding(), 'SCHEDULED_REPRODUCTION_CODE_BINDING')
-    if profile['schema'].endswith(('/8','/9','/11','/12')):
+    if profile['schema'].endswith(('/8','/9','/11','/12','/13')):
         expected={'FINAL':profile['cost_scenarios'][0], 'FINAL_COST_STRESS':profile['cost_scenarios'][1]}
         require(set(files['phases.json'])==set(expected),'SCHEDULED_FIXED_COST_PHASES')
         for phase,scenario in expected.items():
@@ -442,7 +455,7 @@ def recompute(service, semantic_id):
             require(data.get('reference_phase')=='FINAL' and data.get('cost_scenario')==scenario and
                     data['plan'].get('cost_profile')==data['simulation'].get('cost_profile')==scenario['cost_profile'],
                     'SCHEDULED_FIXED_COST_BINDING')
-    if profile['schema'].endswith(('/4','/6','/7','/8','/9','/11','/12')):
+    if profile['schema'].endswith(('/4','/6','/7','/8','/9','/11','/12','/13')):
         base=files['phases.json']['FINAL']['plan'];stress=files['phases.json']['FINAL_COST_STRESS']['plan']
         require({k:v for k,v in base.items() if k!='cost_profile'}=={k:v for k,v in stress.items() if k!='cost_profile'},'SCHEDULED_GMV_STRESS_SHARED_PLAN')
     expected_diagnostics = {}
@@ -459,7 +472,7 @@ def recompute(service, semantic_id):
             if data['plan'].get('consumed_witness_schema')=='polar.model-price-consumed-operands/1':
                 from .model_price_consumed import verify
                 verify(data['plan'],data['simulation'],profile,files['calendar.json'])
-        if profile['schema'].endswith('/12'):
+        if profile['schema'].endswith(('/12','/13')):
             from .model_price_consumed import verify
             verify(data['plan'],data['simulation'],profile,calendar)
         if profile['schema'].endswith('/7'):
@@ -479,8 +492,9 @@ def recompute(service, semantic_id):
                     'SCHEDULED_INITIAL_STATE_CONTROL_BINDING')
         require(canonical(evaluate_policy(data['simulation'], profile, data.get('reference_phase', phase))) == canonical(data['evaluation']), 'SCHEDULED_RECOMPUTE_MISMATCH')
         schedule = calendar['source_schedule_rows']
-        expected_diagnostics[phase] = {t['id']: diagnose_phase(t, schedule, profile, data['plan'],
-            subperiods=profile['subperiods'] if data.get('reference_phase', phase) == 'FINAL' and data.get('cost_scenario',{}).get('id','BASE') == 'BASE' else ()) for t in data['simulation']['legs']}
+        expected_diagnostics[phase] = phase_diagnostics(data['simulation'], schedule, profile, data['plan'],
+            cost_id=data.get('cost_scenario',{}).get('id','BASE'),
+            subperiods=profile['subperiods'] if data.get('reference_phase', phase) == 'FINAL' and data.get('cost_scenario',{}).get('id','BASE') == 'BASE' else ())
     require(canonical(expected_diagnostics) == canonical(files['diagnostics.json']), 'SCHEDULED_DIAGNOSTIC_RECOMPUTE')
     if 'uncertainty.json' in files:
         actual = uncertainty_for(files['phases.json']['FINAL']['simulation'],profile)
@@ -489,8 +503,10 @@ def recompute(service, semantic_id):
         require(canonical(actual) == canonical(files['uncertainty.json']), 'SCHEDULED_UNCERTAINTY_RECOMPUTE')
     result={'status': 'REPRODUCED', 'semantic_id': semantic_id, 'fit_calls': 0, 'model_calls': 0,
             'predict_calls': 0, 'native_calls': 0, 'store_writes': 0}
-    if profile['schema'].endswith(('/8','/9','/11','/12')):
+    if profile['schema'].endswith(('/8','/9','/11','/12','/13')):
         result.update(score_calls=0,rank_calls=0,estimator_calls=0,optimizer_calls=0,bootstrap_samples=0)
+    if profile['schema'].endswith('/13'):
+        result['feature_calls']=0
     if profile['schema'].endswith('/11'):
         from .scheduled_curve import expected_counts
         result['actual_feature_counts']=expected_counts(0)
@@ -667,6 +683,14 @@ def uncertainty_for(simulation,profile):
         recipe='RELATIVE_DESCRIPTIVE' if profile['schema'].endswith('/7') else 'TEMPORAL_DESCRIPTIVE' if temporal else 'LEGACY')
 
 
+def phase_diagnostics(simulation, schedule, profile, plan, *, cost_id='BASE', subperiods=()):
+    if profile['schema'].endswith('/13') and cost_id=='COST_STRESS':
+        return {t['id']:{'schema':'polar.common-equity-extra-diagnostics/1',
+                'status':'NOT_REQUESTED','subperiods':[]} for t in simulation['legs']}
+    return {t['id']:diagnose_phase(t,schedule,profile,plan,subperiods=subperiods)
+            for t in simulation['legs']}
+
+
 def diagnose_phase(tape,schedule,profile,plan,*,subperiods=()):
     if profile['schema'].endswith('/11'):
         from .scheduled_curve import diagnose_curve
@@ -677,7 +701,7 @@ def diagnose_phase(tape,schedule,profile,plan,*,subperiods=()):
     if profile['schema'].endswith('/12'):
         from .scheduled_fixed import diagnose_fixed_anchors
         return diagnose_fixed_anchors(tape,schedule,plan['prices'],subperiods=subperiods)
-    if profile['schema'].endswith(('/5','/8','/9','/10')):
+    if profile['schema'].endswith(('/5','/8','/9','/10','/13')):
         from .scheduled_fixed import diagnose_fixed
         return diagnose_fixed(tape,schedule,plan['prices'],subperiods=subperiods)
     if profile['schema'].endswith('/6'):
