@@ -83,8 +83,10 @@ def authority(service, config, profile, descriptor=None):
             review.get('reviewer') not in (None,'','platform-engineer@polar-rig') and
             type(review.get('report_ref')) is dict,'RAW_INDEPENDENT_TECHNICAL_BINDING')
         read_ref(review['report_ref'])
-        if value.get('action')=='CORRECTIVE_RAW_ACTION_E1':
-            from .raw_action_corrective import amendment
+        if value.get('action') in ('CORRECTIVE_RAW_ACTION_E1','CORRECTIVE_RAW_ACTION_E2'):
+            if value['action']=='CORRECTIVE_RAW_ACTION_E2':
+                from .raw_action_corrective_e2 import amendment
+            else:from .raw_action_corrective import amendment
             amendment(value,config,profile,descriptor)
     return value
 
@@ -125,8 +127,10 @@ def run(service,config):
         directory=service.store.root/parent
         prior=sorted(x.name for x in directory.iterdir()) if directory.exists() else []
         require(not directory.is_symlink(),'RAW_ORIGINAL_ALREADY_RECORDED')
-        if grant is not None and grant.get('action')=='CORRECTIVE_RAW_ACTION_E1':
-            from .raw_action_corrective import admit_locked
+        if grant is not None and grant.get('action') in ('CORRECTIVE_RAW_ACTION_E1','CORRECTIVE_RAW_ACTION_E2'):
+            if grant['action']=='CORRECTIVE_RAW_ACTION_E2':
+                from .raw_action_corrective_e2 import admit_locked
+            else:from .raw_action_corrective import admit_locked
             lineage=admit_locked(service,config,p,d,grant,parent,family,prior)
         else:require(not prior,'RAW_ORIGINAL_ALREADY_RECORDED')
         if grant is not None:require(grant.get('expected_prior_attempts')==prior,'RAW_PRIOR_ATTEMPTS')
@@ -184,14 +188,20 @@ def run(service,config):
         if lineage is not None:
             finish['completed_verified_lifecycle_counts']=dict(completed_lifecycle)
             from .raw_action_corrective import account_finish
-            account_finish(finish,lineage,started_ns)
+            if lineage['action']=='CORRECTIVE_RAW_ACTION_E2':
+                from .raw_action_corrective_e2 import account_finish as e2_account
+                e2_account(finish,lineage,started_ns,completed)
+            else:account_finish(finish,lineage,started_ns)
         with service.store.locked():service.store._publish(parent+'/'+aid,'finish',
             {'record.json':canonical(finish),'diagnostics.json':canonical(getattr(exc,'events',[]))},file_limit=32*1024**2)
         raise
     if lineage is not None:
         finish['completed_verified_lifecycle_counts']=dict(completed_lifecycle)
         from .raw_action_corrective import account_finish
-        account_finish(finish,lineage,started_ns)
+        if lineage['action']=='CORRECTIVE_RAW_ACTION_E2':
+            from .raw_action_corrective_e2 import account_finish as e2_account
+            e2_account(finish,lineage,started_ns,completed)
+        else:account_finish(finish,lineage,started_ns)
     with service.store.locked():service.store._publish(parent+'/'+aid,'finish',{'record.json':canonical(finish)})
     return finish
 
