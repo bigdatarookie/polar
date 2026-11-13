@@ -169,10 +169,10 @@ def authority_for(service, config, profile, grids):
     if config['namespace'] == 'INVENTED' and config['execution_authority_ref'] is None:
         return None
     authority = decode(read_ref(config['execution_authority_ref']))
-    require(authority.get('schema') == 'polar.scheduled-reference-operation/1' and authority.get('action') in ('ORIGINAL','CORRECTIVE_E1','CORRECTIVE_RAW_ACTION_E1') and
+    require(authority.get('schema') == 'polar.scheduled-reference-operation/1' and authority.get('action') in ('ORIGINAL','CORRECTIVE_E1','CORRECTIVE_RAW_ACTION_E1','CORRECTIVE_RAW_ACTION_E2') and
             (authority.get('action')=='ORIGINAL' or
              (authority.get('action')=='CORRECTIVE_E1' and profile['schema']=='polar.scheduled-reference-profile/11') or
-             (authority.get('action')=='CORRECTIVE_RAW_ACTION_E1' and profile['schema']=='polar.raw-action-profile/1' and config['schema']=='polar.raw-action-config/1')) and
+             (authority.get('action') in ('CORRECTIVE_RAW_ACTION_E1','CORRECTIVE_RAW_ACTION_E2') and profile['schema']=='polar.raw-action-profile/1' and config['schema']=='polar.raw-action-config/1')) and
             authority.get('binding_sha256') == sha(canonical(binding(config))) and
             authority.get('allowed_fit_calls') == 0 and authority.get('allowed_predict_calls') == 0 and
             authority.get('allowed_native_accounts') == account_count(profile, grids), 'SCHEDULED_OPERATION_NOT_BOUND')
