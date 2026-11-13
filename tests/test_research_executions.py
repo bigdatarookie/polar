@@ -194,3 +194,12 @@ def test_rehashed_zero_delta_cannot_relax_saved_binding(tmp_path,mutation):
 def test_legacy_zero_intent_stays_rejected(tmp_path):
     results,rid,_,_=fixture(tmp_path,zero=True)
     with pytest.raises(ResearchError):project(results,rid)
+
+
+def test_coarse_model_zero_cannot_be_relabelled_as_raw_share_basis(tmp_path):
+    results,rid,d,name=fixture(tmp_path,model=True,zero=True)
+    def change(phase,profile,record):
+        phase['FINAL']['simulation']['quote_basis']='MODELED_RAW_SHARE_PRICE'
+        record['basis']['wealth_basis']='PRICE_ONLY'
+    other=republish_model(results,rid,d,name,change)
+    with pytest.raises(ResearchError):project(results,other)

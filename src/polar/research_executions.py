@@ -136,7 +136,7 @@ def project(results, result_id, series_id=None, limit=100, offset=0):
     # a zero quantity in another legacy tape is still rejected.
     consumed_model = simulation.get('quantity_unit')=='COARSE100_SYNTHETIC_REFERENCE_UNIT_NOT_PHYSICAL_SHARE'
     if consumed_model:
-        require(schema=='polar.scheduled-reference-semantic-manifest/1')
+        require(synthetic and schema=='polar.scheduled-reference-semantic-manifest/1')
         profile,_=member('profile.json');plan=phases[phase].get('plan',{})
         require(profile.get('schema')=='polar.scheduled-reference-profile/10')
         from .reference_model_price import validate

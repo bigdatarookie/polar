@@ -3,7 +3,8 @@
 The read-only executions projection preserves profile10's captured zero-delta
 routing records instead of rejecting the whole tape. A zero intended quantity is
 accepted only for the saved coarse100 consumed-witness contract: integrity-pinned
-profile10, validated exact mapping, plan opt-in/schema/unit, public mapping hash
+profile10, synthetic public/simulation basis, validated exact mapping, plan
+opt-in/schema/unit, public mapping hash
 (including the producer's canonical LF), and unchanged source binding must agree.
 The zero record must have integer zero desired/routed quantities, its exact
 `ZERO_DELTA_NO_ORDER` reason, consumed decision identity/delta/target/holdings
