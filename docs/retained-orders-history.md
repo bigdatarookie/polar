@@ -53,3 +53,12 @@ remain separate. Final user acceptance requires actual AMZN TOM and SHY row
 clicks selecting the correct source instrument/date/exact fill and stable date
 marker after qualified serving and additive registration; HTTP200 alone is not
 acceptance.
+
+The selected pointer census preserves two explicit original metadata forms.
+Adjusted/SIP claims use typed `source_row_index`. The original multiyear raw
+source-map form uses typed `source_row_ordinal_0based`, plus its exact
+`source_array=bars.SYMBOL`, symbol, bars.ndjson member and nonnegative chunk/request
+ordinals. Both bind the staged row's original body hash/date/index and original
+raw array token. Ambiguous dual indices, booleans, wrong symbols/arrays and
+malformed normalized line metadata reject. The constructor accommodates the
+original producer metadata; it does not rewrite the candidate or source rows.

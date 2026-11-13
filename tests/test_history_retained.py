@@ -150,3 +150,37 @@ def test_existing_history_bars_api_preserves_source_basis_and_missing_adjusted_c
     second=q.bars(s['dataset_id'],s['dataset_revision'],'hist-sip-AAA','2024-01-02','2024-01-04',limit='1',cursor=first['next_cursor'])
     assert second['rows'][0]['session_date']=='2024-01-03' and second['window_complete'] and second['basis']==first['basis']
     assert second['coverage']['calendar_status']=='UNVERIFIED'
+
+
+def raw_ordinal_fixture():
+    c,e,rows,bodies,ih,metadata=fixture(False);candidate=json.loads(c);proof=json.loads(e)
+    for claim in candidate['series'][0]['row_bindings']:
+        index=claim.pop('source_row_index')
+        claim.update(source_row_ordinal_0based=index,source_array='bars.AAA',symbol='AAA',
+                     normalized_member='bars.ndjson',chunk_index=0,request_ordinal=3)
+    raw=canonical(candidate);proof.update(candidate={'sha256':sha(raw),'bytes':len(raw)},series=candidate['series'])
+    return raw,canonical(proof),rows,bodies,ih,metadata
+
+
+def test_original_raw_source_map_ordinal_claims_round_trip_without_row_rewrite():
+    args=raw_ordinal_fixture();files,s=assemble(*args[:5],metadata=args[5]);bundle=verify_files(files,s['manifest_sha256'])
+    legacy,_,_=built(False)
+    assert files['bars/hist-sip-AAA.ndjson']==legacy['bars/hist-sip-AAA.ndjson']
+    assert bundle.summary==s and s['research_bindings'][0]['native_symbol']=='AAA'
+    assert files['source-candidate.json']==args[0] and files['source-evidence.json']==args[1]
+
+
+@pytest.mark.parametrize('kind',['index','bool','symbol','array','dual','member','line','chunk'])
+def test_raw_source_map_ordinal_claims_remain_typed_unambiguous_and_exact(kind):
+    c,e,rows,bodies,ih,metadata=raw_ordinal_fixture();candidate=json.loads(c);proof=json.loads(e)
+    claim=candidate['series'][0]['row_bindings'][0]
+    if kind=='index':claim['source_row_ordinal_0based']=1
+    if kind=='bool':claim['source_row_ordinal_0based']=False
+    if kind=='symbol':claim['symbol']='OTHER'
+    if kind=='array':claim['source_array']='bars.OTHER'
+    if kind=='dual':claim['source_row_index']=0
+    if kind=='member':claim['normalized_member']='../bars.ndjson'
+    if kind=='line':claim['normalized_line_1based']=True
+    if kind=='chunk':claim['chunk_index']=-1
+    raw=canonical(candidate);proof.update(candidate={'sha256':sha(raw),'bytes':len(raw)},series=candidate['series'])
+    with pytest.raises(HistoryError):assemble(raw,canonical(proof),rows,bodies,ih,metadata=metadata)
