@@ -166,10 +166,11 @@ def preflight(service, config):
 
 
 def authority_for(service, config, profile, grids):
-    if config['namespace'] == 'INVENTED':
+    if config['namespace'] == 'INVENTED' and config['execution_authority_ref'] is None:
         return None
     authority = decode(read_ref(config['execution_authority_ref']))
-    require(authority.get('schema') == 'polar.scheduled-reference-operation/1' and authority.get('action') == 'ORIGINAL' and
+    require(authority.get('schema') == 'polar.scheduled-reference-operation/1' and authority.get('action') in ('ORIGINAL','CORRECTIVE_E1') and
+            (authority.get('action')=='ORIGINAL' or profile['schema'].endswith('/11')) and
             authority.get('binding_sha256') == sha(canonical(binding(config))) and
             authority.get('allowed_fit_calls') == 0 and authority.get('allowed_predict_calls') == 0 and
             authority.get('allowed_native_accounts') == account_count(profile, grids), 'SCHEDULED_OPERATION_NOT_BOUND')
@@ -232,13 +233,22 @@ def run(service, config):
     parent = 'scheduled-reference-attempts/' + family; aid = str(uuid.uuid4())
     with service.store.locked():
         directory = service.store.root/parent
+        require(not directory.is_symlink(), 'SCHEDULED_ORIGINAL_ALREADY_RECORDED')
         prior = sorted(p.name for p in directory.iterdir()) if directory.exists() else []
-        require(not directory.is_symlink() and not prior, 'SCHEDULED_ORIGINAL_ALREADY_RECORDED')
-        if authority is not None:
-            require(authority.get('expected_prior_attempts') == prior, 'SCHEDULED_ATTEMPT_HISTORY')
-        service.store._publish(parent, aid, {'start.json': canonical({'schema': 'polar.scheduled-reference-start/1',
-            'attempt_id': aid, 'status': 'FIRST_START_CONSERVATIVE_DEBIT', 'binding': binding(config),
-            'fit_calls': 0, 'predict_calls': 0, 'model_calls': 0, 'started_ns': time.time_ns()}),
+        lineage=None
+        if authority is not None and authority.get('action')=='CORRECTIVE_E1':
+            from .scheduled_corrective import admit_locked
+            lineage=admit_locked(service,config,profile,authority,parent,family,prior)
+        else:
+            require(not prior, 'SCHEDULED_ORIGINAL_ALREADY_RECORDED')
+            if authority is not None:
+                require(authority.get('expected_prior_attempts') == prior, 'SCHEDULED_ATTEMPT_HISTORY')
+        started_ns=time.time_ns()
+        start={'schema': 'polar.scheduled-reference-start/1','attempt_id': aid,
+            'status': 'FIRST_START_CONSERVATIVE_DEBIT','binding': binding(config),
+            'fit_calls': 0, 'predict_calls': 0, 'model_calls': 0, 'started_ns':started_ns}
+        if lineage is not None:start['corrective_lineage']=lineage
+        service.store._publish(parent, aid, {'start.json':canonical(start),
             'config.json': canonical(config), 'authority.json': canonical(authority)})
     completed = 0
     optimizer_counts = optimization_counts([])
@@ -380,10 +390,14 @@ def run(service, config):
         if profile['schema'].endswith('/4'):
             events=getattr(exc,'events',{})
             finish['actual_optimizer_counts'] = events.get('actual_counts',optimizer_counts) if isinstance(events,dict) else optimizer_counts
+        from .scheduled_corrective import account_finish
+        account_finish(finish,lineage,started_ns)
         with service.store.locked():
             service.store._publish(parent+'/'+aid, 'finish', {'record.json': canonical(finish),
                 'diagnostics.json': canonical(getattr(exc, 'events', []))}, file_limit=32*1024**2)
         raise
+    from .scheduled_corrective import account_finish
+    account_finish(finish,lineage,started_ns)
     with service.store.locked():
         service.store._publish(parent+'/'+aid, 'finish', {'record.json': canonical(finish)})
     return finish
