@@ -147,3 +147,28 @@ class HistoryRegistry:
                                                              "after": items[-1]["dataset_revision"]})).decode()
         return {"schema_version": "polar.history-catalog/1", "items": items,
                 "next_cursor": next_cursor, "catalog_snapshot": snapshot}
+
+
+    def research_navigation(self, input_sha256, native_symbol):
+        """Resolve only an exact registered content correspondence, never ticker.
+
+        Every selected publication is reverified through load_revision; multiple
+        matching revisions are ambiguous and cannot silently choose newest.
+        """
+        from .history_bundle import hex_hash
+        hex_hash(input_sha256);identifier(native_symbol)
+        self.legacy.check()
+        with self.legacy.connect() as db:
+            self._check(db)
+            rows=db.execute("""SELECT dataset_id,revision FROM history_revisions
+                WHERE summary->'research_bindings' @> %s::jsonb LIMIT 2""",
+                (Jsonb([{'input_sha256':input_sha256,'native_symbol':native_symbol}]),)).fetchall()
+        if len(rows)!=1:return None
+        summary,_=self.load_revision(rows[0]['dataset_id'],rows[0]['revision'])
+        links=[x for x in summary.get('research_bindings',[]) if x['input_sha256']==input_sha256 and x['native_symbol']==native_symbol]
+        require(len(links)==1,'HISTORY_RESEARCH_MAPPING_IDENTITY')
+        link=links[0];asset=next((x for x in summary['instruments'] if x['instrument_id']==link['instrument_id']),None)
+        require(asset is not None and asset['source_symbol']==link['source_symbol'],'HISTORY_RESEARCH_MAPPING_IDENTITY')
+        return {**{k:v for k,v in link.items() if k!='native_symbol'},'dataset_id':summary['dataset_id'],
+                'dataset_revision':summary['dataset_revision'],'mapping_status':'DECLARED_CURRENT_ONLY',
+                'instrument_type':asset['instrument_type']}

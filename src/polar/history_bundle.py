@@ -243,10 +243,14 @@ def verify_files(files, expected_manifest_hash):
 
 def _verify_files(files, expected_manifest_hash):
     hex_hash(expected_manifest_hash)
-    require(len(files) == 28 and sum(map(len, files.values())) <= MAX_BUNDLE, "HISTORY_BUNDLE_LIMIT")
+    require(1 <= len(files) <= 64 and sum(map(len, files.values())) <= MAX_BUNDLE, "HISTORY_BUNDLE_LIMIT")
     require(sha(files["bundle-manifest.json"]) == expected_manifest_hash, "HISTORY_MANIFEST_HASH")
     bundle = decode(files["bundle-manifest.json"])
     content = bundle["content"]
+    if content.get("format") == "polar.retained-sip-history-bundle/1":
+        from .history_retained import verify
+        return verify(files, expected_manifest_hash)
+    require(len(files) == 28, "HISTORY_BUNDLE_LIMIT")
     revision = revision_id(bundle["dataset_revision"])
     require(revision == "histrev-" + sha(canonical(content)), "HISTORY_REVISION_HASH")
     dataset = identifier(bundle["dataset_id"])
@@ -383,7 +387,7 @@ def verify_bundle(directory, expected_manifest_hash):
     for path in root.rglob("*"):
         require(not path.is_symlink(), "HISTORY_SYMLINK")
         if path.is_file():
-            require(len(files) < 28, "HISTORY_FILE_SET")
+            require(len(files) < 64, "HISTORY_FILE_SET")
             name = str(path.relative_to(root))
             files[name] = read_file(root, name)
             require(sum(map(len, files.values())) <= MAX_BUNDLE, "HISTORY_BUNDLE_LIMIT")

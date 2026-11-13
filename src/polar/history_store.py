@@ -122,7 +122,7 @@ class HistoryStore:
         try:
             require(publication["format"] == "polar.history-publication/1" and
                     publication["dataset_revision"] == revision and publication["import_receipt_id"] == receipt_id)
-            require(len(publication["files"]) == 28, "HISTORY_FILE_SET")
+            require(1 <= len(publication["files"]) <= 64, "HISTORY_FILE_SET")
             files = {}
             for key, record in publication["files"].items():
                 require(record["storage"] in ("content", "receipt"))

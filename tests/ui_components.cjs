@@ -258,3 +258,12 @@ test('isolated hits and true same-date overlap preserve all nanosecond IDs witho
  assert.deepEqual(Array.from(ctx.executionHitCandidates([{x:10,y:20,size:12,events:[a,b]},{x:10,y:20,size:12,events:[a]}],10,20),e=>e.order_id),['same-a','same-b']);
  assert.deepEqual(Array.from(ctx.executionHitCandidates([{x:10,y:20,size:12,events:[a]},{x:80,y:20,size:12,events:[b]}],80,20),e=>e.order_id),['same-b']);
 });
+
+test('comparison caption uses the selected retained source candle basis',()=>{
+ const env=appContext(async()=>{throw Error('no request');}),ctx=env.context;
+ ctx.saved={result_id:'research-'+'a'.repeat(64),record:{series:[{id:'strategy',role:'STRATEGY',label:'Saved strategy'},{id:'benchmark',role:'BENCHMARK',label:'Saved benchmark'}],primary_benchmark_id:'benchmark',basis:{currency:'USD',wealth_basis:'SYNTHETIC_REFERENCE',cost_basis:'NET',timezone:'UTC'},financial_claim:'Limited saved comparison'}};
+ ctx.selectedMainResearch=()=>ctx.saved;ctx.getAsset=()=>({symbol:'SHY'});ctx.getMainComparison=()=>({usable:true,baselineDate:'2024-01-02',benchmark:{label:'Saved benchmark'},strategyIndex:[100,101],benchmarkIndex:[100,100],historySummary:{reasons:[]}});
+ vm.runInContext("state.dataMode='real';historyContext={revision:{basis:{ohlc_basis:'VENDOR_ALL_ADJUSTED_REFERENCE',adjusted_close_basis:'NOT_SUPPLIED',volume_basis:'VENDOR_RESPONSE_UNITS_ADJUSTMENT_ALL_NOT_RAW_SHARES',price_unit:'USD/vendor all-adjusted reference unit',volume_unit:'vendor all-adjusted response units'}}};",ctx);
+ const host=env.node('#comparison-test');ctx.renderPortfolioOverlayControls(host);
+ assert.match(host.textContent,/SHY Vendor all-adjusted OHLC/);assert(!host.textContent.includes('SHY raw candles'));
+});
