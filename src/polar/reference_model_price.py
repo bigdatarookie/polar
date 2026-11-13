@@ -48,6 +48,13 @@ def view(source,mapping):
 
 
 def bind_plan(plan,market):
+    # Instrument the existing sizing call, never a later reconstructed state.
+    clocks={row['date']:row['nominal_ns'] for row in plan['grid']}
+    plan={**plan,'decisions':[{**d,'formation_close_ns':clocks[d['formation']]} for d in plan['decisions']],
+        'capture_consumed_sizing':True,'consumed_witness_schema':'polar.model-price-consumed-operands/1',
+        'price_evidence':{d:{'source_input_sha256':market['model_price_mapping']['source_input_sha256'],
+            'model_mapping_sha256':sha(canonical(market['model_price_mapping'])),'source_date':d}
+            for d in plan['prices']}}
     return {**plan,'model_price_mapping':market['model_price_mapping'],
         'source_prices_micro':{d:market['source_prices_micro'][d] for d in plan['prices']},
         'quantity_unit':'COARSE100_SYNTHETIC_REFERENCE_UNIT_NOT_PHYSICAL_SHARE'}
