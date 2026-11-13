@@ -7,7 +7,7 @@ import re
 from fractions import Fraction
 from pathlib import Path
 from datetime import datetime, timezone
-from .history_bundle import read_file, decode, sha
+from .history_bundle import read_file, decode, sha, canonical
 from .research_results import ResearchError
 
 LIMIT = 32 * 1024**2
@@ -131,6 +131,28 @@ def project(results, result_id, series_id=None, limit=100, offset=0):
                     matches_money(row['bps_cents'],ledger['cumulative_bps_fees']))
     synthetic=r['basis']['wealth_basis']=='SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT'
     require((simulation.get('quote_basis')=='SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT')==synthetic)
+    # Profile10 records consumed zero-delta decisions as well as actual fills.
+    # Bind that opt-in to the saved profile/plan and public mapping provenance;
+    # a zero quantity in another legacy tape is still rejected.
+    consumed_model = simulation.get('quantity_unit')=='COARSE100_SYNTHETIC_REFERENCE_UNIT_NOT_PHYSICAL_SHARE'
+    if consumed_model:
+        require(synthetic and schema=='polar.scheduled-reference-semantic-manifest/1')
+        profile,_=member('profile.json');plan=phases[phase].get('plan',{})
+        require(profile.get('schema')=='polar.scheduled-reference-profile/10')
+        from .reference_model_price import validate
+        from .gym_contract import canonical as model_canonical
+        mapping=profile.get('model_price_mapping')
+        try:
+            validate(mapping,profile)
+        except (ValueError,KeyError,TypeError) as exc:
+            raise ResearchError('RESEARCH_EXECUTION_MODEL_MAPPING',409) from exc
+        mapping_refs=[p for p in r['provenance'] if p['role']=='model_price_mapping']
+        require(len(mapping_refs)==1 and mapping_refs[0]['sha256']==sha(model_canonical(mapping)) and
+                mapping['source_input_sha256']==public_binding['data_sha256'] and
+                canonical(plan.get('model_price_mapping'))==canonical(mapping) and
+                plan.get('quantity_unit')==mapping['active_unit'] and
+                plan.get('capture_consumed_sizing') is True and
+                plan.get('consumed_witness_schema')=='polar.model-price-consumed-operands/1')
     leg=next(x for x in legs if x['id']==series['id']);orders=leg['orders'];fills=leg['fills']
     require(type(orders) is list and type(fills) is list and len(orders)<=MAX_ORDERS and len(fills)<=len(orders))
     require(len({x['id'] for x in orders})==len(orders) and len({x['id'] for x in fills})==len(fills))
@@ -139,15 +161,24 @@ def project(results, result_id, series_id=None, limit=100, offset=0):
     for order in orders:
         oid=order['id'];symbol=order['symbol'];side=order['side'];at=integer(order['at_ns'])
         require(type(oid) is str and len(oid)<=256 and type(symbol) is str and re.fullmatch('[A-Za-z0-9_.:-]{1,64}',symbol) and side in ('BUY','SELL'))
-        desired=integer(order['intended_quantity']);q=integer(order['routed_quantity']);require(desired>0 and q<=desired)
+        parts=oid.split('/')
+        require(len(parts)==4 and parts[0]==series['id'] and parts[2]==side and parts[3]==symbol and re.fullmatch(r'\d{4}-\d{2}-\d{2}',parts[1]))
+        datetime.strptime(parts[1],'%Y-%m-%d')
+        desired=integer(order['intended_quantity']);q=integer(order['routed_quantity']);require(q<=desired)
+        if desired==0:
+            witness=order.get('consumed_operands');require(consumed_model and q==0 and
+                order.get('reason')=='ZERO_DELTA_NO_ORDER' and type(witness) is dict)
+            require(type(witness.get('desired_delta')) is int and witness['desired_delta']==0 and
+                witness.get('decision_id')==series['id']+'/'+parts[1])
+            target=integer(witness.get('target'));held=witness.get('holdings_before')
+            require(type(held) is dict and symbol in held)
+            current=integer(held[symbol])
+            require(max(current-target,0)==0 if side=='SELL' else max(target-current,0)==0)
         fill=fill_map.get(oid);require((fill is not None)==(q>0))
         if fill is not None:
             require(fill['symbol']==symbol and fill['side']==side and fill['at_ns']==at and fill['q']==q)
             price=integer(fill['price_micro'],1);fee=integer(fill['fee_cents']);settled=integer(fill['settled_cents'])
         else:price=fee=settled=None
-        parts=oid.split('/')
-        require(len(parts)==4 and parts[0]==series['id'] and parts[2]==side and parts[3]==symbol and re.fullmatch(r'\d{4}-\d{2}-\d{2}',parts[1]))
-        datetime.strptime(parts[1],'%Y-%m-%d')
         events.append({'order_id':oid,'symbol':symbol,'side':side,'timestamp_ns':str(at),'timestamp':utc(at),
             'intended_quantity':str(desired),'routed_quantity':str(q),'filled_quantity':str(q) if fill else '0',
             'status':'FILLED' if fill else 'NOT_ROUTED','reason':order.get('reason'),
