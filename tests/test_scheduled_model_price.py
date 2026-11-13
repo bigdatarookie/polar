@@ -162,7 +162,7 @@ def test_profile10_authority_requires_zero_nonpolicy_work(tmp_path,monkeypatch,a
 
 def test_invented_coarse_projection_preserves_all31_limitations(tmp_path,monkeypatch):
     # Entirely invented scalar/metadata projection: no retained record, evaluator,
-    # market load, native call, or publication is involved.
+    # market load or native call is involved. Publication below uses invented scalars only.
     from polar.scheduled_service import public_config,project_diagnostics
     from polar.reference_projection import public_reference
     from polar.research_results import ResearchResult,validate_result,ResearchError
@@ -183,6 +183,7 @@ def test_invented_coarse_projection_preserves_all31_limitations(tmp_path,monkeyp
     assert len(record['limitations'])==31  # 5 risk + 2*5 carried-era descriptions.
     original=deepcopy(record)
     assert validate_result(record)==original  # All objects and unrelated scientific fields lossless.
+    (tmp_path/'invented-projection-store').mkdir()
     store=ResearchResults(tmp_path/'invented-projection-store',128*1024**2)
     pub=store.publish(record)
     assert store.read(pub['result_id'])['record']==original
