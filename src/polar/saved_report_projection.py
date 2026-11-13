@@ -7,6 +7,7 @@ import re
 import sys
 
 from .gym_contract import canonical, sha, decode, GymError
+from .ci_research import utc_text
 from .gym_service import code_binding
 from .history_bundle import read_file, safe_root, HistoryError
 from .reference_projection import public_reference
@@ -114,6 +115,23 @@ def project_saved_report(store_root, semantic_id, *, candidate_id, experiment_id
         for key in ('simulation','evaluation'):
             need(data[key],['legs'],key)
             require(len(data[key]['legs'])==len(ids) and {x['id'] for x in data[key]['legs']}==ids,'SAVED_REPORT_LEG_IDENTITY')
+        # The public formatter uses the first leg's timestamps and consumes only
+        # nav_count-1 returns. Check every saved operand before those details can
+        # be discarded; formatting must not conceal conflicting saved evidence.
+        common=None
+        for leg in data['simulation']['legs']:
+            need(leg,['nav'],'simulation_leg')
+            require(type(leg['nav']) is list and len(leg['nav'])==grid['nav_points'],'SAVED_REPORT_LEG_GRID')
+            for row in leg['nav']:need(row,['nominal_ns'],'nav_row')
+            timestamps=[row['nominal_ns'] for row in leg['nav']]
+            require(all(type(t) is int for t in timestamps) and
+                    all(a<b for a,b in zip(timestamps,timestamps[1:])),'SAVED_REPORT_LEG_GRID')
+            if common is None:common=timestamps
+            require(timestamps==common,'SAVED_REPORT_LEG_GRID')
+        require([utc_text(t)[:10] for t in common]==grid['nav_dates'],'SAVED_REPORT_GRID_IDENTITY')
+        for leg in data['evaluation']['legs']:
+            need(leg,['returns'],'evaluation_leg')
+            require(type(leg['returns']) is list and len(leg['returns'])==grid['return_count'],'SAVED_REPORT_RETURN_COUNT')
         diagnostic_inputs(files['diagnostics.json']['FINAL'],p)
         public=public_config(cfg,p);public['model_price_mapping']=p['model_price_mapping']
         record=public_reference(public,data['simulation'],data['evaluation'],semantic_id=semantic_id,semantic_hash=sha(raw),phase='FINAL')
@@ -126,7 +144,7 @@ def project_saved_report(store_root, semantic_id, *, candidate_id, experiment_id
         body.update(status='INCOMPLETE_INPUT',missing=[str(exc)])
     except (KeyError,IndexError) as exc:
         body.update(status='INCOMPLETE_INPUT',missing=['SAVED_PROJECTION_FIELD'])
-    except (ValueError,TypeError,HistoryError,GymError,ResearchError) as exc:
+    except (ValueError,TypeError,OverflowError,HistoryError,GymError,ResearchError) as exc:
         body.update(status='INVALID_INPUT',reason=str(exc) if re.fullmatch('[A-Z][A-Z0-9_]{1,100}',str(exc)) else 'SAVED_REPORT_INVALID')
     body['verified_members']=pins
     return {**body,'technical_artifact_id':'saved-report-projection-'+sha(canonical(body))}

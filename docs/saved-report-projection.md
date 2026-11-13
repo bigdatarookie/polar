@@ -21,7 +21,11 @@ and old execution/accounting remain independent evidence responsibilities.
 
 Supplied saved simulation/evaluation/diagnostics are projected by the accepted
 public_config/public_reference/project_diagnostics/validate_result functions only.
-Saved calendar/grid and leg/phase identities must agree. Missing required saved
+Before composition, every simulation leg must carry the same exact ordered
+integer timestamp grid, with strictly increasing timestamps and the calendar's
+NAV dates/count. Every evaluation leg must contain exactly the calendar return
+count. Conflicting or extra saved operands are rejected before a formatter can
+discard them. Saved leg/phase identities must agree. Missing required saved
 fields/diagnostic operands/eras produce INCOMPLETE_INPUT, not reconstruction;
 malformed/hash/identity/type/schema conflicts produce INVALID_INPUT. Source-value
 refs are not followed, policies/plans are not rebuilt, native simulation/evaluators/

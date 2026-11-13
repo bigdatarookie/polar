@@ -145,3 +145,24 @@ def test_cli_and_changed_artifact_id_are_private_and_closed(tmp_path,monkeypatch
     artifact['status']='MUTATED'
     with pytest.raises(ValueError,match='SAVED_REPORT_ARTIFACT_ID'):write_artifact(tmp_path/'tampered.json',artifact,input_store_root=root)
     assert not (tmp_path/'tampered.json').exists()
+
+
+@pytest.mark.parametrize('mutation',['shift_ns','shift_day','reverse_grid','extra_return','missing_return'])
+def test_every_saved_leg_grid_and_return_count_checked_before_formatter(tmp_path,monkeypatch,mutation):
+    root,sid,files,cfg=graph(tmp_path,monkeypatch);forbid(monkeypatch)
+    simulation=files['phases.json']['FINAL']['simulation']['legs']
+    evaluation=files['phases.json']['FINAL']['evaluation']['legs']
+    if mutation=='shift_ns':simulation[1]['nav'][0]['nominal_ns']+=1
+    if mutation=='shift_day':
+        for row in simulation[1]['nav']:row['nominal_ns']+=86400*10**9
+    if mutation=='reverse_grid':simulation[1]['nav'].reverse()
+    if mutation=='extra_return':evaluation[1]['returns'].append({'decimal':'0'})
+    if mutation=='missing_return':evaluation[1]['returns'].clear()
+    sid=pack(root,files);before=snapshot(root)
+    import polar.saved_report_projection as module
+    def no_formatter(*a,**kw):raise AssertionError('CONFLICT_MUST_REJECT_BEFORE_COMPOSITION')
+    monkeypatch.setattr(module,'public_reference',no_formatter)
+    result=call(root,sid,cfg)
+    assert result['status']=='INVALID_INPUT' and 'records' not in result
+    assert result['reason']==('SAVED_REPORT_RETURN_COUNT' if 'return' in mutation else 'SAVED_REPORT_LEG_GRID')
+    assert snapshot(root)==before
