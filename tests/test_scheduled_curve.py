@@ -155,10 +155,12 @@ def test_eight_native_true_costs_consumed_operands_and_source_absent_stored(tmp_
     assert stored['native_calls']==stored['store_writes']==stored['model_calls']==0 and snapshot(root)==before
 
 
-def test_invalid_rate_partial_counts_debit_and_no_native_retry(tmp_path,monkeypatch):
+@pytest.mark.parametrize("bad_field", ["BC_2YEAR", "BC_10YEAR"])
+@pytest.mark.parametrize("bad_token", ["INVALID_INVENTED_RATE", "NaN", "Infinity", "1"*257, "1e257", "1e-257"])
+def test_invalid_rate_partial_counts_debit_and_no_native_retry(tmp_path,monkeypatch,bad_token,bad_field):
     root,cfg,p,c,d=fixture(tmp_path,monkeypatch)
     rows=[json.loads(b) for b in Path(d['macro_records_ref']['path']).read_bytes().splitlines()]
-    for row in rows:row['tokens']['BC_2YEAR']='INVALID_INVENTED_RATE'
+    for row in rows:row['tokens'][bad_field]=bad_token
     raw=b'';ix=[]
     for i,row in enumerate(rows):
         b=canonical(row);ix.append({'date':row['source_date'],'line_1based':i+1,'byte_start':len(raw),
@@ -170,10 +172,14 @@ def test_invalid_rate_partial_counts_debit_and_no_native_retry(tmp_path,monkeypa
     import polar.scheduled_service as module
     monkeypatch.setattr(module,'bounded_native',lambda *a:(_ for _ in ()).throw(AssertionError('NO_NATIVE_AFTER_RATE_FAILURE')))
     service=ReferenceResearchService(root,256*1024**2)
-    with pytest.raises(CurveError):service.run(cfg)
+    with pytest.raises(CurveError) as failure:service.run(cfg)
+    reads=1 if bad_field=='BC_2YEAR' else 2
+    assert failure.value.events['actual_counts']['rate_operand_reads']==reads
+    assert failure.value.events['completed_signals']==[]
+    assert failure.value.events['failed_signal']['source_row']['tokens'][bad_field]==bad_token
     finish=json.loads(next(root.rglob('finish/record.json')).read_bytes())
     assert finish['scientific_status']=='INVALID' and finish['completed_native_accounts']==0
-    assert finish['actual_feature_counts']=={'feature_calls':1,'rate_operand_reads':1,'completed_features':0,'sign_decisions':0,'completed_decisions':0}
+    assert finish['actual_feature_counts']=={'feature_calls':1,'rate_operand_reads':reads,'completed_features':0,'sign_decisions':0,'completed_decisions':0}
     assert finish['refund'] is False and finish['automatic_retry'] is False
     with pytest.raises(ValueError,match='ORIGINAL_ALREADY_RECORDED'):service.run(cfg)
 

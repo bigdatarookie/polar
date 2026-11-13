@@ -9,7 +9,7 @@ from fractions import Fraction
 import re
 
 from .ci_research import require
-from .gym_contract import canonical, sha, fraction
+from .gym_contract import canonical, sha, fraction, GymError
 from .reference_ridge_plan import nanoseconds
 from .research_reference import decode, pinned_bytes, load_reference
 
@@ -226,7 +226,7 @@ def plan_phase(market, profile, grid, tz):
             witness.update(source_row=row, source_row_raw=raw.decode('utf-8'), row_sha256=sha(raw),
                 spread=[str(spread.numerator),str(spread.denominator)], targets=targets(weight))
             counts['completed_decisions'] += 1
-        except (ValueError,KeyError,ArithmeticError,TypeError) as exc:
+        except (GymError,ValueError,KeyError,ArithmeticError,TypeError) as exc:
             raise CurveError('CURVE_INVALID_OPERAND_OR_DOMAIN', {'completed_signals':signals,
                 'failed_signal':witness,'actual_counts':dict(counts),'cause':str(exc)[:160]}) from exc
         witness['seal_sha256'] = sha(canonical(witness)); signals.append(witness)
