@@ -1,4 +1,5 @@
 """Manifest-bound report-only projection. No execution, recompute or publication."""
+from datetime import datetime, timedelta
 import argparse
 import json
 import os
@@ -58,6 +59,68 @@ def diagnostic_inputs(value, profile):
                 for key in keys:need(segment[section][key],['value','status','reason'],'segment_value')
 
 
+def report_calendar(calendar):
+    """Validate saved date/clock metadata only; never follow schedule refs."""
+    require(type(calendar) is dict,'SAVED_REPORT_CALENDAR_FORM')
+    if calendar.get('schema')=='polar.prospective-fixed-allocation-calendar/1':
+        fields={'schema','parent_schedule','dates','initial_date','terminal_date','nav_points','returns',
+                'annual_targets','terminal_EXIT','clock_scope','source_schedule_rows'}
+        need(calendar,fields,'fixed_calendar')
+        require(set(calendar)==fields,'SAVED_REPORT_CALENDAR_FORM')
+        rows=calendar['source_schedule_rows']
+        require(type(rows) is list and bool(rows),'SAVED_REPORT_SCHEDULE')
+        for row in rows:need(row,['date','reference_close_utc','next_reference_date'],'source_schedule_row')
+        # parent_schedule and clock_scope are opaque producer annotations. Their
+        # exact saved bytes stay manifest-bound; never follow or reinterpret them.
+        from .scheduled_fixed import calendar_value
+        from .reference_ridge_plan import nanoseconds
+        grid=calendar_value({k:v for k,v in calendar.items() if k!='source_schedule_rows'},rows)['FINAL']
+        by_date={row['date']:row for row in rows};closes=[]
+        for day in grid['nav_dates']:
+            close=datetime.fromisoformat(by_date[day]['reference_close_utc'].replace('Z','+00:00'))
+            require(close.utcoffset()==timedelta(0) and close.date().isoformat()==day,'SAVED_REPORT_SCHEDULE_CLOCK')
+            closes.append(nanoseconds(close))
+        return grid,closes
+    require(calendar.get('schema') in (None,'polar.scheduled-policy-calendar/1') and
+            not set(calendar)&{'dates','initial_date','terminal_date','nav_points','returns','annual_targets','terminal_EXIT'},
+            'SAVED_REPORT_CALENDAR_FORM')
+    need(calendar,['phases'],'calendar')
+    require(set(calendar['phases'])=={'FINAL'},'SAVED_REPORT_PHASE_IDENTITY')
+    return calendar['phases']['FINAL'],None
+
+
+def fixed_plan_metadata(data,profile,grid,closes):
+    """Join saved plan metadata to the saved calendar, without reading prices."""
+    need(data,['plan'],'fixed_phase');plan=data['plan']
+    need(plan,['grid','decisions','model_price_mapping','quantity_unit'],'fixed_plan')
+    need(data['simulation'],['quantity_unit'],'fixed_simulation')
+    mapping=profile['model_price_mapping']
+    require(plan['model_price_mapping']==mapping and plan['quantity_unit']==data['simulation']['quantity_unit']==mapping['active_unit'],
+            'SAVED_REPORT_MODEL_MAPPING')
+    require(type(plan['grid']) is list and len(plan['grid'])==len(closes),'SAVED_REPORT_PLAN_GRID')
+    for i,row in enumerate(plan['grid']):
+        expected={'date':grid['nav_dates'][i],'nominal_ns':closes[i],'sample_ns':closes[i]+1000,
+                  'initial':i==0,'terminal':i==len(closes)-1}
+        need(row,expected,'plan_grid_row')
+        require(all(type(row[k]) is type(v) and row[k]==v for k,v in expected.items()),'SAVED_REPORT_PLAN_GRID')
+    events=grid['decisions']+[grid['terminal_exit']]
+    require(type(plan['decisions']) is list and len(plan['decisions'])==len(events),'SAVED_REPORT_PLAN_EVENTS')
+    for i,(row,event) in enumerate(zip(plan['decisions'],events)):
+        expected={'day':event['execution_date'],'formation':event['signal_date'],'known_ns':event['known_ns'],
+                  'decision_ns':event['decision_ns'],'open_ns':closes[grid['nav_dates'].index(event['execution_date'])],'kind':'REFERENCE'}
+        need(row,[*expected,'instructions'],'plan_event')
+        require(all(type(row[k]) is type(v) and row[k]==v for k,v in expected.items()),'SAVED_REPORT_PLAN_EVENTS')
+        require(type(row['instructions']) is dict and set(row['instructions'])=={leg['id'] for leg in profile['legs']},'SAVED_REPORT_PLAN_INSTRUCTIONS')
+        for leg in profile['legs']:
+            instruction=row['instructions'][leg['id']]
+            need(instruction,['kind'],'plan_instruction')
+            kind='EXIT' if i==len(events)-1 else 'HOLD' if leg['rule']=='CASH' else 'TARGET'
+            require(instruction['kind']==kind,'SAVED_REPORT_PLAN_INSTRUCTIONS')
+            if kind=='TARGET':
+                need(instruction,['weights'],'plan_instruction')
+                require(instruction['weights']==leg['weights'],'SAVED_REPORT_PLAN_INSTRUCTIONS')
+
+
 def project_saved_report(store_root, semantic_id, *, candidate_id, experiment_id, report_revision, runtime_image_id):
     """Read five original members; return a separate private technical artifact.
 
@@ -105,9 +168,9 @@ def project_saved_report(store_root, semantic_id, *, candidate_id, experiment_id
             require(cfg[key+'_ref']['sha256']==p[key+'_sha256'],'SAVED_REPORT_PROFILE_BINDING')
         require(type(cfg['code']) is dict and bool(cfg['code']) and all(type(v) is str and bool(re.fullmatch('[a-f0-9]{64}',v)) for v in cfg['code'].values()),'SAVED_REPORT_CALCULATION_CODE')
         require(bool(re.fullmatch('[a-f0-9]{40}',cfg['code_revision'])) and bool(re.fullmatch('sha256:[a-f0-9]{64}',cfg['runtime_image_id'])),'SAVED_REPORT_CALCULATION_SOURCE')
-        need(files['calendar.json'],['phases'],'calendar')
-        require(set(files['phases.json'])==set(files['calendar.json']['phases'])=={'FINAL'},'SAVED_REPORT_PHASE_IDENTITY')
-        grid=files['calendar.json']['phases']['FINAL'];need(grid,['nav_dates','nav_points','return_count'],'calendar_grid')
+        grid,calendar_closes=report_calendar(files['calendar.json'])
+        require(set(files['phases.json'])=={'FINAL'},'SAVED_REPORT_PHASE_IDENTITY')
+        need(grid,['nav_dates','nav_points','return_count'],'calendar_grid')
         require(type(grid['nav_dates']) is list and type(grid['nav_points']) is int and type(grid['return_count']) is int and grid['nav_points']==len(grid['nav_dates'])==grid['return_count']+1,'SAVED_REPORT_CALENDAR_COUNT')
         need(files['diagnostics.json'],['FINAL'],'diagnostic_phases')
         data=files['phases.json']['FINAL'];need(data,['simulation','evaluation'],'phase')
@@ -129,10 +192,18 @@ def project_saved_report(store_root, semantic_id, *, candidate_id, experiment_id
             if common is None:common=timestamps
             require(timestamps==common,'SAVED_REPORT_LEG_GRID')
         require([utc_text(t)[:10] for t in common]==grid['nav_dates'],'SAVED_REPORT_GRID_IDENTITY')
+        if calendar_closes is not None:
+            require(common==calendar_closes,'SAVED_REPORT_CALENDAR_CLOCK')
+            fixed_plan_metadata(data,p,grid,calendar_closes)
         for leg in data['evaluation']['legs']:
             need(leg,['returns'],'evaluation_leg')
             require(type(leg['returns']) is list and len(leg['returns'])==grid['return_count'],'SAVED_REPORT_RETURN_COUNT')
         diagnostic_inputs(files['diagnostics.json']['FINAL'],p)
+        if calendar_closes is not None:
+            for leg in p['legs']:
+                d=files['diagnostics.json']['FINAL'][leg['id']]
+                need(d,['schema'],'fixed_diagnostic')
+                require(d['schema']=='polar.fixed-allocation-saved-diagnostics/1','SAVED_REPORT_FIXED_DIAGNOSTIC_SCHEMA')
         public=public_config(cfg,p);public['model_price_mapping']=p['model_price_mapping']
         record=public_reference(public,data['simulation'],data['evaluation'],semantic_id=semantic_id,semantic_hash=sha(raw),phase='FINAL')
         require([x[:10] for x in record['grid']]==grid['nav_dates'],'SAVED_REPORT_GRID_IDENTITY')

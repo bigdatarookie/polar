@@ -10,13 +10,21 @@ from polar.gym_contract import canonical,sha
 from polar.saved_report_projection import project_saved_report,write_artifact
 
 
-def graph(tmp_path,monkeypatch):
+def graph(tmp_path,monkeypatch,*,fixed=False):
     source=tmp_path/'source';source.mkdir()
-    _,cfg,p,_=model_fixture(source,monkeypatch)
+    _,cfg,p,calendar=model_fixture(source,monkeypatch)
+    if fixed:
+        manifest=json.loads(Path(cfg['input_ref']['path']).read_bytes())
+        schedule=json.loads(Path(manifest['schedule']['path']).read_bytes())['rows']
     p['additional_limitations']=[['INVENTED_'+str(i),'Invented supplied limitation '+str(i)] for i in range(3)]
     cfg={**cfg,'code':{'old_producer.py':'a'*64},'code_revision':'a'*40,'runtime_image_id':'sha256:'+'a'*64}
     nav=[{'nominal_ns':1577998800000000000+i*86400*10**9,'cash_cents':10000000,'exposure_cents':0,
           'flat_cents':0,'bps_cents':0,'positions':{},'nav_cents':10000000} for i in range(2)]
+    if fixed:
+        from datetime import datetime
+        from polar.reference_ridge_plan import nanoseconds
+        by_date={r['date']:r for r in schedule}
+        nav=[{**nav[0],'date':day,'nominal_ns':nanoseconds(datetime.fromisoformat(by_date[day]['reference_close_utc'].replace('Z','+00:00')))} for day in calendar['dates']]
     token=lambda:{'value':'0','status':'OK','reason':None}
     simulation={'legs':[{'id':x['id'],'nav':deepcopy(nav)} for x in p['legs']]}
     evaluation={'legs':[{'id':x['id'],'returns':[{'decimal':'0'}],
@@ -32,6 +40,27 @@ def graph(tmp_path,monkeypatch):
     files={'profile.json':p,'bindings.json':cfg,'calendar.json':{'phases':{'FINAL':{'nav_dates':['2020-01-02','2020-01-03'],'nav_points':2,'return_count':1}}},
            'phases.json':{'FINAL':{'simulation':simulation,'evaluation':evaluation}},
            'diagnostics.json':{'FINAL':{x['id']:deepcopy(diagnostic) for x in p['legs']}}}
+    if fixed:
+        files['calendar.json']={**calendar,'source_schedule_rows':schedule}
+        simulation['quantity_unit']=p['model_price_mapping']['active_unit']
+        for leg in evaluation['legs']:leg['returns']=[{'decimal':'0'} for _ in nav[1:]]
+        for d in files['diagnostics.json']['FINAL'].values():d['schema']='polar.fixed-allocation-saved-diagnostics/1'
+        plan_grid=[{'date':r['date'],'nominal_ns':r['nominal_ns'],'sample_ns':r['nominal_ns']+1000,
+                    'initial':i==0,'terminal':i==len(nav)-1} for i,r in enumerate(nav)]
+        decisions=[]
+        for i,event in enumerate(calendar['annual_targets']+[calendar['terminal_EXIT']]):
+            instructions={leg['id']:({'kind':'EXIT'} if i==len(calendar['annual_targets']) else
+                {'kind':'HOLD'} if leg['rule']=='CASH' else {'kind':'TARGET','weights':leg['weights'],
+                'signal':{'kind':'FIXED_DECLARED_WEIGHTS'}}) for leg in p['legs']}
+            decisions.append({'day':event['execution_date'],'formation':event['formation_date'],
+                'known_ns':nanoseconds(datetime.fromisoformat(event['K'])),
+                'decision_ns':nanoseconds(datetime.fromisoformat(event['D'])),
+                'open_ns':nanoseconds(datetime.fromisoformat(event['reference_execution_close_utc'])),
+                'kind':'REFERENCE','instructions':instructions})
+        files['phases.json']['FINAL']['plan']={'grid':plan_grid,'decisions':decisions,
+            'quantity_unit':simulation['quantity_unit'],'model_price_mapping':p['model_price_mapping'],
+            'prices':{'NOT_USED_BY_REPORT':'No quote valuation in this adapter'},
+            'source_prices_micro':{'NOT_USED_BY_REPORT':'No source-price mapping recomputation'}}
     root=tmp_path/'readonly-store';root.mkdir();sid=pack(root,files)
     # Delete every invented source file/quote/model input before projection.
     import shutil
@@ -64,10 +93,15 @@ def forbid(monkeypatch):
     monkeypatch.setattr(reference.ReferenceResearchService,'recompute',no)
     monkeypatch.setattr(HistoryStore,'_publish',no);monkeypatch.setattr(HistoryStore,'locked',no)
     monkeypatch.setattr(ResearchResults,'publish',no)
+    import polar.reference_model_price as model
+    import polar.scheduled_fixed as fixed
+    for name in ('view','verify_plan'):monkeypatch.setattr(model,name,no)
+    for name in ('plan_phase','diagnose_fixed'):monkeypatch.setattr(fixed,name,no)
 
 
-def test_complete_graph_source_absent_readonly_deterministic_no_forbidden_calls(tmp_path,monkeypatch):
-    root,sid,files,cfg=graph(tmp_path,monkeypatch);forbid(monkeypatch)
+@pytest.mark.parametrize('fixed',[False,True])
+def test_complete_graph_source_absent_readonly_deterministic_no_forbidden_calls(tmp_path,monkeypatch,fixed):
+    root,sid,files,cfg=graph(tmp_path,monkeypatch,fixed=fixed);forbid(monkeypatch)
     for path in root.rglob('*'):path.chmod(0o555 if path.is_dir() else 0o444)
     root.chmod(0o555);before=snapshot(root)
     first=call(root,sid,cfg);second=call(root,sid,cfg)
@@ -166,3 +200,41 @@ def test_every_saved_leg_grid_and_return_count_checked_before_formatter(tmp_path
     assert result['status']=='INVALID_INPUT' and 'records' not in result
     assert result['reason']==('SAVED_REPORT_RETURN_COUNT' if 'return' in mutation else 'SAVED_REPORT_LEG_GRID')
     assert snapshot(root)==before
+
+
+@pytest.mark.parametrize('mutation',['initial','terminal','nav_count','return_count','annual_missing','annual_clock','exit_clock','unsupported','conflicting_form','source_close','all_leg_time','missing_plan','plan_clock','plan_initial','plan_mapping','unit','diagnostic_schema'])
+def test_fixed_producer_calendar_and_plan_metadata_conflicts_are_not_hidden(tmp_path,monkeypatch,mutation):
+    root,sid,files,cfg=graph(tmp_path,monkeypatch,fixed=True);forbid(monkeypatch)
+    calendar=files['calendar.json'];phase=files['phases.json']['FINAL'];plan=phase['plan']
+    if mutation=='initial':calendar['initial_date']=calendar['dates'][1]
+    if mutation=='terminal':calendar['terminal_date']=calendar['dates'][-2]
+    if mutation=='nav_count':calendar['nav_points']+=1
+    if mutation=='return_count':calendar['returns']+=1
+    if mutation=='annual_missing':calendar['annual_targets'].pop()
+    if mutation=='annual_clock':calendar['annual_targets'][0]['D']=calendar['annual_targets'][0]['K']
+    if mutation=='exit_clock':calendar['terminal_EXIT']['execution_date']=calendar['dates'][-2]
+    if mutation=='unsupported':calendar['schema']='polar.UNKNOWN/1'
+    if mutation=='conflicting_form':calendar['phases']={'FINAL':{'nav_dates':['2000-01-01']}}
+    if mutation=='source_close':calendar['source_schedule_rows'][0]['reference_close_utc']=calendar['dates'][0]+'T20:00:00Z'
+    if mutation=='all_leg_time':
+        for leg in phase['simulation']['legs']:leg['nav'][0]['nominal_ns']+=1
+    if mutation=='missing_plan':del phase['plan']
+    if mutation=='plan_clock':plan['decisions'][0]['decision_ns']+=1
+    if mutation=='plan_initial':plan['grid'][0]['initial']=False
+    if mutation=='plan_mapping':plan['model_price_mapping']={**plan['model_price_mapping'],'lot_size':2}
+    if mutation=='unit':phase['simulation']['quantity_unit']='PHYSICAL_SHARE'
+    if mutation=='diagnostic_schema':files['diagnostics.json']['FINAL'][files['profile.json']['legs'][0]['id']]['schema']='UNKNOWN'
+    sid=pack(root,files);before=snapshot(root)
+    result=call(root,sid,cfg)
+    assert result['status']==('INCOMPLETE_INPUT' if mutation=='missing_plan' else 'INVALID_INPUT')
+    assert 'records' not in result and snapshot(root)==before
+
+
+def test_opaque_fixed_calendar_annotations_are_bound_not_followed_or_inferred(tmp_path,monkeypatch):
+    root,sid,files,cfg=graph(tmp_path,monkeypatch,fixed=True);forbid(monkeypatch)
+    files['calendar.json']['parent_schedule']={'opaque':'INVENTED original producer annotation; not a source lookup'}
+    files['calendar.json']['clock_scope']={'K':'descriptive only','not_an_execution_grant':True}
+    sid=pack(root,files);before=snapshot(root)
+    result=call(root,sid,cfg)
+    assert result['status']=='REPORT_SCHEMA_VALID' and snapshot(root)==before
+    assert result['verified_members']['calendar.json']['sha256']==sha(canonical(files['calendar.json']))
