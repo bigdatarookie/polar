@@ -238,3 +238,26 @@ def test_opaque_fixed_calendar_annotations_are_bound_not_followed_or_inferred(tm
     result=call(root,sid,cfg)
     assert result['status']=='REPORT_SCHEMA_VALID' and snapshot(root)==before
     assert result['verified_members']['calendar.json']['sha256']==sha(canonical(files['calendar.json']))
+
+
+@pytest.mark.parametrize('mutation',['close_none','close_dict','annual_none','event_clock_bool','mapping_bool','weight_bool'])
+def test_malformed_fixed_metadata_and_boolean_aliases_reject_before_formatter(tmp_path,monkeypatch,mutation):
+    root,sid,files,cfg=graph(tmp_path,monkeypatch,fixed=True);forbid(monkeypatch)
+    calendar=files['calendar.json'];plan=files['phases.json']['FINAL']['plan']
+    if mutation=='close_none':calendar['source_schedule_rows'][1]['reference_close_utc']=None
+    if mutation=='close_dict':calendar['source_schedule_rows'][1]['reference_close_utc']={}
+    if mutation=='annual_none':calendar['annual_targets'][0]=None
+    if mutation=='event_clock_bool':calendar['annual_targets'][0]['K']=True
+    if mutation=='mapping_bool':plan['model_price_mapping']={**plan['model_price_mapping'],'lot_size':True}
+    if mutation=='weight_bool':
+        instructions=plan['decisions'][0]['instructions']
+        target=next(v for v in instructions.values() if v['kind']=='TARGET')
+        target['weights']=deepcopy(target['weights'])
+        symbol=next(s for s,pair in target['weights'].items() if pair[0]==1)
+        target['weights'][symbol][0]=True
+    sid=pack(root,files);before=snapshot(root)
+    import polar.saved_report_projection as module
+    def no_formatter(*args,**kw):raise AssertionError('MALFORMED_METADATA_MUST_REJECT_BEFORE_FORMATTER')
+    monkeypatch.setattr(module,'public_reference',no_formatter)
+    result=call(root,sid,cfg)
+    assert result['status']=='INVALID_INPUT' and 'records' not in result and snapshot(root)==before

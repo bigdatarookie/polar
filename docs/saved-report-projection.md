@@ -22,7 +22,10 @@ unsupported redundant fields reject rather than selecting a convenient version.
 The fixed form invokes only the existing pure fixed calendar metadata validator:
 saved source rows bind selected dates, original boundaries, annual formation and
 next-reference execution dates, modeled UTC K/+60s D and terminal EXIT override.
-Every leg's exact nominal timestamps must equal those saved reference closes;
+Supplied schedule/date/event types are checked before the metadata parser, so
+malformed objects yield explicit INVALID_INPUT rather than an escaped exception.
+Mapping and TARGET-weight joins use canonical JSON, preserving boolean versus
+integer distinctions. Every leg's exact nominal timestamps must equal those saved reference closes;
 matching calendar dates alone is insufficient. Saved plan grid date/nominal/sample
 and initial/terminal flags, event clocks and fixed instruction metadata must agree,
 as must its declared mapping/unit and simulation unit. The fixed diagnostic schema

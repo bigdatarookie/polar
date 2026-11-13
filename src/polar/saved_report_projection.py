@@ -69,7 +69,18 @@ def report_calendar(calendar):
         require(set(calendar)==fields,'SAVED_REPORT_CALENDAR_FORM')
         rows=calendar['source_schedule_rows']
         require(type(rows) is list and bool(rows),'SAVED_REPORT_SCHEDULE')
-        for row in rows:need(row,['date','reference_close_utc','next_reference_date'],'source_schedule_row')
+        for row in rows:
+            need(row,['date','reference_close_utc','next_reference_date'],'source_schedule_row')
+            require(type(row['date']) is str and type(row['reference_close_utc']) is str and
+                    (row['next_reference_date'] is None or type(row['next_reference_date']) is str),
+                    'SAVED_REPORT_METADATA_TYPE')
+        require(type(calendar['dates']) is list and all(type(d) is str for d in calendar['dates']) and
+                type(calendar['initial_date']) is str and type(calendar['terminal_date']) is str and
+                type(calendar['annual_targets']) is list,'SAVED_REPORT_METADATA_TYPE')
+        for event in calendar['annual_targets']+[calendar['terminal_EXIT']]:
+            keys=['formation_date','K','D','execution_date','reference_execution_close_utc']
+            need(event,keys,'calendar_event')
+            require(all(type(event[k]) is str for k in keys),'SAVED_REPORT_METADATA_TYPE')
         # parent_schedule and clock_scope are opaque producer annotations. Their
         # exact saved bytes stay manifest-bound; never follow or reinterpret them.
         from .scheduled_fixed import calendar_value
@@ -95,7 +106,7 @@ def fixed_plan_metadata(data,profile,grid,closes):
     need(plan,['grid','decisions','model_price_mapping','quantity_unit'],'fixed_plan')
     need(data['simulation'],['quantity_unit'],'fixed_simulation')
     mapping=profile['model_price_mapping']
-    require(plan['model_price_mapping']==mapping and plan['quantity_unit']==data['simulation']['quantity_unit']==mapping['active_unit'],
+    require(canonical(plan['model_price_mapping'])==canonical(mapping) and plan['quantity_unit']==data['simulation']['quantity_unit']==mapping['active_unit'],
             'SAVED_REPORT_MODEL_MAPPING')
     require(type(plan['grid']) is list and len(plan['grid'])==len(closes),'SAVED_REPORT_PLAN_GRID')
     for i,row in enumerate(plan['grid']):
@@ -118,7 +129,7 @@ def fixed_plan_metadata(data,profile,grid,closes):
             require(instruction['kind']==kind,'SAVED_REPORT_PLAN_INSTRUCTIONS')
             if kind=='TARGET':
                 need(instruction,['weights'],'plan_instruction')
-                require(instruction['weights']==leg['weights'],'SAVED_REPORT_PLAN_INSTRUCTIONS')
+                require(canonical(instruction['weights'])==canonical(leg['weights']),'SAVED_REPORT_PLAN_INSTRUCTIONS')
 
 
 def project_saved_report(store_root, semantic_id, *, candidate_id, experiment_id, report_revision, runtime_image_id):
