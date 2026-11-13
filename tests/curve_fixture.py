@@ -7,7 +7,7 @@ from polar.gym_contract import canonical,sha
 from polar.scheduled_service import config_from_seed
 
 
-def fixture(tmp_path,monkeypatch):
+def fixture(tmp_path,monkeypatch,*,raw_ref=None):
     root=tmp_path/'store';root.mkdir();monkeypatch.setenv('POLAR_ARTIFACT_ROOT',str(root))
     first,last=date(2022,12,30),date(2026,11,6)
     candidates=[first+timedelta(days=i) for i in range((last-first).days+1) if (first+timedelta(days=i)).weekday()<5]
@@ -52,7 +52,7 @@ def fixture(tmp_path,monkeypatch):
         two,ten=[('2.0000000000000000000000000000000000001','2.0000000000000000000000000000000000002'),
                  ('0.00','0.00'),('-1.01','-1.02')][i%3]
         row={'source_date':d,'tokens':{'NEW_DATE':d+'T00:00:00','BC_2YEAR':two,'BC_10YEAR':ten},
-             'raw_ref':{'path':'/INVENTED-NOT-READ.xml','sha256':'e'*64,'bytes':10000},
+             'raw_ref':dict(raw_ref) if raw_ref is not None else {'path':'/INVENTED-NOT-READ.xml','sha256':'e'*64,'bytes':10000,'complete':True},
              'raw_pointers':{f:{'field':f,'byte_start':10*j,'byte_end_exclusive':10*j+5,'xml_entry_ordinal_zero_based':i} for j,f in enumerate(['NEW_DATE','BC_2YEAR','BC_10YEAR'])},
              'captured_at':'2030-01-01T00:00:00Z','entry_updated':None,'feed_updated':None,
              'historical_K':None,'historical_available_at':None,'method_context':'MONOTONE_CONVEX_CONTEXT'}
