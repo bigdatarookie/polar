@@ -15,6 +15,7 @@ from .history_bundle import HistoryError, canonical, decode, read_file, safe_roo
 from .history_store import HistoryStore
 
 MAX_RESULT = 8 * 1024**2
+MAX_RESULT_LIMITATIONS = 31
 Identifier = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")]
 Hash = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
 Revision = Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
@@ -156,7 +157,7 @@ class ResearchResult(Closed):
     metrics: Annotated[list[Metric], Field(min_length=1, max_length=40)]
     comparisons: Annotated[list[Comparison], Field(max_length=40)]
     costs: Annotated[list[Cost], Field(min_length=1, max_length=20)]
-    limitations: Annotated[list[Limitation], Field(min_length=1, max_length=30)]
+    limitations: Annotated[list[Limitation], Field(min_length=1, max_length=MAX_RESULT_LIMITATIONS)]
     provenance: Annotated[list[Provenance], Field(min_length=1, max_length=30)]
     evidence_level: Literal["INVENTED_CONTROL", "RETAINED_DESCRIPTIVE", "HISTORICAL_RESEARCH"]
     financial_claim: Text
