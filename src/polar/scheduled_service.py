@@ -233,8 +233,8 @@ def run(service, config):
     parent = 'scheduled-reference-attempts/' + family; aid = str(uuid.uuid4())
     with service.store.locked():
         directory = service.store.root/parent
-        prior = sorted(p.name for p in directory.iterdir()) if directory.exists() else []
         require(not directory.is_symlink(), 'SCHEDULED_ORIGINAL_ALREADY_RECORDED')
+        prior = sorted(p.name for p in directory.iterdir()) if directory.exists() else []
         lineage=None
         if authority is not None and authority.get('action')=='CORRECTIVE_E1':
             from .scheduled_corrective import admit_locked

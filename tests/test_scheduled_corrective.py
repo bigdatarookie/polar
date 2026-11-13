@@ -93,7 +93,7 @@ def test_e1_success_adds_counts_without_changing_old_graph(tmp_path,monkeypatch)
     with pytest.raises(ValueError,match='CORRECTIVE_PRIOR_HISTORY'):service.run(current)
 
 
-@pytest.mark.parametrize('mutation',['missing_pin','bad_pin','wrong_prior','success','missing_finish','missing_diagnostic','changed_science','missing_amendment_status','unknown_retry_flag','counts','work_budget','audit_integrity'])
+@pytest.mark.parametrize('mutation',['missing_pin','bad_pin','wrong_prior','success','missing_finish','missing_diagnostic','changed_science','missing_amendment_status','unknown_retry_flag','counts','work_budget','audit_integrity','family','bool_allowance'])
 def test_changed_or_unbound_prior_rejects_before_debit_and_values(tmp_path,monkeypatch,mutation):
     root,cfg,p,service,old_path,a,g=setup_e1(tmp_path,monkeypatch)
     if mutation=='missing_pin':del a['prior_members']['start.json']
@@ -110,6 +110,8 @@ def test_changed_or_unbound_prior_rejects_before_debit_and_values(tmp_path,monke
     if mutation=='counts':a['allowed_feature_counts']['rate_operand_reads']=95
     if mutation=='work_budget':a['allowed_e1_work_ns']=1200*10**9
     if mutation=='audit_integrity':a['prior_audit_ref']={**a['prior_audit_ref'],'sha256':'0'*64}
+    if mutation=='family':a['family']='0'*64
+    if mutation=='bool_allowance':g['allowed_fit_calls']=False
     current=bind(tmp_path,cfg,a,g)
     import polar.scheduled_service as module
     monkeypatch.setattr(module,'load_market',lambda *a:(_ for _ in ()).throw(AssertionError('VALUE_LOADER_BEFORE_LINKED_ADMISSION')))
@@ -129,3 +131,14 @@ def test_two_concurrent_e1_calls_only_one_can_debit(tmp_path,monkeypatch):
     with ThreadPoolExecutor(max_workers=2) as pool:results=list(pool.map(one,range(2)))
     assert sorted(results)==['CORRECTIVE_PRIOR_HISTORY','INVENTED_E1_FAILURE']
     assert len(list(root.rglob('start.json')))==2
+
+
+
+def test_bad_new_counter_shape_does_not_mask_finish():
+    from polar.scheduled_corrective import account_finish
+    finish={'actual_feature_counts':None,'completed_native_accounts':0,'finished_ns':30}
+    lineage={'prior_actual_feature_counts':dict(OLD_COUNTS),'prior_completed_native_accounts':0,
+             'prior_charged_work_ns':10,'total_work_budget_ns':100}
+    account_finish(finish,lineage,20)
+    assert finish['cumulative_recorded_feature_counts'] is None
+    assert finish['cumulative_feature_count_reason']=='UNAVAILABLE_CURRENT_COUNTER_SHAPE'
