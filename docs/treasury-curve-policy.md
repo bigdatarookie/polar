@@ -107,3 +107,24 @@ bound graph, not authentication against a coherently rewritten graph; independen
 runtime/source and financial review remain separate. General robustness/adoption
 remain insufficient, regardless of point screen. No old B7/A7 repair, reconstruction,
 rerun, budget reset, source fetch, serving rollout or financial verdict follows.
+
+## Future raw source capture metadata clarification
+
+The closed raw_ref preserves path, sha256 and bytes, and permits only optional
+complete. Path is an absolute nontraversing POSIX string (no NUL, max4096chars),
+SHA256 lowercase hex64, bytes a positive integer excluding bool. Supplied complete
+must be exact boolean true: false is a known incomplete capture and rejects;
+null/string/integer or arbitrary additional keys reject. A legacy three-key ref
+is accepted with completeness UNKNOWN, never inferred true. COMPLETE describes
+capture metadata, not historical availability/PIT, source quality or finance.
+The original ref remains unchanged in private source witnesses, with explicit
+raw_source_completeness COMPLETE/UNKNOWN; saved verification checks the same
+contract without following raw paths or inventing missing completeness.
+
+This fixes a future producer/consumer shape mismatch: the producer copied body
+metadata including complete:true, while the earlier keys-only correspondence
+omitted it and the reader rejected four keys. The original B8 charged INVALID
+attempt and immutable source/input/partial bytes remain unchanged. No repair,
+replay, replacement family, refund/reset or scientific grant follows. Other
+source predicates and actual retained application are not established by this
+source-only correction; independent partial audit limits remain attributed.

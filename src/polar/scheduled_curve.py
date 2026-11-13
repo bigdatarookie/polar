@@ -6,6 +6,7 @@ their respective jobs. This module neither fetches data nor pays yield to cash.
 from bisect import bisect_right
 from datetime import date, datetime, timedelta, timezone
 from fractions import Fraction
+from pathlib import PurePosixPath
 import re
 
 from .ci_research import require
@@ -20,6 +21,20 @@ LEGS = ('CURVE_VTI', 'HALF_VTI', 'FULL_VTI', 'CASH')
 FIELDS = ['BC_2YEAR', 'BC_10YEAR']
 POLICY = {'kind': 'TREASURY_2Y10Y_SIGN', 'lag_sessions': 2,
           'max_age_days': 10, 'symbol': 'VTI', 'drawdown_peak': 'EARLIEST_EQUAL_PEAK'}
+
+
+def raw_source_ref_status(ref):
+    """Closed capture metadata only; never follow/open the raw source path."""
+    required={'path','sha256','bytes'}
+    require(type(ref) is dict and required <= set(ref) <= required|{'complete'} and
+            type(ref['path']) is str and 0<len(ref['path'])<=4096 and '\x00' not in ref['path'] and
+            PurePosixPath(ref['path']).is_absolute() and '..' not in PurePosixPath(ref['path']).parts and
+            type(ref['sha256']) is str and re.fullmatch('[a-f0-9]{64}',ref['sha256']) and
+            type(ref['bytes']) is int and ref['bytes']>0, 'CURVE_RAW_SOURCE_REF')
+    if 'complete' in ref:
+        require(type(ref['complete']) is bool and ref['complete'] is True, 'CURVE_RAW_SOURCE_COMPLETENESS')
+        return 'COMPLETE'
+    return 'UNKNOWN'
 
 
 class CurveError(ValueError):
@@ -207,9 +222,7 @@ def plan_phase(market, profile, grid, tz):
                 'CURVE_RATE_ROW_BINDING')
             require(type(row['tokens']['NEW_DATE']) is str and datetime.fromisoformat(row['tokens']['NEW_DATE']).date().isoformat() == j['source_date'] and
                     set(row['raw_pointers']) == {'NEW_DATE',*FIELDS}, 'CURVE_RAW_DATE_POINTERS')
-            require(type(row['raw_ref']) is dict and set(row['raw_ref'])=={'path','sha256','bytes'} and
-                    type(row['raw_ref']['sha256']) is str and re.fullmatch('[a-f0-9]{64}',row['raw_ref']['sha256']) and
-                    type(row['raw_ref']['bytes']) is int and row['raw_ref']['bytes']>0, 'CURVE_RAW_SOURCE_REF')
+            witness['raw_source_completeness']=raw_source_ref_status(row['raw_ref'])
             for field,pointer in row['raw_pointers'].items():
                 require(type(pointer) is dict and set(pointer)=={'field','byte_start','byte_end_exclusive','xml_entry_ordinal_zero_based'} and
                         pointer['field']==field and all(type(pointer[k]) is int for k in ('byte_start','byte_end_exclusive','xml_entry_ordinal_zero_based')) and
@@ -266,6 +279,7 @@ def verify_plan(plan, profile, schedule, grid):
                 len(w['source_row_raw'].encode())==j['byte_end_exclusive']-j['byte_start'] and
                 decode(w['source_row_raw'].encode())==w['source_row'], 'CURVE_SAVED_RAW_ROW')
         row = w['source_row']; require(row['source_date']==j['source_date'] and row['historical_K'] is None and row['historical_available_at'] is None, 'CURVE_SAVED_ROW_DATE')
+        require(w.get('raw_source_completeness','UNKNOWN')==raw_source_ref_status(row['raw_ref']), 'CURVE_SAVED_SOURCE_COMPLETENESS')
         spread = fraction(row['tokens']['BC_10YEAR'])-fraction(row['tokens']['BC_2YEAR'])
         require(w['spread'] == [str(spread.numerator),str(spread.denominator)] and
                 w['targets'] == targets(int(spread>0)), 'CURVE_SAVED_EXACT_SUBTRACTION_TARGET')
