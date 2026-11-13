@@ -25,6 +25,27 @@ def input_hash(series):
     return hex_hash(series.get('research_input_sha256') or series['research_input']['sha256'])
 
 
+def selected_ordinal(claim,symbol,basis):
+    """Two explicit retained producer metadata forms, never a guessed alias."""
+    common={'date','normalized_line_1based','normalized_line_sha256','source_body_sha256'}
+    require(type(claim) is dict,'HISTORY_RETAINED_SELECTED_POINTER')
+    if 'source_row_index' in claim:
+        require(set(claim)==common|{'source_row_index'},'HISTORY_RETAINED_SELECTED_POINTER')
+        index=claim['source_row_index']
+    else:
+        require(basis==RAW and set(claim)==common|{'source_row_ordinal_0based','source_array','symbol',
+                'normalized_member','chunk_index','request_ordinal'},'HISTORY_RETAINED_SELECTED_POINTER')
+        require(claim['source_array']=='bars.'+symbol and claim['symbol']==symbol and
+                claim['normalized_member']=='bars.ndjson' and
+                all(type(claim[k]) is int and claim[k]>=0 for k in ('chunk_index','request_ordinal')),
+                'HISTORY_RETAINED_SELECTED_POINTER')
+        index=claim['source_row_ordinal_0based']
+    require(type(index) is int and index>=0 and type(claim['normalized_line_1based']) is int and
+            claim['normalized_line_1based']>0,'HISTORY_RETAINED_SELECTED_POINTER')
+    hex_hash(claim['normalized_line_sha256'])
+    return index
+
+
 def _assemble(candidate_raw, evidence_raw, rows, bodies, research_input_sha256, metadata):
     """Pure deterministic assembly over explicitly supplied, pinned retained bytes.
 
@@ -91,7 +112,7 @@ def _assemble(candidate_raw, evidence_raw, rows, bodies, research_input_sha256, 
             require(row['source_symbol']==symbol and type(idx) is int and idx>=0 and row['source_status']=='OBSERVED' and
                     all(row[k] is None for k in ['event_at','published_at','historical_available_at','source_revision']))
             require(claim['date']==day and claim['source_body_sha256']==bh and
-                    type(claim['source_row_index']) is int and claim['source_row_index']==idx,
+                    selected_ordinal(claim,symbol,basis)==idx,
                     'HISTORY_RETAINED_SELECTED_POINTER')
             require(row['source_array_pointer']=='/bars/'+symbol+'/'+str(idx),'HISTORY_RETAINED_POINTER')
             if bh not in source_cache:
