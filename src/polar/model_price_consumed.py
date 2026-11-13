@@ -15,9 +15,14 @@ def same(a,b):
 
 
 def verify(plan,simulation,profile,calendar=None):
-    from .reference_model_price import verify_plan
-    verify_plan(plan,profile)
-    if calendar is not None:
+    parking=profile['schema']=='polar.scheduled-reference-profile/12'
+    if parking:
+        from .scheduled_parking import verify_plan
+        verify_plan(plan,profile,calendar)
+    else:
+        from .reference_model_price import verify_plan
+        verify_plan(plan,profile)
+    if calendar is not None and not parking:
         from .saved_report_projection import report_calendar,fixed_plan_metadata
         grid,closes=report_calendar(calendar)
         require(closes is not None,'MODEL_CONSUMED_FIXED_CALENDAR')
@@ -27,9 +32,10 @@ def verify(plan,simulation,profile,calendar=None):
                 d['formation_close_ns']<d['known_ns']<d['decision_ns']<d['open_ns']
                 for d in plan['decisions']),'MODEL_CONSUMED_CLOCK')
     symbols=profile['symbols'];zero={s:0 for s in symbols}
-    mapping=profile['model_price_mapping'];mapping_hash=sha(canonical(mapping))
+    mapping=({'active_unit':'WHOLE_SYNTHETIC_REFERENCE_UNIT_NOT_RAW_SHARE'} if parking else profile['model_price_mapping'])
+    mapping_hash=None if parking else sha(canonical(mapping))
     require(plan.get('capture_consumed_sizing') is True and
-            plan.get('consumed_witness_schema')=='polar.model-price-consumed-operands/1', 'MODEL_CONSUMED_REQUIRED')
+            plan.get('consumed_witness_schema')==('polar.fixed-reference-consumed-operands/1' if parking else 'polar.model-price-consumed-operands/1'), 'MODEL_CONSUMED_REQUIRED')
     require([x['id'] for x in simulation['legs']]==[x['id'] for x in profile['legs']] and
             simulation.get('quantity_unit')==mapping['active_unit'], 'MODEL_CONSUMED_LEGS_UNIT')
     cost=plan.get('cost_profile',{'flat_cents':100,'bps':10})
@@ -52,6 +58,10 @@ def verify(plan,simulation,profile,calendar=None):
                     'MODEL_CONSUMED_FILL_LINK')
             require(f['fee_cents']==fee_cents(q,p,cost_profile=cost) and
                     f['settled_cents']==cent_round_micro(q*p),'MODEL_CONSUMED_FILL_MONEY')
+            if parking:
+                epsilon=f['settled_cents']*10000-q*p
+                require(same(f['exact_notional_micro'],q*p) and same(f['settlement_epsilon_micro'],epsilon) and
+                        same(f['cash_rounding_micro'],(-1 if side=='BUY' else 1)*epsilon),'PARKING_CONSUMED_METRIC_BINDING')
             sign=1 if side=='BUY' else -1
             cash-=sign*f['settled_cents']+f['fee_cents'];held[s]+=sign*q
             require(cash>=0 and min(held.values())>=0 and same(cash,f['cash_after_cents']), 'MODEL_CONSUMED_FILL_STATE')
@@ -76,8 +86,11 @@ def verify(plan,simulation,profile,calendar=None):
                     'eligible_prices_micro':marks,'nav_cents':nav,'weights':{s:[w.numerator,w.denominator] for s,w in weights.items()},
                     'targets':target,'lot_size':1,'quantity_unit':mapping['active_unit'],'model_mapping_sha256':mapping_hash,
                     'eligible_quote':{'date':d['formation'],'at_ns':d['formation_close_ns'],
-                        'source_identity':{'source_input_sha256':mapping['source_input_sha256'],
+                        'source_identity':{'source_input_sha256':profile['input_sha256'],
                             'model_mapping_sha256':mapping_hash,'source_date':d['formation']}}}
+                if parking:
+                    expected.pop('model_mapping_sha256')
+                    expected['eligible_quote']['source_identity']=plan['price_evidence'][d['formation']]
                 require(same(i['sizing_witness'],expected) and i['sizing_status']=='CONSUMED_TARGET_OPERANDS', 'MODEL_CONSUMED_D_OPERANDS_FLOOR')
             else:
                 target=dict(zero) if kind=='EXIT' else held
@@ -115,7 +128,13 @@ def verify(plan,simulation,profile,calendar=None):
             require(same(n.get('date'),g['date']) and same(n['nominal_ns'],g['nominal_ns']) and same(n['sample_ns'],g['sample_ns']) and
                     same(n['cash_cents'],cash) and same(n['positions'],held) and
                     same(n['nav_cents'],cash+sum(cent_round_micro(held[s]*prices[s]) for s in symbols)), 'MODEL_CONSUMED_NATIVE_MARK')
-    return {'status':'VERIFIED_NEW_MODEL_CONSUMED_OPERANDS','source_reads':0,'policy_calls':0,'native_calls':0,'store_writes':0,
+            if parking:
+                amounts={s:cent_round_micro(held[s]*prices[s]) for s in symbols}
+                observed=[f for f in fills if f['at_ns']<g['sample_ns']]
+                flat=len(observed)*cost['flat_cents'];bps=sum(f['fee_cents']-cost['flat_cents'] for f in observed)
+                require(same(n['position_cents'],amounts) and same(n['exposure_cents'],sum(amounts.values())) and
+                        same(n['flat_cents'],flat) and same(n['bps_cents'],bps),'PARKING_CONSUMED_METRIC_BINDING')
+    return {'status':'VERIFIED_NEW_FIXED_CONSUMED_OPERANDS' if parking else 'VERIFIED_NEW_MODEL_CONSUMED_OPERANDS','source_reads':0,'policy_calls':0,'native_calls':0,'store_writes':0,
             'old_missing_witnesses':'UNAVAILABLE_NOT_BACKFILLED'}
 
 

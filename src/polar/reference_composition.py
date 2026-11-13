@@ -40,7 +40,8 @@ def composition_metadata(config):
                 manifest.get('double_action_policy')=='NO_ADDITIONAL_SPLIT_DIVIDEND_CREDIT_IN_REFERENCE_UNIT_MODEL' and
                 manifest.get('rights')==rights,'REFERENCE_COMPOSITION_BASIS_RIGHTS')
         meta=manifest.get('conversion_metadata',manifest.get('provenance',{}))
-        require(meta.get('converter')=='polar.reference-input-converter/2' and
+        captured=meta.get('converter')=='polar.reference-input-converter/4' and meta.get('profile')=='CAPTURED-BIL-ADJUSTED-REFERENCE-INPUT-V1'
+        require(captured or meta.get('converter')=='polar.reference-input-converter/2' and
                 meta.get('profile')=='SELECTED-ALL-ADJUSTED-REFERENCE-INPUT-V1',
                 'REFERENCE_COMPOSITION_SELECTED_INPUT')
         if config['namespace']=='INVENTED':
@@ -57,7 +58,7 @@ def composition_metadata(config):
         current=manifest['symbols']
         require(type(current) is list and current==sorted(set(current)) and current and
                 not set(current)&set(symbols),'REFERENCE_COMPOSITION_SYMBOL_OVERLAP')
-        symbols.extend(current);collections.append(meta['source_collection'])
+        symbols.extend(current);collections.append(meta['source_capture'] if captured else meta['source_collection'])
     require(len({p['sha256'] for p in collections})==len(collections),'REFERENCE_COMPOSITION_COLLECTION_ALIAS')
     symbols.sort()
     require(symbols==purpose['symbols'] and len(symbols)<=64,'REFERENCE_COMPOSITION_SYMBOL_SET')
@@ -66,13 +67,13 @@ def composition_metadata(config):
 
 def prepare_composition(config,root,limit):
     manifests,purpose,schedule_raw,symbols,collections=composition_metadata(config)
-    quotes={};members={};records=[];coverage=[];jobs={};parents={};components=[]
+    quotes={};members={};records=[];coverage=[];jobs={};parents={};components=[];captures={}
     days=None;total=0
     for pin,manifest in zip(config['inputs'],manifests):
         market=load_reference(pin)  # Same accepted validation, no original raw/normalized re-extraction.
         require(days is None or days==market['dates'],'REFERENCE_COMPOSITION_CALENDAR')
         days=market['dates'];relations=market['source_relations']
-        for target,source in ((jobs,relations['jobs']),(parents,relations['parent_relations'])):
+        for target,source in ((jobs,relations['jobs']),(parents,relations['parent_relations']),(captures,relations.get('captures',{}))):
             for key,value in source.items():
                 require(key not in target or target[key]==value,'REFERENCE_COMPOSITION_RELATION_COLLISION')
                 target[key]=value
@@ -84,14 +85,16 @@ def prepare_composition(config,root,limit):
             require(key not in quotes,'REFERENCE_COMPOSITION_DUPLICATE_QUOTE')
             quotes[key]=line;total+=len(line)
             require(total<=MAX_BYTES,'REFERENCE_COMPOSITION_BYTES_BOUND')
-        components.append({'input_ref':pin,'source_collection':collections[len(components)],
+        meta=manifest.get('conversion_metadata',manifest['provenance'])
+        origin='source_capture' if meta.get('converter')=='polar.reference-input-converter/4' else 'source_collection'
+        components.append({'input_ref':pin,origin:collections[len(components)],
             'symbols':manifest['symbols'],'source_relations':manifest['source_relations']})
     require(set(quotes)=={(d,s) for d in days for s in symbols},'REFERENCE_COMPOSITION_GRID')
     raw=b''.join(quotes[d,s] for d in days for s in symbols)
     relations={'schema':'polar.reference-source-relations/1','records':sorted(records,key=lambda r:r['literal_alias']),
         'eligibility_ledger':{'schema':'polar.selected-source-purpose-membership/1','selected_aliases_fixed_order':symbols},
         'jobs':jobs,'parent_relations':parents,'source_coverage_records':coverage,
-        'source_components':components,'source_purpose':config['purpose']}
+        'source_components':components,'source_purpose':config['purpose'],**({'captures':captures} if captures else {})}
     semantic={'converter':'polar.reference-input-composer/1','config':config,'quotes_sha256':sha(raw),
         'schedule_sha256':sha(schedule_raw),'relations_sha256':sha(canonical(relations))}
     revision='reference-input-'+sha(canonical(semantic));destination=Path(root)/'reference-inputs'/revision

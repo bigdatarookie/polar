@@ -16,7 +16,7 @@ def selected_fixture(tmp_path,mutate=None,*,targets=None):
     owner=put(tmp_path/'selected-owner.json',{'schema':'polar.quant-selected-source-operation/1',
         'fixed_targets':targets,'request_profile':{k:v for k,v in template.items() if k!='symbols'}})
     scope=put(tmp_path/'selected-scope.json',{'schema':'polar.selected-adjusted-sip-scope/1','targets':targets,
-        'request_template':template,'policy':selected_policy(2),'selection_ref':ref(owner)})
+        'request_template':template,'policy':selected_policy(len(targets)),'selection_ref':ref(owner)})
     source_config=put(tmp_path/'selected-source-config.json',{'schema':'polar.selected-adjusted-sip-import-config/1',
         'adapter':SELECTED_ADAPTER,'mode':'fixture','scope_ref':ref(scope),'seed_refs':[]})
     unit=selected_unit(json.loads(Path(source_config['path']).read_bytes()),True)
