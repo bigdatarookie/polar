@@ -9,6 +9,33 @@ checked with existing bounded no-symlink readers; paths from those JSON objects
 are never followed. This closed entrypoint handles profile10 FINAL report inputs.
 No second store, scientific job, registry, source conversion or publication exists.
 
+Two calendar forms are explicit. The earlier phases form supplies exactly FINAL
+nav_dates/nav_points/return_count (with absent schema or the scheduled-policy schema)
+and requires every leg's complete common timestamp vector/date/count. It does not
+establish source-close provenance not represented in that form. A fixed-allocation
+producer instead saves polar.prospective-fixed-allocation-calendar/1 with flat dates,
+initial_date/terminal_date/nav_points/returns, annual_targets, terminal_EXIT,
+parent_schedule, clock_scope and source_schedule_rows. No phases object is appended
+to or required in that original form. Unknown schemas, mixed flat+phases forms or
+unsupported redundant fields reject rather than selecting a convenient version.
+
+The fixed form invokes only the existing pure fixed calendar metadata validator:
+saved source rows bind selected dates, original boundaries, annual formation and
+next-reference execution dates, modeled UTC K/+60s D and terminal EXIT override.
+Supplied schedule/date/event types are checked before the metadata parser, so
+malformed objects yield explicit INVALID_INPUT rather than an escaped exception.
+Mapping and TARGET-weight joins use canonical JSON, preserving boolean versus
+integer distinctions. Every leg's exact nominal timestamps must equal those saved reference closes;
+matching calendar dates alone is insufficient. Saved plan grid date/nominal/sample
+and initial/terminal flags, event clocks and fixed instruction metadata must agree,
+as must its declared mapping/unit and simulation unit. The fixed diagnostic schema
+is required alongside supplied diagnostic values. No plan is rebuilt and no price
+or source_prices_micro field is valued or traversed. Parent_schedule and clock_scope
+annotations remain opaque, manifest-bound producer data; references are not followed
+and descriptive prose is not a clock grant. Actual source identity/authenticity,
+price/quantity/metric correctness and missing historical evidence remain outside
+report admission. No original bytes or calculation bindings are rewritten.
+
 The input store should be physically read-only and all quote/model/source files
 absent in a separately scoped actual verification. This function itself opens no
 write/lock files. Original calculation code/runtime/bindings/semantic identity are
