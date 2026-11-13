@@ -164,3 +164,36 @@ def diagnose_fixed(tape,schedule,prices,*,subperiods=()):
             'account_treatment':'CARRIED_SAVED_HOLDINGS_NO_RESET_NO_EXTRA_LIQUIDATION'})
     result['subperiods']=segments
     return result
+
+
+def diagnose_fixed_anchors(tape, schedule, prices, *, subperiods=()):
+    """Profile12 pairs name saved NAV anchors; legacy first-return API is unchanged.
+
+    Only translate exact saved dates. Keep the fixed recipe's costs, carried
+    holdings, exposure and earliest-equal-peak drawdown, not temporal defaults.
+    """
+    from .scheduled_diagnostics import _nav, _unavailable
+    nav, reason = _nav(tape)
+    indices = {r['date']: i for i, r in enumerate(nav)} if not reason else {}
+    mapped, slots = [], []
+    for anchor, last in subperiods:
+        context = {'requested_initial_anchor': anchor, 'last_return_date': last,
+                   'subperiod_semantics': 'SAVED_NAV_ANCHOR_THEN_NEXT_SAVED_RETURN'}
+        problem = reason
+        if not problem:
+            if anchor not in indices: problem = 'SAVED_NAV_ANCHOR_MISSING'
+            elif last not in indices: problem = 'SUBPERIOD_BOUNDARY_MISSING'
+            elif indices[anchor] >= indices[last]:
+                problem = ('NO_RETURN_AFTER_SAVED_NAV_ANCHOR' if anchor == last else
+                           'SAVED_NAV_ANCHOR_AFTER_END')
+        if problem:
+            slots.append(_unavailable(problem, **context))
+        else:
+            slots.append(context)
+            mapped.append((nav[indices[anchor]+1]['date'], last))
+    result = diagnose_fixed(tape, schedule, prices, subperiods=mapped)
+    segments = iter(result['subperiods'])
+    result['subperiod_semantics'] = 'SAVED_NAV_ANCHOR_THEN_NEXT_SAVED_RETURN'
+    result['subperiods'] = [slot if slot.get('status') == 'UNAVAILABLE' else
+                            {**next(segments), **slot} for slot in slots]
+    return result

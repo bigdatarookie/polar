@@ -674,7 +674,10 @@ def diagnose_phase(tape,schedule,profile,plan,*,subperiods=()):
     if profile['schema'].endswith('/7'):
         from .scheduled_relative import diagnose_relative
         return diagnose_relative(tape,schedule,subperiods=subperiods)
-    if profile['schema'].endswith(('/5','/8','/9','/10','/12')):
+    if profile['schema'].endswith('/12'):
+        from .scheduled_fixed import diagnose_fixed_anchors
+        return diagnose_fixed_anchors(tape,schedule,plan['prices'],subperiods=subperiods)
+    if profile['schema'].endswith(('/5','/8','/9','/10')):
         from .scheduled_fixed import diagnose_fixed
         return diagnose_fixed(tape,schedule,plan['prices'],subperiods=subperiods)
     if profile['schema'].endswith('/6'):
