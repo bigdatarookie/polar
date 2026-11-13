@@ -117,3 +117,17 @@ def test_e2_invented_complete_private_and_source_absent_saved(tmp_path,monkeypat
         if f.is_file():f.unlink()
     replay=svc.recompute(result['semantic_id'])
     assert replay['native_calls']==replay['store_writes']==0 and snapshot(root)==snap
+
+
+def test_composed_actions_do_not_admit_the_other_profile(tmp_path,monkeypatch):
+    from polar.scheduled_service import authority_for
+    root,cfg,p,d,svc,old,e1,a,g=setup(tmp_path,monkeypatch)
+    wrong={**g,'action':'CORRECTIVE_MODEL_PRICE_E1'}
+    bad={**cfg,'execution_authority_ref':write(tmp_path/'INVENTED-wrong-model-action.json',wrong)}
+    with pytest.raises(ValueError,match='SCHEDULED_OPERATION_NOT_BOUND'):authority_for(svc,bad,p,{'FINAL':{}})
+    from test_scheduled_model_price import model_fixture
+    home=tmp_path/'INVENTED-model';home.mkdir()
+    _,model_cfg,model,_=model_fixture(home,monkeypatch)
+    bad={**model_cfg,'execution_authority_ref':write(home/'INVENTED-wrong-raw-action.json',{**g,'binding_sha256':sha(canonical(binding(model_cfg)))})}
+    with pytest.raises(ValueError,match='SCHEDULED_OPERATION_NOT_BOUND'):authority_for(svc,bad,model,{'FINAL':{}})
+    assert len(list(root.rglob('start.json')))==2

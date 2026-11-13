@@ -169,9 +169,10 @@ def authority_for(service, config, profile, grids):
     if config['namespace'] == 'INVENTED' and config['execution_authority_ref'] is None:
         return None
     authority = decode(read_ref(config['execution_authority_ref']))
-    require(authority.get('schema') == 'polar.scheduled-reference-operation/1' and authority.get('action') in ('ORIGINAL','CORRECTIVE_E1','CORRECTIVE_RAW_ACTION_E1','CORRECTIVE_RAW_ACTION_E2') and
+    require(authority.get('schema') == 'polar.scheduled-reference-operation/1' and authority.get('action') in ('ORIGINAL','CORRECTIVE_E1','CORRECTIVE_RAW_ACTION_E1','CORRECTIVE_RAW_ACTION_E2','CORRECTIVE_MODEL_PRICE_E1') and
             (authority.get('action')=='ORIGINAL' or
              (authority.get('action')=='CORRECTIVE_E1' and profile['schema']=='polar.scheduled-reference-profile/11') or
+             (authority.get('action')=='CORRECTIVE_MODEL_PRICE_E1' and profile['schema']=='polar.scheduled-reference-profile/10') or
              (authority.get('action') in ('CORRECTIVE_RAW_ACTION_E1','CORRECTIVE_RAW_ACTION_E2') and profile['schema']=='polar.raw-action-profile/1' and config['schema']=='polar.raw-action-config/1')) and
             authority.get('binding_sha256') == sha(canonical(binding(config))) and
             authority.get('allowed_fit_calls') == 0 and authority.get('allowed_predict_calls') == 0 and
@@ -241,6 +242,9 @@ def run(service, config):
         if authority is not None and authority.get('action')=='CORRECTIVE_E1':
             from .scheduled_corrective import admit_locked
             lineage=admit_locked(service,config,profile,authority,parent,family,prior)
+        elif authority is not None and authority.get('action')=='CORRECTIVE_MODEL_PRICE_E1':
+            from .model_price_corrective import admit_locked
+            lineage=admit_locked(service,config,profile,authority,parent,family,prior)
         else:
             require(not prior, 'SCHEDULED_ORIGINAL_ALREADY_RECORDED')
             if authority is not None:
@@ -281,6 +285,9 @@ def run(service, config):
             if profile['schema'].endswith('/9'):
                 from .scheduled_passive import matched_initial_state
                 initial_state = matched_initial_state(simulation,profile,plan)
+            if profile['schema'].endswith('/10'):
+                from .model_price_consumed import verify
+                verify(plan,simulation,profile,{**calendar,'source_schedule_rows':schedule})
             evaluation = evaluate_policy(simulation, profile, reference_phase)
             diagnostics[phase] = {t['id']: diagnose_phase(t, schedule, profile, plan,
                 subperiods=profile['subperiods'] if reference_phase == 'FINAL' and (scenario is None or scenario['id'] == 'BASE') else ()) for t in simulation['legs']}
@@ -393,13 +400,19 @@ def run(service, config):
             events=getattr(exc,'events',{})
             finish['actual_optimizer_counts'] = events.get('actual_counts',optimizer_counts) if isinstance(events,dict) else optimizer_counts
         from .scheduled_corrective import account_finish
-        account_finish(finish,lineage,started_ns)
+        if lineage and lineage.get('action')=='CORRECTIVE_MODEL_PRICE_E1':
+            from .model_price_corrective import account_finish as model_account_finish
+            model_account_finish(finish,lineage,started_ns)
+        else:account_finish(finish,lineage,started_ns)
         with service.store.locked():
             service.store._publish(parent+'/'+aid, 'finish', {'record.json': canonical(finish),
                 'diagnostics.json': canonical(getattr(exc, 'events', []))}, file_limit=32*1024**2)
         raise
     from .scheduled_corrective import account_finish
-    account_finish(finish,lineage,started_ns)
+    if lineage and lineage.get('action')=='CORRECTIVE_MODEL_PRICE_E1':
+        from .model_price_corrective import account_finish as model_account_finish
+        model_account_finish(finish,lineage,started_ns)
+    else:account_finish(finish,lineage,started_ns)
     with service.store.locked():
         service.store._publish(parent+'/'+aid, 'finish', {'record.json': canonical(finish)})
     return finish
@@ -443,6 +456,9 @@ def recompute(service, semantic_id):
         if profile['schema'].endswith('/10'):
             from .reference_model_price import verify_plan
             verify_plan(data['plan'],profile)
+            if data['plan'].get('consumed_witness_schema')=='polar.model-price-consumed-operands/1':
+                from .model_price_consumed import verify
+                verify(data['plan'],data['simulation'],profile,files['calendar.json'])
         if profile['schema'].endswith('/7'):
             from .scheduled_relative import verify_plan
             verify_plan(data['plan'],profile,calendar['source_schedule_rows'],calendar['phases']['FINAL'])

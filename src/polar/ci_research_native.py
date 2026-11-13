@@ -10,6 +10,7 @@ import uuid
 
 from .ci_research import (INITIAL_CENTS, require, maximum_buy, fee_cents, cents_text)
 from .obs158_math import cent_round_micro
+from .gym_contract import canonical, sha
 from .research_native_money import native_types
 
 
@@ -126,6 +127,9 @@ def simulate(plan, diagnostics=None):
                         sizing={} if plan.get('capture_consumed_sizing') is True else None
                         targets = desired_targets(self.expected_cash, self.held, marks, weights, witness=sizing)
                         if sizing is not None:
+                            if 'model_price_mapping' in plan:
+                                sizing['quantity_unit']=plan['quantity_unit']
+                                sizing['model_mapping_sha256']=sha(canonical(plan['model_price_mapping']))
                             sizing['eligible_quote']={'date':d['formation'],'at_ns':d['formation_close_ns'],
                                 'source_identity':plan['price_evidence'][d['formation']]}
                     signal = instruction.get("signal")
