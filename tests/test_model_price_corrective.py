@@ -121,7 +121,7 @@ def test_success_new_witnesses_source_absent_ro_and_no_old_backfill(tmp_path,mon
     semantic=root/'reference-research-experiments'/result['semantic_id'];phases=json.loads((semantic/'phases.json').read_bytes())
     from polar.model_price_consumed import verify
     data=phases['FINAL'];assert verify(data['plan'],data['simulation'],p)['status']=='VERIFIED_NEW_MODEL_CONSUMED_OPERANDS'
-    for mutation in ('missing','nav','model','weights','clip','fill','zero','cash_hold','clock'):
+    for mutation in ('missing','nav','model','weights','clip','fill','zero','cash_hold','clock','date'):
         bad=deepcopy(data);sim=bad['simulation'];leg=sim['legs'][0];intent=leg['intents'][0]
         if mutation=='missing':intent.pop('sizing_witness')
         if mutation=='nav':intent['sizing_witness']['nav_cents']+=1
@@ -132,6 +132,7 @@ def test_success_new_witnesses_source_absent_ro_and_no_old_backfill(tmp_path,mon
         if mutation=='zero':next(o for o in leg['orders'] if o['intended_quantity']==0)['reason']=None
         if mutation=='cash_hold':sim['legs'][-1]['intents'][0]['sizing_status']='CONSUMED_TARGET_OPERANDS'
         if mutation=='clock':leg['intents'][0]['decision_ns']+=1
+        if mutation=='date':leg['nav'][0]['date']='1900-01-01'
         with pytest.raises((ValueError,KeyError)):verify(bad['plan'],sim,p)
     # Existing source-free replay checks captured witnesses without source/native/policy or writes.
     snap=snapshot(root)

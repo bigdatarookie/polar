@@ -112,7 +112,7 @@ def verify(plan,simulation,profile,calendar=None):
         require(len(leg['nav'])==len(plan['grid']),'MODEL_CONSUMED_NAV_COUNT')
         for n,g in zip(leg['nav'],plan['grid']):
             cash,held=before(g['sample_ns']);prices={s:plan['prices'][g['date']][s]['close_micro'] for s in symbols}
-            require(same(n['nominal_ns'],g['nominal_ns']) and same(n['sample_ns'],g['sample_ns']) and
+            require(same(n.get('date'),g['date']) and same(n['nominal_ns'],g['nominal_ns']) and same(n['sample_ns'],g['sample_ns']) and
                     same(n['cash_cents'],cash) and same(n['positions'],held) and
                     same(n['nav_cents'],cash+sum(cent_round_micro(held[s]*prices[s]) for s in symbols)), 'MODEL_CONSUMED_NATIVE_MARK')
     return {'status':'VERIFIED_NEW_MODEL_CONSUMED_OPERANDS','source_reads':0,'policy_calls':0,'native_calls':0,'store_writes':0,
