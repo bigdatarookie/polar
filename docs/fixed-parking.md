@@ -64,3 +64,14 @@ rejected in the RETAINED capture namespace before numeric values are opened.
 The actual retained single-GET capture plan has no mode field; absence or provider
 mode is permitted with its independently pinned observed capture metadata.
 No historical importer mode or collection is invented to satisfy this guard.
+
+
+For future profile12 source, BASE era pairs are exact saved NAV anchors and
+inclusive final dates. The profile12 adapter starts returns at the next saved
+observation after each anchor (for a Dec31 anchor, the next saved Jan4 close),
+never at an invented next civil day. It preserves carried holdings and
+end-minus-anchor costs, the fixed recipe's earliest equal peak and exposure
+semantics. Missing, terminal-only or reversed anchors are UNAVAILABLE. Empty
+STRESS era requests remain empty. Legacy fixed first-return helpers and other
+profile dispatch conventions remain unchanged. This source correction does not
+rewrite, replay or recalculate any previously saved B9 diagnostics or verdict.
