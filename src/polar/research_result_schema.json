@@ -770,7 +770,7 @@
       "items": {
         "$ref": "#/$defs/Limitation"
       },
-      "maxItems": 30,
+      "maxItems": 31,
       "minItems": 1,
       "title": "Limitations",
       "type": "array"

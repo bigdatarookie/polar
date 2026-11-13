@@ -70,23 +70,32 @@ selected point screen survives. No provider, UI or serving rollout belongs to
 this author change.
 
 
-## Future metadata admission bound
+## Lossless metadata admission and report capacity
 
-Profile10 adds one `DECLARED_MODEL_PRICE_DENOMINATION` limitation to the common
-projection. Metadata preflight counts it alongside the twelve base limitations,
-declared extra limitations, and each leg's risk/subperiod descriptions. The
-common wire remains capped at30 limitations; no limit is relaxed and no
-explanation is dropped to force admission. A five-leg/two-subperiod profile with
-three extras needs31 and is rejected as `SCHEDULED_PUBLIC_WIRE_BOUND` before any
-attempt debit, price/model load or native call. With two extras it needs30 and
-passes this bound. Profiles1–9 and their counting rules remain unchanged.
+Profile10 adds one `DECLARED_MODEL_PRICE_DENOMINATION` limitation. Metadata
+preflight counts it alongside twelve base limitations, declared extras and each
+leg's risk/subperiod descriptions. The common executable and JSON wire now admit
+up to31 limitation objects. A five-leg/two-subperiod profile with three extras
+uses31 and passes this report bound; four extras need32 and reject before any
+attempt debit, price/model load or native call. Metrics remain bounded40,
+provenance30, text1000; legacy scheduled profiles retain their30-item preflight
+bound. No missing explanation or era is dropped/grouped/truncated to fit.
 
-An invented scalar projection reproduces a31-item `limitations` rejection at
-common result validation while the old metadata guard admitted that shape. This
-proves a future technical defect and its narrow pre-start correction. It does
-not identify the exact failing field or exclusive cause of the spent A7
-`RESEARCH_INVALID_RESULT`: no private A7 phase/result/quote payload was opened
-or projected during this diagnosis. A7 remains INVALID/FAILED_UNFINALIZED,
-original spent and stored ineligible, without reconstruction/publication/retry.
-The correction deliberately rejects impossible future metadata; it does not
-make that frozen over-bound profile publishable or authorize a new experiment.
+Invented scalar projection, immutable publication/restart/API controls preserve
+all31 code/scope/text identities and every other supplied field. Schema parity,
+30/31 acceptance,32 rejection, closed fields/public-text checks and legacy
+preflight controls cover this additive report capacity. This accommodates the
+unchanged scientific mapping/weights/capital/lot/costs/calendar/criteria/eras;
+it does not establish actual retained compatibility or create a scientific run.
+
+Historical PR107 correctly added the missing denomination item to preflight's
+count under the then-current30 wire, so31 rejected early. That result and its
+red controls remain preserved; undoing the count would reintroduce late failure.
+This later lossless capacity change keeps the count and strict oversized guard.
+Original A7 remains INVALID/FAILED_UNFINALIZED, original spent and stored
+ineligible. Its exact original failed field/exclusive cause is not established
+by invented tests; missing historical consumed sizing/clip witnesses remain
+UNAVAILABLE. No retained payload read, saved-result reconstruction/republication,
+authority/budget/root change, retry/refund/reset, serving or financial verdict is
+part of this source change. A separately allocated lawful corrective use, if any,
+remains the scientific owner's decision with full history/exposure preserved.

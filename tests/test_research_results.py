@@ -128,3 +128,39 @@ def test_safe_publication_and_read_namespace(tmp_path):
     (root / "research-results").symlink_to(elsewhere)
     with pytest.raises(Exception):
         ResearchResults(root, 100000).publish(invented_result())
+
+
+@pytest.mark.parametrize('count',[30,31])
+def test_lossless_limitation_cardinality_http_and_strict_overflow(tmp_path,count):
+    record=invented_result()
+    record['limitations']=[{'code':f'INVENTED_LIMIT_{i}','scope':f'Invented scope {i}',
+        'text':f'Exact invented limitation {i}: preserve every object.'} for i in range(count)]
+    original=deepcopy(record)
+    assert validate_result(record)==original
+    service=Service(Settings('unused',tmp_path));pub=service.research_publish(record)
+    client=TestClient(create_app(Service(Settings('unused',tmp_path))))
+    response=client.get('/v1/research/results/'+pub['result_id'])
+    assert response.status_code==200 and response.json()['record']==original
+    assert service.research_publish(record)==pub  # Original content identity stable.
+    overflow=deepcopy(record)
+    overflow['limitations'] += [{'code':f'OVERFLOW_{i}','scope':'Invented','text':'Not truncated.'} for i in range(32-count)]
+    with pytest.raises(ResearchError,match='RESEARCH_INVALID_RESULT'):validate_result(overflow)
+    invalid=deepcopy(record);invalid['limitations'][-1]['arbitrary']='Not admitted'
+    with pytest.raises(ResearchError,match='RESEARCH_INVALID_RESULT'):validate_result(invalid)
+    invalid=deepcopy(record);invalid['limitations'][-1]['text']='file:///private/not-public'
+    with pytest.raises(ResearchError,match='RESEARCH_INVALID_RESULT'):validate_result(invalid)
+    # This capacity extension does not relax provenance or metric cardinality.
+    invalid=deepcopy(record);invalid['provenance']*=31
+    with pytest.raises(ResearchError,match='RESEARCH_INVALID_RESULT'):validate_result(invalid)
+
+
+def test_result_json_schema_matches_executable_capacity():
+    import json
+    from pathlib import Path
+    from polar.research_results import ResearchResult
+    import polar.research_results as module
+    saved=json.loads(Path(module.__file__).with_name('research_result_schema.json').read_bytes())
+    assert saved==ResearchResult.model_json_schema()
+    assert saved['properties']['limitations']['maxItems']==31
+    assert saved['properties']['provenance']['maxItems']==30
+    assert saved['properties']['metrics']['maxItems']==40

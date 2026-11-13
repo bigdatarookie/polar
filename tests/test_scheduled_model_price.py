@@ -160,10 +160,9 @@ def test_profile10_authority_requires_zero_nonpolicy_work(tmp_path,monkeypatch,a
     assert not (root/'scheduled-reference-attempts').exists()
 
 
-def test_invented_coarse_projection_can_exceed_wire_limit_before_bound_fix(tmp_path,monkeypatch):
+def test_invented_coarse_projection_preserves_all31_limitations(tmp_path,monkeypatch):
     # Entirely invented scalar/metadata projection: no retained record, evaluator,
-    # market load, native call, or publication is involved.
-    from pydantic import ValidationError
+    # market load or native call is involved. Publication below uses invented scalars only.
     from polar.scheduled_service import public_config,project_diagnostics
     from polar.reference_projection import public_reference
     from polar.research_results import ResearchResult,validate_result,ResearchError
@@ -182,8 +181,14 @@ def test_invented_coarse_projection_can_exceed_wire_limit_before_bound_fix(tmp_p
     diagnostics={leg['id']:{'subperiods':[{},{}]} for leg in p['legs']}
     project_diagnostics(record,diagnostics)
     assert len(record['limitations'])==31  # 5 risk + 2*5 carried-era descriptions.
-    with pytest.raises(ValidationError) as exc:ResearchResult.model_validate(record)
-    assert any(e['loc']==('limitations',) and e['type']=='too_long' for e in exc.value.errors())
+    original=deepcopy(record)
+    assert validate_result(record)==original  # All objects and unrelated scientific fields lossless.
+    (tmp_path/'invented-projection-store').mkdir()
+    store=ResearchResults(tmp_path/'invented-projection-store',128*1024**2)
+    pub=store.publish(record)
+    assert store.read(pub['result_id'])['record']==original
+    assert store.publish(record)==pub
+    record['limitations'].append({'code':'INVENTED_OVERFLOW','scope':'Entire comparison','text':'Do not silently drop me.'})
     with pytest.raises(ResearchError,match='RESEARCH_INVALID_RESULT'):validate_result(record)
 
 
@@ -195,8 +200,16 @@ def test_profile10_counts_denomination_limitation_before_debit(tmp_path,monkeypa
     import polar.scheduled_service as module
     def forbidden(*a,**k):raise AssertionError('PRICE_OR_NATIVE_BEFORE_METADATA_BOUND')
     monkeypatch.setattr(module,'load_market',forbidden);monkeypatch.setattr(module,'bounded_native',forbidden)
+    assert ReferenceResearchService(root,128*1024**2).preflight(cfg)['status']=='READY_FOR_BOUND_OPERATION'
+    assert not (root/'scheduled-reference-attempts').exists()
+    assert profile_value(p)==p  # Same five legs, two eras and three extras fit31.
+    # Strict next boundary: four extras require32 and reject before any attempt/value read.
+    p['additional_limitations'].append(['INVENTED_3','Overflow stays rejected.'])
+    cfg['profile_ref']=write(tmp_path/'invented32-profile.json',p)
     with pytest.raises(ValueError,match='SCHEDULED_PUBLIC_WIRE_BOUND'):ReferenceResearchService(root,128*1024**2).preflight(cfg)
     assert not (root/'scheduled-reference-attempts').exists()
-    # Same geometry with only two extra limitations fits exactly30; no expanded wire.
-    p['additional_limitations'].pop()
-    assert profile_value(p)==p
+    # Legacy profile5 retains its old30 admission bound and its own31 rejection.
+    legacy=deepcopy(p);legacy['schema']='polar.scheduled-reference-profile/5';del legacy['model_price_mapping']
+    with pytest.raises(ValueError,match='SCHEDULED_PUBLIC_WIRE_BOUND'):profile_value(legacy)
+    legacy['additional_limitations'].pop()
+    assert profile_value(legacy)==legacy

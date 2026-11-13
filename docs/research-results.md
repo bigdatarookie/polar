@@ -19,3 +19,13 @@ The fixed two CI8h profiles are selected independently and before results by res
 Wire v1.1 clarification before results: decimal tokens permit up to4096 fractional digits and256 integer digits, preserving Decimal50 significant precision with leading fractional zeros rather than forcing50decimalplaces. Timezone permits UTC or a named Area/Location; public grid is always UTC. Financial reviews additionally require evidence_status (NOT_RUN/INVALID/INSUFFICIENT_EVIDENCE/ASSESSED_WITH_LIMITS) and reason; nonfinancial scopes use NOT_APPLICABLE. Assessment.financial_evidence preserves this distinct status with default NOT_RUN/INDEPENDENT_REVIEW_NOT_RECORDED. Commission attribution is displayed once: flat and10bps components are both debited inside nativecommission; modeledspread/slippage labels describe the specified scenario and do not imply an additional charge. No economic definition or result value changed.
 
 Publication privacy boundary: only explicitly sanitized public result/review documents may be passed to these trusted local CLI operations. All free-text values are scanned before publication and on read; physical absolute Unix paths, file URIs and Windows drive paths are rejected with a stable error. This is not a general credential/PII detector and is not authority to publish private source payloads in prose. Producers remain responsible for public-safe text. The read API is intended for the existing private local service, never a public deployment.
+
+
+The shared result wire accepts1..31 limitation objects, preserving each supplied
+code/text/scope. This is an additive bounded report-capacity extension; existing
+result bytes/content IDs and defaults are unchanged. It does not relax40metrics,
+30provenance entries, closed-field/text safety or8MiB total result limits. No
+limitation truncation or implicit financial verdict is performed. Scheduled
+profile10 can use31; other existing scheduled profiles retain their30 admission
+bound. Actual publication/serving or retained scientific use is separate from
+source/schema qualification.
