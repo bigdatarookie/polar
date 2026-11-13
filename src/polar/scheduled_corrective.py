@@ -31,7 +31,7 @@ def amendment(authority,config,profile,family):
     from .scheduled_service import binding
     require(value['current_binding_sha256']==sha(canonical(binding(config))) and
             value['science_binding_sha256']==sha(canonical(science_binding(config))), 'CORRECTIVE_BINDING')
-    require(all(type(value['allowed_feature_counts'].get(k)) is int for k in NEW_COUNTS) and
+    require(type(value['allowed_feature_counts']) is dict and all(type(value['allowed_feature_counts'].get(k)) is int for k in NEW_COUNTS) and
             all(type(authority.get(k)) is int and authority[k]==0 for k in ('allowed_fit_calls','allowed_predict_calls','allowed_score_calls','allowed_rank_calls','allowed_estimator_calls','allowed_optimizer_calls','allowed_bootstrap_samples')), 'CORRECTIVE_TYPED_ALLOWANCE')
     require(type(value['maximum_family_starts']) is int and value['maximum_family_starts']==2 and
             value['allowed_feature_counts']==NEW_COUNTS and value['allowed_native_accounts']==8,'CORRECTIVE_ALLOWANCE')
@@ -93,7 +93,7 @@ def account_finish(finish,lineage,started_ns):
         finish['cumulative_recorded_feature_counts']={k:lineage['prior_actual_feature_counts'][k]+counts[k] for k in OLD_COUNTS}
     else:
         finish['cumulative_recorded_feature_counts']=None
-        finish['cumulative_feature_count_reason']='UNAVAILABLE_CURRENT_COUNTER_SHAPE' 
+        finish['cumulative_feature_count_reason']='UNAVAILABLE_CURRENT_COUNTER_SHAPE'
     finish['cumulative_completed_native_accounts']=lineage['prior_completed_native_accounts']+finish.get('completed_native_accounts',finish.get('native_accounts',0))
     finish['recorded_work_wall_ns']=max(0,finish['finished_ns']-started_ns)
     finish['cumulative_charged_work_ns']=lineage['prior_charged_work_ns']+finish['recorded_work_wall_ns']

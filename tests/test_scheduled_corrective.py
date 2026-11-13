@@ -93,7 +93,7 @@ def test_e1_success_adds_counts_without_changing_old_graph(tmp_path,monkeypatch)
     with pytest.raises(ValueError,match='CORRECTIVE_PRIOR_HISTORY'):service.run(current)
 
 
-@pytest.mark.parametrize('mutation',['missing_pin','bad_pin','wrong_prior','success','missing_finish','missing_diagnostic','changed_science','missing_amendment_status','unknown_retry_flag','counts','work_budget','audit_integrity','family','bool_allowance'])
+@pytest.mark.parametrize('mutation',['missing_pin','bad_pin','wrong_prior','success','missing_finish','missing_diagnostic','changed_science','missing_amendment_status','unknown_retry_flag','counts','work_budget','audit_integrity','family','bool_allowance','old_card','old_method'])
 def test_changed_or_unbound_prior_rejects_before_debit_and_values(tmp_path,monkeypatch,mutation):
     root,cfg,p,service,old_path,a,g=setup_e1(tmp_path,monkeypatch)
     if mutation=='missing_pin':del a['prior_members']['start.json']
@@ -110,6 +110,12 @@ def test_changed_or_unbound_prior_rejects_before_debit_and_values(tmp_path,monke
     if mutation=='counts':a['allowed_feature_counts']['rate_operand_reads']=95
     if mutation=='work_budget':a['allowed_e1_work_ns']=1200*10**9
     if mutation=='audit_integrity':a['prior_audit_ref']={**a['prior_audit_ref'],'sha256':'0'*64}
+    if mutation in ('old_card','old_method'):
+        key='candidate_ref' if mutation=='old_card' else 'method_ref'
+        prior_authority={'action':'ORIGINAL','candidate_ref':g['candidate_ref'],'method_ref':g['method_ref']}
+        prior_authority[key]={**prior_authority[key],'sha256':'0'*64}
+        f=old_path/'authority.json';f.chmod(0o600);f.write_bytes(canonical(prior_authority))
+        a['prior_members']['authority.json']={'sha256':sha(f.read_bytes()),'bytes':f.stat().st_size}
     if mutation=='family':a['family']='0'*64
     if mutation=='bool_allowance':g['allowed_fit_calls']=False
     current=bind(tmp_path,cfg,a,g)
@@ -142,3 +148,16 @@ def test_bad_new_counter_shape_does_not_mask_finish():
     account_finish(finish,lineage,20)
     assert finish['cumulative_recorded_feature_counts'] is None
     assert finish['cumulative_feature_count_reason']=='UNAVAILABLE_CURRENT_COUNTER_SHAPE'
+
+
+
+def test_scientific_projection_keeps_root_and_all_source_refs():
+    old={'code':{'old':'a'*64},'code_revision':'a'*40,'runtime_image_id':'sha256:'+'a'*64,
+         'execution_authority_ref':None,'input_ref':{'sha256':'b'*64},'profile_ref':{'sha256':'c'*64},
+         'artifact_root_identity':{'device':'1','inode':'2'},'namespace':'INVENTED'}
+    new={**old,'code':{'new':'d'*64},'code_revision':'d'*40,'runtime_image_id':'sha256:'+'d'*64,
+         'execution_authority_ref':{'sha256':'e'*64}}
+    assert science_binding(old)==science_binding(new)
+    for key in ('input_ref','profile_ref','artifact_root_identity','namespace'):
+        changed={**new,key:'CHANGED'}
+        assert science_binding(old)!=science_binding(changed)
