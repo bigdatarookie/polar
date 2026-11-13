@@ -44,8 +44,8 @@ def diagnostic_inputs(value, profile):
         values=[d['daily_tail'][k] for k in ('actual_tail_fraction','lower_tail_mean_return','lower_return_threshold','expected_shortfall_loss','k')]
         values += [d['drawdown']['time_underwater_fraction'],d['calendar_months']['complete_count'],d['calendar_months']['worst_full_month']['net_return']]
         values += [d['worst_horizons'][h]['net_return'] for h in ('1','21','63')]
-        for value in values:
-            if type(value) is not int:need(value,['value','status','reason'],'diagnostic_value')
+        for operand in values:
+            if type(operand) is not int:need(operand,['value','status','reason'],'diagnostic_value')
         require(isinstance(d['subperiods'],list),'SAVED_REPORT_SEGMENTS')
         if len(d['subperiods'])!=len(profile['subperiods']):raise Incomplete('subperiod_count')
         for segment in d['subperiods']:
@@ -134,7 +134,7 @@ def project_saved_report(store_root, semantic_id, *, candidate_id, experiment_id
 
 def write_artifact(output, artifact, *, input_store_root):
     """Exclusive private file in an existing task-owned directory outside inputs."""
-    output=Path(output).absolute();parent=safe_root(output.parent);source=safe_root(input_store_root)
+    output=Path(output).absolute();parent=safe_root(output.parent).resolve();source=safe_root(input_store_root).resolve()
     require(not parent.is_relative_to(source) and parent.stat().st_uid==os.geteuid() and bool(re.fullmatch('[A-Za-z0-9_.-]+',output.name)) and output.name not in ('.','..'),'SAVED_REPORT_OUTPUT_LOCATION')
     # No store/registry or existing artifact is modified. A failed write is retained
     # as a task-owned partial rather than silently replacing another artifact.

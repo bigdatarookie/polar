@@ -83,6 +83,7 @@ def test_complete_graph_source_absent_readonly_deterministic_no_forbidden_calls(
     assert json.loads(out.read_bytes())==first and out.stat().st_mode & 0o777==0o600
     with pytest.raises(FileExistsError):write_artifact(out,first,input_store_root=root)
     with pytest.raises(ValueError,match='SAVED_REPORT_OUTPUT_LOCATION'):write_artifact(root/'forbidden.json',first,input_store_root=root)
+    with pytest.raises(ValueError,match='SAVED_REPORT_OUTPUT_LOCATION'):write_artifact(outside/'..'/'readonly-store'/'traversal.json',first,input_store_root=root)
     assert snapshot(root)==before
 
 
