@@ -87,3 +87,10 @@ test('retained SIP history load keeps exact tokens and null adjusted close throu
   assert.equal(loaded.instrument.instrument_id,'hist-sip-AAA');assert.equal(loaded.rows.length,2);assert.equal(loaded.rows[0].close,'11.00');assert.equal(loaded.rows[0].adjusted_close,null);assert.deepEqual(loaded.revision.basis,basis);
  }
 });
+
+
+test('volume series labels retain each explicit supplied source unit',()=>{
+ const {historyVolumeLabel}=require('../src/polar/web/history.js');
+ for(const unit of ['split-adjusted shares','vendor raw response units','vendor all-adjusted response units'])assert.equal(historyVolumeLabel({basis:{volume_unit:unit}}),'Volume · '+unit);
+ assert.equal(historyVolumeLabel({basis:{}}),'Volume · source units not supplied');
+});

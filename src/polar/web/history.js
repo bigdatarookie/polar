@@ -13,6 +13,7 @@ function historyRevision(value) {return typeof value==='string'&&/^histrev-[a-f0
 // Closed retained SIP display bases. No missing adjusted close is fabricated.
 function historySupportsSeries(revision){return revision?.basis?.ohlc_basis==='VENDOR_RAW_UNADJUSTED'&&revision.basis.adjusted_close_basis==='VENDOR_SPLIT_AND_DIVIDEND_ADJUSTED'&&revision.basis.volume_basis==='VENDOR_SPLIT_ADJUSTED';}
 function historyOHLCLabel(revision){return revision?.basis?.ohlc_basis==='VENDOR_ALL_ADJUSTED_REFERENCE'?'Vendor all-adjusted OHLC':'Raw vendor OHLC';}
+function historyVolumeLabel(revision){return 'Volume · '+(revision?.basis?.volume_unit||'source units not supplied');}
 function historyBasisSupported(basis){
  const legacy={ohlc_basis:'VENDOR_RAW_UNADJUSTED',adjusted_close_basis:'VENDOR_SPLIT_AND_DIVIDEND_ADJUSTED',volume_basis:'VENDOR_SPLIT_ADJUSTED',price_unit:'USD/share',volume_unit:'split-adjusted shares'};
  const raw={ohlc_basis:'VENDOR_RAW_UNADJUSTED',adjusted_close_basis:'NOT_SUPPLIED',volume_basis:'VENDOR_RAW_RESPONSE_UNITS',price_unit:'USD/vendor raw reference unit',volume_unit:'vendor raw response units'};
@@ -190,4 +191,4 @@ function buildHistoryView(context) {
   return {history:true,bars,cPoints:dates.map(date=>points.get(date)||null),equity:bars.map(b=>({time:b.time,value:null,at:null,status:'NO_STRATEGY_RESULT'})),markers:[],sma:[],baseClose:null,initialCash:null};
 }
 
-if(typeof module!=='undefined')module.exports={historyBasisSupported,historySupportsSeries,historyOHLCLabel,historyInitialWindow,readHistoryRange,createHistoryClient,historySeriesCacheKey,historyWindowContains,historyBufferedWindow,historyBufferNeedsPrefetch,buildHistoryView};
+if(typeof module!=='undefined')module.exports={historyVolumeLabel,historyBasisSupported,historySupportsSeries,historyOHLCLabel,historyInitialWindow,readHistoryRange,createHistoryClient,historySeriesCacheKey,historyWindowContains,historyBufferedWindow,historyBufferNeedsPrefetch,buildHistoryView};
