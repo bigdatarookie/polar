@@ -4,6 +4,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 from polar.history_bundle import canonical, sha
+from polar.gym_contract import canonical as model_canonical
 from polar.research_results import ResearchResults, ResearchError
 from polar.research_executions import project
 from polar.api import create_app
@@ -12,7 +13,7 @@ from polar.config import Settings
 from test_research_results import invented_result
 
 
-def fixture(tmp_path, kind='scheduled', *, cash=False, clipped=False):
+def fixture(tmp_path, kind='scheduled', *, cash=False, clipped=False, model=False, zero=False):
     tmp_path.mkdir(exist_ok=True)
     results=ResearchResults(tmp_path,128*1024**2);r=invented_result()
     legs=[]
@@ -22,6 +23,11 @@ def fixture(tmp_path, kind='scheduled', *, cash=False, clipped=False):
         oid=series['id']+'/2020-01-03/BUY/AAA';ns=1578085200000000000
         orders=[] if cash else [{'id':oid,'symbol':'AAA','side':'BUY','at_ns':ns,'intended_quantity':2,'routed_quantity':0 if clipped else 2,'reason':'FEE_AWARE_BUDGET_CAP' if clipped else None}]
         fills=[] if cash or clipped else [{'id':oid,'symbol':'AAA','side':'BUY','at_ns':ns,'q':2,'price_micro':12345678,'fee_cents':103,'settled_cents':2469}]
+        if zero:
+            orders.insert(0,{'id':series['id']+'/2020-01-03/SELL/AAA','symbol':'AAA','side':'SELL',
+                'at_ns':ns-100,'intended_quantity':0,'routed_quantity':0,'reason':'ZERO_DELTA_NO_ORDER',
+                'consumed_operands':{'decision_id':series['id']+'/2020-01-03','desired_delta':0,
+                    'target':0,'holdings_before':{'AAA':0}}})
         legs.append({'id':series['id'],'nav':nav,'orders':orders,'fills':fills})
     simulation={'schema':'polar.ci-research-simulation/1','legs':legs}
     if kind!='ci':
@@ -35,9 +41,20 @@ def fixture(tmp_path, kind='scheduled', *, cash=False, clipped=False):
              'pins':{'input_sha256':r['bindings']['data_sha256'],'protocol_sha256':r['bindings']['protocol_sha256']},
              'input_ref':{'sha256':r['bindings']['data_sha256']},'protocol_ref':{'sha256':r['bindings']['protocol_sha256']},
              'candidate_id':r['bindings']['candidate_id'],'experiment_id':r['bindings']['experiment_id']}
-    body=canonical(data);bound=canonical(binding);manifest={'schema':schema,'files':{name:{'sha256':sha(body),'bytes':len(body)},'bindings.json':{'sha256':sha(bound),'bytes':len(bound)}}};raw=canonical(manifest);sid=prefix+sha(raw)
-    with results.locked():results._publish(parent,sid,{name:body,'bindings.json':bound,'manifest.json':raw},file_limit=32*1024**2)
-    r['provenance']=[{'role':'semantic_manifest','id':sid,'sha256':sha(raw)}]
+    extra={}
+    if model:
+        mapping={'schema':'polar.reference-model-price-mapping/1','source_input_sha256':r['bindings']['data_sha256'],
+                 'multipliers':{'AAA':[100,1]},'lot_size':1,'active_unit':'COARSE100_SYNTHETIC_REFERENCE_UNIT_NOT_PHYSICAL_SHARE'}
+        profile={'schema':'polar.scheduled-reference-profile/10','input_sha256':r['bindings']['data_sha256'],
+                 'symbols':['AAA'],'legs':[{'weights':{'AAA':[1,1]}}], 'model_price_mapping':mapping}
+        simulation['quantity_unit']=mapping['active_unit']
+        data['FINAL']['plan']={'model_price_mapping':mapping,'capture_consumed_sizing':True,
+            'consumed_witness_schema':'polar.model-price-consumed-operands/1','quantity_unit':mapping['active_unit']}
+        extra={'profile.json':canonical(profile)}
+        r['provenance'].append({'role':'model_price_mapping','id':'COARSE100_MODEL_NOT_SOURCE_PRICE','sha256':sha(model_canonical(mapping))})
+    body=canonical(data);bound=canonical(binding);manifest={'schema':schema,'files':{name:{'sha256':sha(body),'bytes':len(body)},'bindings.json':{'sha256':sha(bound),'bytes':len(bound)}}};manifest['files'].update({k:{'sha256':sha(v),'bytes':len(v)} for k,v in extra.items()});raw=canonical(manifest);sid=prefix+sha(raw)
+    with results.locked():results._publish(parent,sid,{name:body,'bindings.json':bound,'manifest.json':raw,**extra},file_limit=32*1024**2)
+    r['provenance']=[x for x in r['provenance'] if x['role']=='model_price_mapping']+[{'role':'semantic_manifest','id':sid,'sha256':sha(raw)}]
     published=results.publish(r)
     return results,published['result_id'],tmp_path/parent/sid,name
 
@@ -121,4 +138,59 @@ def test_rehashed_wrong_phase_source_or_fill_still_rejected(tmp_path,mutation):
     raw=canonical(manifest);sid='scheduled-reference-experiment-'+sha(raw)
     with results.locked():results._publish('reference-research-experiments',sid,{**files,'manifest.json':raw},file_limit=32*1024**2)
     record['provenance'][0].update(id=sid,sha256=sha(raw));rid=results.publish(record)['result_id']
+    with pytest.raises(ResearchError):project(results,rid)
+
+
+def test_saved_coarse_model_zero_delta_is_unfilled_not_dropped_or_inferred(tmp_path):
+    results,rid,_,_=fixture(tmp_path,model=True,zero=True)
+    out=project(results,rid)
+    assert out['total']==2 and out['quote_basis']=='SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT'
+    assert out['quantity_unit']=='COARSE100_SYNTHETIC_REFERENCE_UNIT_NOT_PHYSICAL_SHARE'
+    zero,filled=out['items']
+    assert zero['intended_quantity']==zero['routed_quantity']==zero['filled_quantity']=='0'
+    assert zero['status']=='NOT_ROUTED' and zero['reason']=='ZERO_DELTA_NO_ORDER'
+    assert zero['price_micro'] is zero['fee_cents'] is zero['settled_notional_cents'] is None
+    assert filled['status']=='FILLED' and filled['order_id']!=zero['order_id']
+    assert not out['raw_ohlc_overlay_compatible']
+    assert project(results,rid,limit=1)['next_offset']==1
+
+
+def republish_model(results,rid,d,name,mutate):
+    record=deepcopy(results.read(rid)['record']);phase=json.loads((d/name).read_bytes())
+    profile=json.loads((d/'profile.json').read_bytes());mutate(phase,profile,record)
+    files={name:canonical(phase),'bindings.json':(d/'bindings.json').read_bytes(),'profile.json':canonical(profile)}
+    manifest={'schema':'polar.scheduled-reference-semantic-manifest/1','files':{k:{'sha256':sha(v),'bytes':len(v)} for k,v in files.items()}}
+    raw=canonical(manifest);sid='scheduled-reference-experiment-'+sha(raw)
+    with results.locked():results._publish('reference-research-experiments',sid,{**files,'manifest.json':raw},file_limit=32*1024**2)
+    next(x for x in record['provenance'] if x['role']=='semantic_manifest').update(id=sid,sha256=sha(raw))
+    return results.publish(record)['result_id']
+
+
+@pytest.mark.parametrize('mutation',['reason','routed','fill','witness','delta','holdings','capture','schema','mapping','public_mapping','bool_lot','unit','delta_bool','target_bool','decision','mapping_no_lf'])
+def test_rehashed_zero_delta_cannot_relax_saved_binding(tmp_path,mutation):
+    results,rid,d,name=fixture(tmp_path,model=True,zero=True)
+    def change(phase,profile,record):
+        final=phase['FINAL'];leg=final['simulation']['legs'][0];o=leg['orders'][0]
+        if mutation=='reason':o['reason']='FEE_AWARE_BUDGET_CAP'
+        elif mutation=='routed':o['routed_quantity']=1
+        elif mutation=='fill':leg['fills'].append({**leg['fills'][0],'id':o['id']})
+        elif mutation=='witness':del o['consumed_operands']
+        elif mutation=='delta':o['consumed_operands']['desired_delta']=1
+        elif mutation=='holdings':o['consumed_operands']['holdings_before']['AAA']=1
+        elif mutation=='capture':final['plan']['capture_consumed_sizing']=False
+        elif mutation=='schema':profile['schema']='polar.scheduled-reference-profile/5'
+        elif mutation=='mapping':final['plan']['model_price_mapping']['lot_size']=2
+        elif mutation=='public_mapping':next(x for x in record['provenance'] if x['role']=='model_price_mapping')['sha256']='a'*64
+        elif mutation=='bool_lot':profile['model_price_mapping']['lot_size']=True
+        elif mutation=='unit':final['simulation']['quantity_unit']='WHOLE_SYNTHETIC_REFERENCE_UNIT_NOT_RAW_SHARE'
+        elif mutation=='delta_bool':o['consumed_operands']['desired_delta']=False
+        elif mutation=='target_bool':o['consumed_operands']['target']=False
+        elif mutation=='decision':o['consumed_operands']['decision_id']='different/2020-01-03'
+        else:next(x for x in record['provenance'] if x['role']=='model_price_mapping')['sha256']=sha(canonical(profile['model_price_mapping']))
+    other=republish_model(results,rid,d,name,change)
+    with pytest.raises((ResearchError,ValueError)):project(results,other)
+
+
+def test_legacy_zero_intent_stays_rejected(tmp_path):
+    results,rid,_,_=fixture(tmp_path,zero=True)
     with pytest.raises(ResearchError):project(results,rid)
