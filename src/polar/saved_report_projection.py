@@ -41,6 +41,11 @@ def diagnostic_inputs(value, profile):
         need(d['calendar_months']['worst_full_month'],['net_return'],'worst_month')
         need(d['worst_horizons'],['1','21','63'],'horizons')
         for h in ('1','21','63'):need(d['worst_horizons'][h],['net_return'],'horizon')
+        values=[d['daily_tail'][k] for k in ('actual_tail_fraction','lower_tail_mean_return','lower_return_threshold','expected_shortfall_loss','k')]
+        values += [d['drawdown']['time_underwater_fraction'],d['calendar_months']['complete_count'],d['calendar_months']['worst_full_month']['net_return']]
+        values += [d['worst_horizons'][h]['net_return'] for h in ('1','21','63')]
+        for value in values:
+            if type(value) is not int:need(value,['value','status','reason'],'diagnostic_value')
         require(isinstance(d['subperiods'],list),'SAVED_REPORT_SEGMENTS')
         if len(d['subperiods'])!=len(profile['subperiods']):raise Incomplete('subperiod_count')
         for segment in d['subperiods']:
@@ -48,6 +53,8 @@ def diagnostic_inputs(value, profile):
             if 'requested_initial_anchor' in segment:need(segment,['status','reason'],'segment_anchor')
             need(segment['metrics'],['net_total_return','sharpe_252_rf0','max_drawdown','net_cagr_act36525','annual_vol_252'],'segment_metrics')
             need(segment['costs'],['total_fee_usd','normalization_initial_nav_cents','gross_exact_notional_usd','gross_settled_notional_usd','positive_fill_count','gross_notional_over_initial'],'segment_costs')
+            for section,keys in [('metrics',('net_total_return','sharpe_252_rf0','max_drawdown','net_cagr_act36525','annual_vol_252')),('costs',('total_fee_usd','gross_exact_notional_usd','gross_settled_notional_usd','positive_fill_count','gross_notional_over_initial'))]:
+                for key in keys:need(segment[section][key],['value','status','reason'],'segment_value')
 
 
 def project_saved_report(store_root, semantic_id, *, candidate_id, experiment_id, report_revision, runtime_image_id):
@@ -63,10 +70,10 @@ def project_saved_report(store_root, semantic_id, *, candidate_id, experiment_id
     body={'schema':'polar.saved-report-projection/1','original_semantic_id':semantic_id,
           'candidate_id':candidate_id,'experiment_id':experiment_id,
           'report_source':{'declared_revision':report_revision,'declared_runtime_image':runtime_image_id,
-                           'code':code_binding()},
+                           'code':code_binding(),'runtime_custody':'DECLARED_NOT_AUTHENTICATED_BY_THIS_FUNCTION'},
           'meaning':'Technical report/schema admission only; no financial or execution verdict',
           'input_store_writes':0,'native_calls':0,'policy_calls':0,'evaluation_recomputations':0,
-          'diagnostic_recomputations':0,'source_loads':0,'publications':0,'registry_writes':0,
+          'diagnostic_recomputations':0,'source_loads':0,'publications':0,'registry_writes':0,'quote_valuations':0,
           'original_attempt_transition':'NONE','missing_historical_witnesses':'NOT_RECONSTRUCTED'}
     pins={}
     def member(name):
@@ -90,12 +97,17 @@ def project_saved_report(store_root, semantic_id, *, candidate_id, experiment_id
         p=profile_value(files['profile.json']);require(p['schema']=='polar.scheduled-reference-profile/10','SAVED_REPORT_PROFILE')
         cfg=files['bindings.json'];need(cfg,['code','code_revision','runtime_image_id','namespace','profile_ref','protocol_ref','input_ref','calendar_ref','timezone_ref','candidate_id','experiment_id'],'bindings')
         require(cfg['candidate_id']==candidate_id and cfg['experiment_id']==experiment_id,'SAVED_REPORT_CALCULATION_IDENTITY')
-        for key in ('protocol','input','calendar','timezone'):
+        for key in ('profile','protocol','input','calendar','timezone'):
             need(cfg[key+'_ref'],['sha256'],'binding_ref')
+            require(type(cfg[key+'_ref']['sha256']) is str and bool(re.fullmatch('[a-f0-9]{64}',cfg[key+'_ref']['sha256'])),'SAVED_REPORT_REFERENCE_HASH')
+        for key in ('protocol','input','calendar','timezone'):
             require(cfg[key+'_ref']['sha256']==p[key+'_sha256'],'SAVED_REPORT_PROFILE_BINDING')
+        require(type(cfg['code']) is dict and bool(cfg['code']) and all(type(v) is str and bool(re.fullmatch('[a-f0-9]{64}',v)) for v in cfg['code'].values()),'SAVED_REPORT_CALCULATION_CODE')
         require(bool(re.fullmatch('[a-f0-9]{40}',cfg['code_revision'])) and bool(re.fullmatch('sha256:[a-f0-9]{64}',cfg['runtime_image_id'])),'SAVED_REPORT_CALCULATION_SOURCE')
         need(files['calendar.json'],['phases'],'calendar')
         require(set(files['phases.json'])==set(files['calendar.json']['phases'])=={'FINAL'},'SAVED_REPORT_PHASE_IDENTITY')
+        grid=files['calendar.json']['phases']['FINAL'];need(grid,['nav_dates','nav_points','return_count'],'calendar_grid')
+        require(type(grid['nav_dates']) is list and type(grid['nav_points']) is int and type(grid['return_count']) is int and grid['nav_points']==len(grid['nav_dates'])==grid['return_count']+1,'SAVED_REPORT_CALENDAR_COUNT')
         need(files['diagnostics.json'],['FINAL'],'diagnostic_phases')
         data=files['phases.json']['FINAL'];need(data,['simulation','evaluation'],'phase')
         ids={leg['id'] for leg in p['legs']}
@@ -105,6 +117,7 @@ def project_saved_report(store_root, semantic_id, *, candidate_id, experiment_id
         diagnostic_inputs(files['diagnostics.json']['FINAL'],p)
         public=public_config(cfg,p);public['model_price_mapping']=p['model_price_mapping']
         record=public_reference(public,data['simulation'],data['evaluation'],semantic_id=semantic_id,semantic_hash=sha(raw),phase='FINAL')
+        require([x[:10] for x in record['grid']]==grid['nav_dates'],'SAVED_REPORT_GRID_IDENTITY')
         for series in record['series']:series['label']=next(x['label'] for x in p['legs'] if x['id']==series['id'])
         project_diagnostics(record,files['diagnostics.json']['FINAL'])
         record=validate_result(record);require(len(canonical(record))<=MAX_RESULT,'SAVED_REPORT_RESULT_SIZE')

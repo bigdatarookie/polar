@@ -29,7 +29,7 @@ def graph(tmp_path,monkeypatch):
        'drawdown':{'status':'NO_DRAWDOWN','time_underwater_fraction':token(),'peak':None,'trough':None,'recovery':None,'peak_to_trough_intervals':None,'peak_to_recovery_intervals':None,'censored_peak_to_terminal_intervals':None},
        'calendar_months':{'complete_count':0,'partial_count':1,'worst_full_month':{'net_return':token()}},
        'worst_horizons':{k:{'net_return':token()} for k in ('1','21','63')},'subperiods':[deepcopy(segment),deepcopy(segment)]}
-    files={'profile.json':p,'bindings.json':cfg,'calendar.json':{'phases':{'FINAL':{}}},
+    files={'profile.json':p,'bindings.json':cfg,'calendar.json':{'phases':{'FINAL':{'nav_dates':['2020-01-02','2020-01-03'],'nav_points':2,'return_count':1}}},
            'phases.json':{'FINAL':{'simulation':simulation,'evaluation':evaluation}},
            'diagnostics.json':{'FINAL':{x['id']:deepcopy(diagnostic) for x in p['legs']}}}
     root=tmp_path/'readonly-store';root.mkdir();sid=pack(root,files)
@@ -86,7 +86,7 @@ def test_complete_graph_source_absent_readonly_deterministic_no_forbidden_calls(
     assert snapshot(root)==before
 
 
-@pytest.mark.parametrize('mutation',['missing_member','missing_diagnostic','missing_value','wrong_candidate','profile_binding','bad_member_hash','bad_manifest_id','unsafe_member','symlink'])
+@pytest.mark.parametrize('mutation',['missing_member','missing_diagnostic','missing_value','wrong_candidate','profile_binding','bad_member_hash','bad_manifest_id','unsafe_member','symlink','calendar_grid','diagnostic_token','evaluation_identity','malformed_json'])
 def test_incomplete_and_conflicting_graphs_never_execute(tmp_path,monkeypatch,mutation):
     root,sid,files,cfg=graph(tmp_path,monkeypatch);forbid(monkeypatch)
     folder=root/'reference-research-experiments'/sid
@@ -96,6 +96,11 @@ def test_incomplete_and_conflicting_graphs_never_execute(tmp_path,monkeypatch,mu
         del files['diagnostics.json']['FINAL'][files['profile.json']['legs'][0]['id']]['drawdown'];sid=pack(root,files);expected='INCOMPLETE_INPUT'
     if mutation=='missing_value':
         del files['phases.json']['FINAL']['simulation']['legs'][0]['nav'][0]['cash_cents'];sid=pack(root,files);expected='INCOMPLETE_INPUT'
+    if mutation=='calendar_grid':files['calendar.json']['phases']['FINAL']['nav_dates'][0]='2020-01-01';sid=pack(root,files)
+    if mutation=='diagnostic_token':
+        del files['diagnostics.json']['FINAL'][files['profile.json']['legs'][0]['id']]['daily_tail']['actual_tail_fraction']['value'];sid=pack(root,files);expected='INCOMPLETE_INPUT'
+    if mutation=='evaluation_identity':files['phases.json']['FINAL']['evaluation']['legs'][0]['id']='CONFLICT';sid=pack(root,files)
+    if mutation=='malformed_json':(folder/'manifest.json').write_bytes(b'not-json')
     if mutation=='wrong_candidate':cfg={**cfg,'candidate_id':'WRONG-CANDIDATE'}
     if mutation=='profile_binding':files['profile.json']['input_sha256']='0'*64;sid=pack(root,files)
     if mutation=='bad_member_hash':(folder/'diagnostics.json').write_bytes(b'{}')
@@ -112,3 +117,14 @@ def test_incomplete_and_conflicting_graphs_never_execute(tmp_path,monkeypatch,mu
 def test_invalid_semantic_path_rejects_before_any_read(tmp_path):
     with pytest.raises(ValueError,match='SAVED_REPORT_SEMANTIC_ID'):
         project_saved_report(tmp_path,'../escape',candidate_id='x',experiment_id='y',report_revision='a'*40,runtime_image_id='sha256:'+'a'*64)
+
+
+
+def test_empty_store_returns_explicit_incomplete_and_output_cannot_follow_symlink(tmp_path,monkeypatch):
+    root=tmp_path/'empty';root.mkdir()
+    cfg={'candidate_id':'INVENTED','experiment_id':'INVENTED'}
+    result=call(root,'scheduled-reference-experiment-'+'0'*64,cfg)
+    assert result['status']=='INCOMPLETE_INPUT' and result['missing']==['semantic_directory']
+    target=tmp_path/'outside';target.mkdir();link=tmp_path/'link';link.symlink_to(target,target_is_directory=True)
+    with pytest.raises(ValueError):write_artifact(link/'unsafe.json',result,input_store_root=root)
+    assert not list(target.iterdir())
