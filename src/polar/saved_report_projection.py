@@ -6,11 +6,11 @@ from pathlib import Path
 import re
 import sys
 
-from .gym_contract import canonical, sha, decode
+from .gym_contract import canonical, sha, decode, GymError
 from .gym_service import code_binding
 from .history_bundle import read_file, safe_root, HistoryError
 from .reference_projection import public_reference
-from .research_results import validate_result, MAX_RESULT
+from .research_results import validate_result, MAX_RESULT, ResearchError
 from .scheduled_policy import profile_value
 from .scheduled_service import public_config, project_diagnostics, MEMBERS, SEMANTIC
 
@@ -50,7 +50,7 @@ def diagnostic_inputs(value, profile):
             need(segment['costs'],['total_fee_usd','normalization_initial_nav_cents','gross_exact_notional_usd','gross_settled_notional_usd','positive_fill_count','gross_notional_over_initial'],'segment_costs')
 
 
-def project_saved_report(directory, semantic_id, *, candidate_id, experiment_id, report_revision, runtime_image_id):
+def project_saved_report(store_root, semantic_id, *, candidate_id, experiment_id, report_revision, runtime_image_id):
     """Read five original members; return a separate private technical artifact.
 
     Declared revision/runtime require independent launch custody. Actual code/schema
@@ -58,7 +58,8 @@ def project_saved_report(directory, semantic_id, *, candidate_id, experiment_id,
     """
     require(bool(re.fullmatch(SEMANTIC+'[a-f0-9]{64}',semantic_id)),'SAVED_REPORT_SEMANTIC_ID')
     require(bool(re.fullmatch('[a-f0-9]{40}',report_revision)) and bool(re.fullmatch('sha256:[a-f0-9]{64}',runtime_image_id)),'SAVED_REPORT_RUNTIME_ID')
-    root=safe_root(directory)
+    root=safe_root(store_root)
+    relative_directory='reference-research-experiments/'+semantic_id
     body={'schema':'polar.saved-report-projection/1','original_semantic_id':semantic_id,
           'candidate_id':candidate_id,'experiment_id':experiment_id,
           'report_source':{'declared_revision':report_revision,'declared_runtime_image':runtime_image_id,
@@ -69,10 +70,13 @@ def project_saved_report(directory, semantic_id, *, candidate_id, experiment_id,
           'original_attempt_transition':'NONE','missing_historical_witnesses':'NOT_RECONSTRUCTED'}
     pins={}
     def member(name):
-        path=root/name
+        path=root/relative_directory/name
         if not path.exists() and not path.is_symlink():raise Incomplete(name)
-        return read_file(root,name,32*1024**2)
+        return read_file(root,relative_directory+'/'+name,32*1024**2)
     try:
+        folder=root/relative_directory
+        if not folder.exists() and not folder.is_symlink():raise Incomplete('semantic_directory')
+        safe_root(folder)
         raw=member('manifest.json');require(semantic_id==SEMANTIC+sha(raw),'SAVED_REPORT_MANIFEST_ID')
         manifest=decode(raw);need(manifest,['schema','files'],'manifest')
         require(set(manifest)=={'schema','files'} and manifest['schema']=='polar.scheduled-reference-semantic-manifest/1' and isinstance(manifest['files'],dict),'SAVED_REPORT_MANIFEST')
@@ -109,15 +113,15 @@ def project_saved_report(directory, semantic_id, *, candidate_id, experiment_id,
         body.update(status='INCOMPLETE_INPUT',missing=[str(exc)])
     except (KeyError,IndexError) as exc:
         body.update(status='INCOMPLETE_INPUT',missing=['SAVED_PROJECTION_FIELD'])
-    except (ValueError,TypeError,HistoryError) as exc:
+    except (ValueError,TypeError,HistoryError,GymError,ResearchError) as exc:
         body.update(status='INVALID_INPUT',reason=str(exc) if re.fullmatch('[A-Z][A-Z0-9_]{1,100}',str(exc)) else 'SAVED_REPORT_INVALID')
     body['verified_members']=pins
     return {**body,'technical_artifact_id':'saved-report-projection-'+sha(canonical(body))}
 
 
-def write_artifact(output, artifact, *, input_directory):
+def write_artifact(output, artifact, *, input_store_root):
     """Exclusive private file in an existing task-owned directory outside inputs."""
-    output=Path(output).absolute();parent=safe_root(output.parent);source=safe_root(input_directory)
+    output=Path(output).absolute();parent=safe_root(output.parent);source=safe_root(input_store_root)
     require(not parent.is_relative_to(source) and parent.stat().st_uid==os.geteuid() and bool(re.fullmatch('[A-Za-z0-9_.-]+',output.name)) and output.name not in ('.','..'),'SAVED_REPORT_OUTPUT_LOCATION')
     # No store/registry or existing artifact is modified. A failed write is retained
     # as a task-owned partial rather than silently replacing another artifact.
@@ -130,9 +134,9 @@ def write_artifact(output, artifact, *, input_directory):
 
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--input-directory',required=True);p.add_argument('--semantic-id',required=True);p.add_argument('--candidate-id',required=True);p.add_argument('--experiment-id',required=True);p.add_argument('--report-revision',required=True);p.add_argument('--runtime-image-id',required=True);p.add_argument('--output',required=True);a=p.parse_args()
-    value=project_saved_report(a.input_directory,a.semantic_id,candidate_id=a.candidate_id,experiment_id=a.experiment_id,report_revision=a.report_revision,runtime_image_id=a.runtime_image_id)
-    write_artifact(a.output,value,input_directory=a.input_directory)
+    p=argparse.ArgumentParser();p.add_argument('--store-root',required=True);p.add_argument('--semantic-id',required=True);p.add_argument('--candidate-id',required=True);p.add_argument('--experiment-id',required=True);p.add_argument('--report-revision',required=True);p.add_argument('--runtime-image-id',required=True);p.add_argument('--output',required=True);a=p.parse_args()
+    value=project_saved_report(a.store_root,a.semantic_id,candidate_id=a.candidate_id,experiment_id=a.experiment_id,report_revision=a.report_revision,runtime_image_id=a.runtime_image_id)
+    write_artifact(a.output,value,input_store_root=a.store_root)
     print(json.dumps({'status':value['status'],'technical_artifact_id':value['technical_artifact_id']}))
     return 0 if value['status']=='REPORT_SCHEMA_VALID' else 2
 
