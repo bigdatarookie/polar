@@ -134,6 +134,8 @@ def project_saved_report(store_root, semantic_id, *, candidate_id, experiment_id
 
 def write_artifact(output, artifact, *, input_store_root):
     """Exclusive private file in an existing task-owned directory outside inputs."""
+    require(type(artifact) is dict and artifact.get('schema')=='polar.saved-report-projection/1' and
+            artifact.get('technical_artifact_id')=='saved-report-projection-'+sha(canonical({k:v for k,v in artifact.items() if k!='technical_artifact_id'})), 'SAVED_REPORT_ARTIFACT_ID')
     output=Path(output).absolute();parent=safe_root(output.parent).resolve();source=safe_root(input_store_root).resolve()
     require(not parent.is_relative_to(source) and parent.stat().st_uid==os.geteuid() and bool(re.fullmatch('[A-Za-z0-9_.-]+',output.name)) and output.name not in ('.','..'),'SAVED_REPORT_OUTPUT_LOCATION')
     # No store/registry or existing artifact is modified. A failed write is retained

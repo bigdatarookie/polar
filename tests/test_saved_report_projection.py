@@ -129,3 +129,19 @@ def test_empty_store_returns_explicit_incomplete_and_output_cannot_follow_symlin
     target=tmp_path/'outside';target.mkdir();link=tmp_path/'link';link.symlink_to(target,target_is_directory=True)
     with pytest.raises(ValueError):write_artifact(link/'unsafe.json',result,input_store_root=root)
     assert not list(target.iterdir())
+
+
+
+def test_cli_and_changed_artifact_id_are_private_and_closed(tmp_path,monkeypatch,capsys):
+    root,sid,files,cfg=graph(tmp_path,monkeypatch);forbid(monkeypatch)
+    import polar.saved_report_projection as module
+    out=tmp_path/'cli-technical.json'
+    monkeypatch.setattr('sys.argv',['saved-report-projection','--store-root',str(root),'--semantic-id',sid,
+        '--candidate-id',cfg['candidate_id'],'--experiment-id',cfg['experiment_id'],'--report-revision','b'*40,
+        '--runtime-image-id','sha256:'+'b'*64,'--output',str(out)])
+    before=snapshot(root);assert module.main()==0 and snapshot(root)==before
+    emitted=json.loads(capsys.readouterr().out);artifact=json.loads(out.read_bytes())
+    assert set(emitted)=={'status','technical_artifact_id'} and emitted['technical_artifact_id']==artifact['technical_artifact_id']
+    artifact['status']='MUTATED'
+    with pytest.raises(ValueError,match='SAVED_REPORT_ARTIFACT_ID'):write_artifact(tmp_path/'tampered.json',artifact,input_store_root=root)
+    assert not (tmp_path/'tampered.json').exists()
