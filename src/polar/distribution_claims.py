@@ -7,6 +7,7 @@ from dataclasses import dataclass, asdict, replace
 from datetime import date
 from enum import IntEnum
 from fractions import Fraction
+from functools import lru_cache
 import re
 
 
@@ -57,6 +58,18 @@ class Phase(IntEnum):
     CLOSE_SETTLED = 2
 
 
+@lru_cache(maxsize=32)
+def _validated_reference_dates(dates):
+    """Bounded, pure validation cache of immutable strict-string calendars only.
+
+    No prices/amounts/state/claims or execution results are cached. Every caller
+    guards element types before this cache so equality cannot alias valid dates
+    with a differently typed untrusted object.
+    """
+    for d in dates:day(d)
+    require(tuple(sorted(set(dates)))==dates,'CLAIM_CALENDAR')
+
+
 @dataclass(frozen=True)
 class Action:
     event_id: str
@@ -77,9 +90,12 @@ class Action:
         require(self.currency == 'USD' and self.basis == 'RAW_USD_PER_CONTEMPORANEOUS_SHARE', 'CLAIM_BASIS_CURRENCY')
         require(self.payment_date >= self.ex_date, 'CLAIM_PAY_BEFORE_EX')
         require(type(self.reference_dates) is tuple and 1 <= len(self.reference_dates) <= 10000, 'CLAIM_CALENDAR')
-        for d in self.reference_dates: day(d)
-        require(tuple(sorted(set(self.reference_dates))) == self.reference_dates and
-                self.ex_date in self.reference_dates, 'CLAIM_CALENDAR')
+        if any(type(d) is not str for d in self.reference_dates):
+            # Keep the original first-invalid-date error order, and never hash an
+            # untrusted non-string element into the validation cache.
+            for d in self.reference_dates:day(d)
+        _validated_reference_dates(self.reference_dates)
+        require(self.ex_date in self.reference_dates, 'CLAIM_CALENDAR')
         require(any(d > self.payment_date for d in self.reference_dates), 'CLAIM_AVAILABILITY_UNMAPPED')
 
     @property
