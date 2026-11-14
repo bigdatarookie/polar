@@ -143,13 +143,15 @@ class EventNativeFailure(RuntimeError):
         super().__init__(reason);self.evidence=evidence
 
 
-def simulate_event_component(plan, diagnostics=None):
+def simulate_event_component(plan, diagnostics=None, *, preserve_accounts=False):
     """Ten isolated native component accounts, not a financial/Service run grant."""
     validate_plan(plan)
     accounts=[]
     for cost_id,cost in COSTS:
         for leg in LEGS:
             accounts.append(_simulate_account(plan,leg,cost_id,cost,diagnostics=diagnostics))
+            if preserve_accounts and diagnostics:
+                diagnostics({'phase':'ACCOUNT_SAVED_WITNESS','leg':leg,'cost_id':cost_id,'account':accounts[-1]})
     return {'schema':'polar.event-native-component/1','accounts':accounts,'legs':LEGS,
             'cost_ids':tuple(v[0] for v in COSTS),'execution_authority':False,
             'scope':'SUPPLIED_INPUT_NATIVE_COMPONENT_NOT_RETAINED_FINANCIAL_ASSESSMENT'}

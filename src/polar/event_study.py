@@ -551,7 +551,7 @@ class StudyUnfinalized(ValueError):
         super().__init__(reason);self.evidence=evidence
 
 
-def produce_study(plan,sidecar,roles,binding,diagnostics_callback=None):
+def produce_study(plan,sidecar,roles,binding,diagnostics_callback=None,*,preserve_accounts=False):
     """Explicit producer invocation only, not Service/admission or authority."""
     calendars,_,_,_=validate_sidecars(sidecar,roles,binding)
     require(type(plan) is EventPlan and (plan.account_scope,plan.input_id,plan.calendar_id,plan.protocol_id)==
@@ -565,7 +565,9 @@ def produce_study(plan,sidecar,roles,binding,diagnostics_callback=None):
     require([{k:v for k,v in r.items() if k!='price_micro'} for r in projected]==roles['source_rows'],
             'STUDY_PRODUCER_SOURCE_ROLE_ROWS')
     from .event_native import EventNativeFailure
-    try:component=simulate_event_component(plan,diagnostics=diagnostics_callback)
+    try:
+        component=(simulate_event_component(plan,diagnostics=diagnostics_callback,preserve_accounts=True) if preserve_accounts
+                   else simulate_event_component(plan,diagnostics=diagnostics_callback))
     except EventNativeFailure as exc:
         raise StudyUnfinalized(str(exc),{'status':'FAILED_UNFINALIZED','binding':binding,
             'native_partial':deepcopy(exc.evidence),'complete_five_control_graph':False,'execution_authority':False}) from exc
