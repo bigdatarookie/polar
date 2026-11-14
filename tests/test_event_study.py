@@ -54,6 +54,7 @@ def study_inputs():
     side=make_sidecar(members,cal(baseline),cal(conditional),assumptions)
     roles={'schema':'polar.calendar-study-source-roles/1','input_id':p.input_id,'role_id':'INVENTED_ROLES',
         'nav_ns':list(p.nav_closes),'nav_dates':[iso(q)[:10] for q in p.nav_closes],
+        'daily_decisions':plain([asdict(d) for d in p.daily_decisions]),
         'source_rows':plain([{k:v for k,v in asdict(r).items() if k!='price_micro'} for r in p.source])}
     binding=StudyBinding('INVENTED','INVENTED_STUDY',p.input_id,roles['role_id'],PROTOCOL,QUESTION,
         sha(canonical(side)),sha(canonical(roles)),tuple((r['event_id'],r['status']) for r in members),p.nav_closes,tuple(roles['nav_dates']))
@@ -292,3 +293,67 @@ def test_actual_identity_cannot_be_relabelled_as_generic_invented_namespace(nati
     b=native_study['binding']
     with pytest.raises(Exception,match='DOWNGRADE'):replace(b,input_id='retained-input-actual')
     with pytest.raises(Exception,match='ACTUAL_CENSUS'):replace(b,namespace='RETAINED')
+
+
+@pytest.mark.parametrize('mutation',['empty','delete','duplicate','reorder','false_flag'])
+def test_required_external_sma_census_rejects_rehashed_mutants(native_study,mutation):
+    accounts=deepcopy(native_study['accounts']);a=next(a for a in accounts if a['leg']=='SMA200')
+    if mutation=='empty':a['sma']=[]
+    elif mutation=='delete':a['sma'].pop(0)
+    elif mutation=='duplicate':a['sma'].append(deepcopy(a['sma'][0]))
+    elif mutation=='reorder':a['sma'].reverse()
+    else:a['sma_control_complete']=False
+    outcome=assess_study(accounts,native_study['calendar'],native_study['roles'],native_study['binding'])
+    assert outcome['status']=='INVALID'
+    assert 'SMA' in outcome['reason']
+
+
+def test_actual_unavailable_prefix_preserves_required_census_and_refuses_deletion():
+    p,side,roles,b=study_inputs()
+    # Keep authentic source-role identities and supplied eligible clocks; genuinely
+    # fewer than 200 prior closes is explicit unavailability, not a deleted row.
+    warm=[r.close_ns for r in p.source if r.symbol=='VTI' and r.role!='NAV']
+    keep=set(warm[-190:])
+    source=tuple(r for r in p.source if r.role=='NAV' or r.close_ns in keep)
+    roles=deepcopy(roles);roles['source_rows']=plain([{k:v for k,v in asdict(r).items() if k!='price_micro'} for r in source])
+    b=replace(b,roles_sha256=sha(canonical(roles)));p=replace(p,source=source)
+    study=produce_study(p,side,roles,b)
+    a=next(a for a in study['accounts'] if a['leg']=='SMA200')
+    assert len(a['sma'])==len(p.daily_decisions)-1 and a['sma'][0]['category']=='UNAVAILABLE'
+    assert not a['sma_control_complete'] and not study['evaluation']['profile_complete']
+    accounts=deepcopy(study['accounts']);a=next(a for a in accounts if a['leg']=='SMA200')
+    a['sma']=[];a['sma_control_complete']=True
+    assert assess_study(accounts,side,roles,b)['status']=='INVALID'
+
+
+def test_actual_zero_cent_nav_recovery_preserves_graph_and_domains(tmp_path,record_property):
+    from polar.gym_store import GymStore
+    from polar.event_study_store import publish_study,verify_stored_study
+    from polar.event_study import interval,drawdown_exact
+    p,side,roles,b=study_inputs();zero_q=p.nav_closes[-2]
+    source=tuple(replace(r,price_micro=(1 if r.close_ns==zero_q else
+        99899100000 if r.close_ns<=p.nav_closes[1] else 100000000000)) if r.symbol=='VTI' else r for r in p.source)
+    p=replace(p,source=source)
+    study=produce_study(p,side,roles,b)
+    a=next(a for a in study['accounts'] if a['leg']=='FULL_VTI' and a['cost_id']=='BASE')
+    zeros=[r for r in a['nav'] if r['nav_cents']==0]
+    assert zeros and len(a['nav'])==len(b.nav_ns)
+    assert zeros[0]['positions']['VTI']==1 and zeros[0]['cash_cents']==0
+    outcome=assess_study(study['accounts'],side,roles,b)
+    assert outcome['status']=='VALID_SAVED_GRAPH'
+    detail=study['evaluation']['account_details']['FULL_VTI/BASE']
+    assert detail['statistics']['daily_sample_variance']['reason']=='UNAVAILABLE_ZERO_RETURN_DENOMINATOR'
+    assert detail['saved_diagnostics']['drawdown']['maximum_depth']['value']=='1'
+    assert detail['saved_diagnostics']['drawdown']['recovery_status']=='UNRECOVERED_BY_TERMINAL'
+    assert drawdown_exact(a['nav'])==1
+    assert any(r['reason']=='UNAVAILABLE_ZERO_NAV' for r in detail['drift']['rows'])
+    good=interval(a,{'id':'zero-end','members':('invented',),'anchor_ns':p.nav_closes[1],'r2_ns':zero_q})
+    assert good['return']==-1 and good['loss']==1
+    bad=interval(a,{'id':'zero-start','members':('invented',),'anchor_ns':zero_q,'r2_ns':p.nav_closes[-1]})
+    # The zero-mark pretrade anchor has an observed zero denominator.
+    assert bad['status']=='UNAVAILABLE' and bad['reason']=='UNAVAILABLE_ZERO_START_NAV'
+    ref=publish_study(GymStore(tmp_path,128*1024**2),study)
+    checked=verify_stored_study(tmp_path,ref['id'],b)
+    assert checked['evaluation']==study['evaluation'] and checked['native_calls']==checked['writes']==0
+    record_property('invented_zero_nav_graph',json.dumps(encode({'zero_rows':zeros,'evaluation':study['evaluation'],
+        'stored':ref,'readback':{k:v for k,v in checked.items() if k not in ('study','evaluation')}}),sort_keys=True))

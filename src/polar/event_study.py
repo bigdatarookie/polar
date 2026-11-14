@@ -22,6 +22,7 @@ DEFINITION='CALENDAR_ONLY_FIVE_PATHS_SIX_CLAUSES_V1'
 DEFINITION_PINS={
     'CALENDAR-FIRST-MERGED-METHOD-INPUT-CLAIM-v1.2.json':'1b6c350ee1bd0062cebc66840e38bdf493964064146a38853efc1f5c111bb704',
     'EVENT-CYCLE-END-AND-FIXTURE-CENSUS-CLARIFICATION-v1.md':'52a9a6e1ef36b21a4cab6785a0ef91443874a5829de4566d259a30ba90aae041',
+    'EVENT-ZERO-NAV-DOMAINS-AND-SMA-CENSUS-v1.md':'ecbfefa5dd00d22f1a665f44ab1be99ca9b686074c2f7a20666dc084c2bb2907',
     'CURRENT-SCHEDULE-CENSUS-AND-CANCELLATION-v1.md':'e8c33f795570e8170813ef53698135f6b5ad71a5e9ebfe912b5dd1a7a110a746',
 }
 MET='MET';NOT_MET='NOT_MET';UNAVAILABLE='UNAVAILABLE'
@@ -172,10 +173,18 @@ def validate_sidecars(sidecar,roles,binding):
     base={e.event_id:e for e in calendars['baseline'].events}
     require(all(tuple(getattr(e,k) for k in temporal)==tuple(getattr(base[e.event_id],k) for k in temporal)
                 for e in calendars['conditional'].events),'STUDY_BASELINE_CONDITIONAL_TEMPORAL_CENSUS')
-    require(type(roles) is dict and set(roles)=={'schema','input_id','role_id','nav_ns','nav_dates','source_rows'} and
+    require(type(roles) is dict and set(roles)=={'schema','input_id','role_id','nav_ns','nav_dates','source_rows','daily_decisions'} and
             roles['schema']=='polar.calendar-study-source-roles/1' and roles['input_id']==binding.input_id and
             roles['role_id']==binding.role_id and roles['nav_ns']==list(binding.nav_ns) and
             roles['nav_dates']==list(binding.nav_dates),'STUDY_SOURCE_ROLE_BINDING')
+    daily=roles['daily_decisions']
+    require(type(daily) is list and len(daily)==len(binding.nav_ns)-1 and
+            all(type(d) is dict and set(d)=={'decision_ns','q_ns'} and
+                type(d['decision_ns']) is int and type(d['q_ns']) is int and
+                binding.nav_ns[0]<=d['decision_ns']<d['q_ns'] for d in daily) and
+            tuple(d['q_ns'] for d in daily)==binding.nav_ns[1:] and
+            all(a['decision_ns']<b['decision_ns'] for a,b in zip(daily,daily[1:])),
+            'STUDY_EXTERNAL_DAILY_SCHEDULE')
     rowmap={};by_symbol={s:[] for s in SYMBOLS}
     for r in roles['source_rows']:
         require(type(r) is dict and set(r)=={'symbol','date','close_ns','available_ns','source_id','role'} and
@@ -262,7 +271,10 @@ def interval(account,unit):
     a=anchors.get(unit['anchor_ns']);end=nav.get(unit['r2_ns'])
     if a is None or end is None:return {'id':unit['id'],'status':UNAVAILABLE,'reason':'MANDATORY_ANCHOR_OR_R2_CENSORED',
                                        'members':unit['members'],'return':None,'loss':None}
-    require(a.nav_cents>0 and end['nav_cents']>0,'STUDY_INTERVAL_POSITIVE_DENOMINATOR')
+    require(a.nav_cents>=0 and end['nav_cents']>=0,'STUDY_INTERVAL_NONNEGATIVE_NAV')
+    if a.nav_cents==0:return {'id':unit['id'],'status':UNAVAILABLE,'reason':'UNAVAILABLE_ZERO_START_NAV',
+        'members':unit['members'],'anchor_ns':a.q_ns,'r2_ns':unit['r2_ns'],'anchor_id':a.anchor_id,
+        'pretrade_nav_cents':0,'end_nav_cents':end['nav_cents'],'return':None,'loss':None}
     R=F(end['nav_cents'],a.nav_cents)-1
     return {'id':unit['id'],'status':'OK','reason':None,'members':unit['members'],'anchor_ns':a.q_ns,'r2_ns':unit['r2_ns'],
             'anchor_id':a.anchor_id,'pretrade_nav_cents':a.nav_cents,'end_nav_cents':end['nav_cents'],'return':R,'loss':max(F(),-R)}
@@ -279,15 +291,62 @@ def diagnostics_tape(account):
     return {'id':account['leg'],'nav':account['nav'],'fills':fills}
 
 
+def zero_intervals(nav):
+    return [{'index':i,'start_ns':a['nominal_ns'],'end_ns':b['nominal_ns'],
+             'start_nav_cents':a['nav_cents'],'end_nav_cents':b['nav_cents']}
+            for i,(a,b) in enumerate(zip(nav,nav[1:])) if a['nav_cents']==0]
+
+
+def safe_exposure(nav):
+    if any(r['nav_cents']==0 for r in nav):
+        return diagnostics._unavailable('UNAVAILABLE_ZERO_NAV', intervals=len(nav)-1,
+            rows=[{k:r[k] for k in ('nominal_ns','nav_cents','positions','position_cents','cash_cents')} for r in nav])
+    return diagnostics._exposure(nav)
+
+
+def safe_statistics(nav):
+    missing=zero_intervals(nav)
+    if not missing:return diagnostics._statistics(nav)
+    # Preserve the whole denominator census. Never compute a surviving prefix.
+    reason='UNAVAILABLE_ZERO_RETURN_DENOMINATOR'
+    result={k:diagnostics._unavailable(reason,intervals=missing) for k in
+        ('daily_mean_return','daily_sample_variance','annual_vol_252','sharpe_252_rf0','net_cagr_act36525')}
+    return {**result,'status':'PARTIAL_UNAVAILABLE','reason':reason,'n':len(nav)-1,
+        'undefined_intervals':missing,'initial_nav_cents':str(nav[0]['nav_cents']),
+        'terminal_nav_cents':str(nav[-1]['nav_cents']),
+        'terminal_nav_usd':diagnostics._metric(F(nav[-1]['nav_cents'],100)),
+        'net_total_return':diagnostics._metric(F(nav[-1]['nav_cents'],nav[0]['nav_cents'])-1),
+        'max_drawdown':diagnostics._drawdown(nav)['maximum_depth']}
+
+
+def safe_diagnostics(tape,schedule):
+    nav=tape['nav']
+    if all(r['nav_cents']>0 for r in nav):return diagnostics.diagnose(tape,schedule)
+    missing=zero_intervals(nav)
+    unavailable=lambda:diagnostics._unavailable('UNAVAILABLE_ZERO_RETURN_DENOMINATOR' if missing else 'UNAVAILABLE_ZERO_NAV_OPTIONAL_DIAGNOSTIC',intervals=missing,
+                                               saved_nav_points=len(nav),return_intervals=len(nav)-1)
+    # The legacy helper requires strictly positive NAV. Use its independent
+    # exact drawdown on the unchanged full series; denominator-sensitive reports
+    # remain explicitly unavailable rather than dropping observed zero rows.
+    return {'schema':'polar.calendar-study-zero-nav-diagnostics/1','status':'PARTIAL_UNAVAILABLE',
+        'saved_nav_points':len(nav),'return_intervals':len(nav)-1,'undefined_intervals':missing,
+        'daily_tail':unavailable() if missing else diagnostics._daily_tail(nav),
+        'worst_horizons':{str(h):unavailable() for h in (1,21,63)},
+        'calendar_months':unavailable(),'drawdown':diagnostics._drawdown(nav),
+        'exposure':safe_exposure(nav),'subperiods':[]}
+
+
 def drift_diagnostic(account,duration):
     committed={r['q_ns']:r['committed'] for r in duration['rows']};out=[]
     weights={'NORMAL':{'VTI':F(1),'BIL':F()},'REDUCED':{'VTI':F(1,2),'BIL':F(1,2)},
              'BIL':{'VTI':F(),'BIL':F(1)},'EXIT':{'VTI':F(),'BIL':F()}}
     for row in account['nav'][1:]:
-        target=weights.get(committed[row['nominal_ns']]);actual={s:F(v,row['nav_cents']) for s,v in row['position_cents'].items()}
+        target=weights.get(committed[row['nominal_ns']]);actual=({s:F(v,row['nav_cents']) for s,v in row['position_cents'].items()} if row['nav_cents'] else None)
         out.append({'q_ns':row['nominal_ns'],'reported_desired':row['desired'],'committed_from_receipts':committed[row['nominal_ns']],
-                    'actual_asset_fractions':actual,'actual_cash_fraction':F(row['cash_cents'],row['nav_cents']),
-                    'committed_target_fractions':target,'asset_drift':None if target is None else {s:actual[s]-target[s] for s in SYMBOLS}})
+                    'status':'OK' if actual is not None else UNAVAILABLE,'reason':None if actual is not None else 'UNAVAILABLE_ZERO_NAV',
+                    'nav_cents':row['nav_cents'],'position_cents':row['position_cents'],'positions':row['positions'],'cash_cents':row['cash_cents'],
+                    'actual_asset_fractions':actual,'actual_cash_fraction':F(row['cash_cents'],row['nav_cents']) if actual is not None else None,
+                    'committed_target_fractions':target,'asset_drift':None if target is None or actual is None else {s:actual[s]-target[s] for s in SYMBOLS}})
     return {'status':'DESCRIPTIVE','rows':out,'claim':'PRICE_WEIGHTED_DRIFT_NOT_TARGET_DURATION_OR_GUARANTEED_HEDGE'}
 
 
@@ -321,7 +380,7 @@ def cycle_diagnostic(account,cycle,calendar):
     return {**cycle,'net_return':r['return'],'loss':r['loss'],'pretrade_nav_cents':a.nav_cents,'end_nav_cents':end['nav_cents'],
             'fee_cents':end['flat_cents']+end['bps_cents']-a.cumulative_flat_cents-a.cumulative_bps_cents,
             'costs':diagnostics._costs(diagnostics_tape(account),start,end),
-            'actual_close_exposure':diagnostics._exposure([start,*samples]),
+            'actual_close_exposure':safe_exposure([start,*samples]),
             'exposure_census':'POST_ROUTING_CLOSES_INCLUSIVE_CYCLE_START_AND_END',
             'reentry_delay_ns':cycle['reentry_ns']-max(planned) if planned else None,
             'causal_attribution':'NOT_IDENTIFIED_FROM_DAILY_REFERENCE_MARKS'}
@@ -359,7 +418,17 @@ def _validate_account(account,binding,calendars,roles,rowmap,by_symbol):
                       r['available_ns']<=w['decision_ns']]
             require(selected and {k:v for k,v in row.items() if k!='price_micro'}==selected[-1],
                     'STUDY_SIZING_SOURCE_ROLE_JOIN')
+    require(type(account['sma_control_complete']) is bool,'STUDY_SMA_COMPLETENESS_TYPE')
+    if c.leg_id=='SMA200':
+        expected=[d['decision_ns'] for d in roles['daily_decisions']]
+        require([v['decision_ns'] for v in account['sma']]==expected[:-1], 'STUDY_REQUIRED_SMA_CENSUS')
+        require([v['decision_ns'] for v in account['decisions'] if v['decision_ns'] in expected]==expected,'STUDY_SMA_DECISION_CENSUS')
+    else:require(not account['sma'],'STUDY_UNEXPECTED_SMA_OBSERVATIONS')
     for signal in account['sma']:
+        decision=next(v for v in account['decisions'] if v['decision_ns']==signal['decision_ns'])
+        require((decision['action'],decision['reason'])==('HOLD','SMA_CONTROL_UNAVAILABLE') if signal['category']=='UNAVAILABLE'
+                else decision['desired']==signal['category'] and decision['reason'] in ('SMA_CHANGE','SMA_UNCHANGED_NO_RETRY'),
+                'STUDY_SMA_OBSERVATION_DECISION_JOIN')
         selected=[r for r in by_symbol['VTI'] if r['close_ns']<signal['decision_ns'] and r['available_ns'] is not None and
                   r['available_ns']<=signal['decision_ns']]
         require(signal['eligible_count']==len(selected),'STUDY_SMA_COMPLETE_METADATA_PREFIX')
@@ -400,8 +469,8 @@ def evaluate_study(accounts,sidecar,roles,binding):
                 'anchor_ns':e.anchor_ns,'r2_ns':e.expiry_ns}) if e.event_id not in missing_clock else
                 {'id':e.event_id,'status':UNAVAILABLE,'reason':'REQUIRED_MEMBER_CLOCK_OR_CENSOR','return':None,'loss':None}
                 for e in calendars['conditional'].events if not e.cancelled],
-            'duration':durations[pair],'statistics':diagnostics._statistics(a['nav']),
-            'saved_diagnostics':diagnostics.diagnose(tape,[{'date':r['date']} for r in by_symbol['VTI']]),
+            'duration':durations[pair],'statistics':safe_statistics(a['nav']),
+            'saved_diagnostics':safe_diagnostics(tape,[{'date':r['date']} for r in by_symbol['VTI']]),
             'costs':diagnostics._costs(tape,a['nav'][0],a['nav'][-1]),
             'drift':drift_diagnostic(a,durations[pair]),'SMA_complete':a['sma_control_complete']}
     numerical_missing=[code+'/'+id for code,report in details.items() for id,v in report['statistics'].items()
@@ -490,6 +559,7 @@ def produce_study(plan,sidecar,roles,binding,diagnostics_callback=None):
             plan.nav_closes==binding.nav_ns,'STUDY_PRODUCER_PLAN_BINDING')
     selected=tuple(EventInstruction(request_from_event(e),e.candidate_ns) for e in calendars['conditional'].events
                    if not e.cancelled and e.clock_status in ('OBSERVED_METADATA_ELIGIBLE','CONDITIONALLY_MODELED'))
+    require(plain([asdict(d) for d in plan.daily_decisions])==roles['daily_decisions'],'STUDY_PRODUCER_DAILY_SCHEDULE')
     require(plan.events==selected,'STUDY_PRODUCER_EFFECTIVE_REQUESTS')
     projected=plain([asdict(r) for r in plan.source])
     require([{k:v for k,v in r.items() if k!='price_micro'} for r in projected]==roles['source_rows'],

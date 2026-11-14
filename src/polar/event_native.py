@@ -299,7 +299,7 @@ def _simulate_account(plan, leg, cost_id, cost, *, diagnostics=None, fill_model=
                 quote=self.cache.quote_tick(ids[s])
                 require(quote is not None and quote.ts_event==q+SYMBOLS.index(s) and
                         Fraction(quote.bid_price.as_decimal())*10**6==prices[s], 'EVENT_ANCHOR_QUOTE_BINDING')
-            nav,amounts=nav_cents(self.cash(),self.held,prices);seq=self.step()
+            nav,amounts=nav_cents(self.cash(),self.held,prices,allow_zero=True);seq=self.step()
             self.raw_anchors[q]={'context':context,'generation':self.controller.generation,'q_ns':q,'mark_ns':event.ts_event,
                 'quote_barrier_sequence':max(self.quote_sequences.values()),'mark_sequence':seq,'cash_cents':self.cash(),
                 'positions':tuple(PositionMark(s,self.held[s],Fraction(prices[s],10**6),amounts[s],rows[s,q].source_id) for s in SYMBOLS),
@@ -397,7 +397,7 @@ def _simulate_account(plan, leg, cost_id, cost, *, diagnostics=None, fill_model=
                 order_count,order_count,fill_count,tuple(evaluations))
             self.controller=accept_route_receipt(self.controller,receipt);self.receipts.append(receipt);self.active_route=None
         def sample(self,event,q):
-            self.reconcile();prices={s:rows[s,q].price_micro for s in SYMBOLS};nav,amounts=nav_cents(self.cash(),self.held,prices)
+            self.reconcile();prices={s:rows[s,q].price_micro for s in SYMBOLS};nav,amounts=nav_cents(self.cash(),self.held,prices,allow_zero=True)
             self.nav.append({'date':rows['VTI',q].date,'nominal_ns':q,'sample_ns':event.ts_event,'nav_cents':nav,
                 'cash_cents':self.cash(),'positions':dict(self.held),'position_cents':amounts,'flat_cents':self.flat,
                 'bps_cents':self.bps,'desired':self.controller.desired,'committed':self.controller.committed,
@@ -495,7 +495,7 @@ def verify_saved_event_witnesses(account):
     for a in anchors.values():
         validate_anchor(a,context,a.generation,a.q_ns)
         cash,held,flat,bps=prefix(a.mark_ns,a.mark_sequence)
-        prices={v.symbol:int(v.close*10**6) for v in a.positions};value,amounts=nav_cents(cash,held,prices)
+        prices={v.symbol:int(v.close*10**6) for v in a.positions};value,amounts=nav_cents(cash,held,prices,allow_zero=True)
         require((a.cash_cents,{v.symbol:v.quantity for v in a.positions},
                  {v.symbol:v.rounded_value_cents for v in a.positions},a.nav_cents,
                  a.cumulative_flat_cents,a.cumulative_bps_cents)==(cash,held,amounts,value,flat,bps),
@@ -615,7 +615,7 @@ def verify_saved_event_witnesses(account):
                 require(cash==order['post_cash_cents'],'EVENT_SAVED_POSTORDER_CASH')
             next_order=next(pending,None)
         prices={v.symbol:int(v.close*10**6) for v in a.positions}
-        value,amounts=nav_cents(cash,held,prices)
+        value,amounts=nav_cents(cash,held,prices,allow_zero=True)
         require((nav['cash_cents'],nav['positions'],nav['position_cents'],nav['nav_cents'],nav['flat_cents'],nav['bps_cents'])==
                 (cash,held,amounts,value,flat,bps),'EVENT_SAVED_NAV_LEDGER')
     require(next_order is None and not any(held.values()),'EVENT_SAVED_FINAL_TAPE')
