@@ -313,3 +313,32 @@ def test_typed_partial_native_evidence_is_saved_before_failed_finish(tmp_path,mo
     assert sha(raw)==ref['sha256'] and len(raw)==ref['bytes']
     assert json.loads(raw)['exact']=={'$fraction':[1,3]}
     assert json.loads((attempt/'finish/record.json').read_text())['native_entry_count']==1
+
+
+@pytest.mark.parametrize('axis',['known_at_close','known_null','daily_previous_day'])
+def test_rehashed_closed_clock_mutants_refused_before_source_or_debit(tmp_path,monkeypatch,axis):
+    import polar.calendar_study_service as module
+    service,cfg,_=fixture(tmp_path)
+    roles=json.loads(Path(cfg['roles_ref']['path']).read_text())
+    loc=json.loads(Path(cfg['locators_ref']['path']).read_text())
+    if axis=='daily_previous_day':
+        # Monday close with an otherwise ordered Sunday00:01 decision.
+        daily=next(d for d in roles['daily_decisions'] if iso(d['q_ns'])[:10]=='2024-01-08')
+        daily['decision_ns']-=86400*10**9
+        reason='CALENDAR_FIXED_UTC_DAILY_SCOPE'
+    else:
+        row=roles['source_rows'][0]
+        row['available_ns']=row['close_ns'] if axis=='known_at_close' else None
+        next(v for v in loc['rows'] if v['source_id']==row['source_id'])['modeled_quote_K']=row['available_ns']
+        reason='CALENDAR_NEXT_CIVIL_MIDNIGHT'
+    cfg['roles_ref']=put(Path(cfg['roles_ref']['path']),roles)
+    cfg['locators_ref']=put(Path(cfg['locators_ref']['path']),loc)
+    binding=json.loads(Path(cfg['study_binding_ref']['path']).read_text());binding['roles_sha256']=sha(canonical(roles))
+    cfg['study_binding_ref']=put(Path(cfg['study_binding_ref']['path']),binding)
+    profile=json.loads(Path(cfg['profile_ref']['path']).read_text())
+    profile['file_pins']={k:cfg[k+'_ref']['sha256'] for k in module.REFS if k!='profile'}
+    cfg['profile_ref']=put(Path(cfg['profile_ref']['path']),profile)
+    def forbidden(*a,**k):raise AssertionError('SOURCE_OR_NATIVE_FORBIDDEN')
+    monkeypatch.setattr(module,'load_reference',forbidden);monkeypatch.setattr(module,'bounded_native',forbidden)
+    with pytest.raises(Exception,match=reason):service.preflight(cfg)
+    assert not (service.store.root/'scheduled-reference-attempts').exists()

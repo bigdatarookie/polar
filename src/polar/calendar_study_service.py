@@ -70,8 +70,13 @@ def prepare(service,config):
     require(b.namespace==config['namespace'],'CALENDAR_NAMESPACE_BINDING')
     calendars,clusters,rowmap,by_symbol=validate_sidecars(side,roles,b)
     # Existing fixed00:01 profile, not the unqualified coincidentD==NAVQ branch.
-    require(all(d['decision_ns']%(86400*10**9)==60*10**9 and d['decision_ns']<d['q_ns'] for d in roles['daily_decisions']),
+    day_ns=86400*10**9
+    require(all(d['decision_ns']%day_ns==60*10**9 and d['decision_ns']//day_ns==d['q_ns']//day_ns and
+        d['decision_ns']<d['q_ns'] for d in roles['daily_decisions']),
         'CALENDAR_FIXED_UTC_DAILY_SCOPE')
+    require(all(type(r['available_ns']) is int and r['available_ns']==
+        (int(datetime.fromisoformat(r['date']).replace(tzinfo=timezone.utc).timestamp())//86400+1)*day_ns
+        for r in rowmap.values()),'CALENDAR_NEXT_CIVIL_MIDNIGHT')
     ny=ZoneInfo.from_file(io.BytesIO(raw['timezone']),key='America/New_York')
     for e in calendars['conditional'].events:
         if not e.cancelled and e.decision_ns is not None:
