@@ -13,6 +13,8 @@ from .signed_account_core import (State, mark, amount_cents, rational, integer,
 from .signed_native_bridge import MarkEvent, MarkIdentity, require, whole
 from .distribution_claims import half_even, day, token
 
+from .signed_execution_terms import SideQuote, OrderFees, ceiling
+
 NS = 10**9
 PHASES = ('FORCED_COVERS', 'FORCED_SALES', 'FORCED_RETRY', 'PAYMENT',
           'ORD_COVERS', 'ORD_SALES', 'ORD_RETRY', 'NEW_SHORT', 'NEW_LONG', 'FINAL')
@@ -104,6 +106,15 @@ class Event:
 
 
 @dataclass(frozen=True)
+class PairEvent(Event):
+    # Explicit producer opt-in; accepted component Event keeps its old wire and
+    # fee convention for historical source-absent component verification.
+    side_quotes: tuple[SideQuote, ...] = ()
+    portfolio_role: str = 'PAIRED'
+    exposure_response: bool = True
+
+
+@dataclass(frozen=True)
 class RoutingBoundary:
     event_id: str
     open_ns: int
@@ -131,7 +142,8 @@ class OrderRequest:
 
 
 def fee_for(event, quantity, price):
-    return event.flat_fee_cents + half_even(Fraction(quantity) * price * 100 * event.fee_bps / 10000)
+    amount=Fraction(quantity)*price*100*event.fee_bps/10000
+    return event.flat_fee_cents + (ceiling(amount) if type(event) is PairEvent else half_even(amount))
 
 
 def event_date(at_ns):
@@ -155,7 +167,7 @@ def maintenance(state,marks,event):
 
 
 def validate_event(event, context):
-    require(type(event) is Event and type(event.mark_event) is MarkEvent, 'DRIVER_EVENT_TYPE')
+    require(type(event) in (Event,PairEvent) and type(event.mark_event) is MarkEvent, 'DRIVER_EVENT_TYPE')
     token(event.id); event_date(event.at_ns)
     require(event.kind in ('EX', 'CLOSE', 'OBSERVATION') and event.instruction in ('TARGET', 'EXIT', 'HOLD')
             and type(event.terminal) is bool, 'DRIVER_EVENT_KIND')
@@ -165,7 +177,19 @@ def validate_event(event, context):
     require(type(event.execution_prices) is tuple and len(dict(event.execution_prices)) == len(event.execution_prices)
             and set(dict(event.execution_prices)) <= set(context.names), 'DRIVER_EXECUTION_CENSUS')
     for n,p in event.execution_prices: rational(p, positive=True)
-    require(all(p==dict(event.marks)[n] for n,p in event.execution_prices),'DRIVER_EXECUTION_REFERENCE_MARK_JOIN')
+    if type(event) is PairEvent:
+        require(event.portfolio_role in ('PAIRED','HALF_LONG','CASH') and type(event.exposure_response) is bool and
+                (not event.exposure_response or event.portfolio_role=='PAIRED'),'DRIVER_PAIR_ROLE')
+        require(not event.execution_prices and type(event.side_quotes) is tuple and
+                all(type(v) is SideQuote for v in event.side_quotes) and
+                len({v.name for v in event.side_quotes})==len(event.side_quotes) and
+                all(v.name in context.names and v.source_event==event.id and v.scenario==context.path and
+                    v.reference==dict(event.marks)[v.name] for v in event.side_quotes), 'DRIVER_SIDE_QUOTE_JOIN')
+        require(event.kind=='CLOSE' or not event.side_quotes,'DRIVER_NO_MIDNIGHT_EXECUTION')
+        if event.portfolio_role in ('HALF_LONG','CASH'):
+            require(not any(q<0 for _,q in event.targets) and not event.locates,'DRIVER_LONG_CASH_NO_SHORT')
+        if event.portfolio_role=='CASH':require(not any(q for _,q in event.targets),'DRIVER_CASH_TARGET')
+    else:require(all(p==dict(event.marks)[n] for n,p in event.execution_prices),'DRIVER_EXECUTION_REFERENCE_MARK_JOIN')
     require(event.kind == 'CLOSE' or not event.execution_prices, 'DRIVER_NO_MIDNIGHT_EXECUTION')
     require(type(event.latency_ns) is int and event.latency_ns >= 0 and
             type(event.flat_fee_cents) is int and event.flat_fee_cents >= 0 and
@@ -214,7 +238,25 @@ class SignedEventDriver:
         self._seen=set(); self._blocked={}; self._new_short_cents=0; self._active_locate=None
         self._ordinary_allowed=False; self._event_bridge_start=0; self._fill_cursor=0
         self._last_flatten_ns=-1
-        self.mandatory_funding_blockers=[];self.boundary=None;self.submitted_ns=None;self.policy_time_failure=False
+        self.mandatory_funding_blockers=[];self.boundary=None;self.submitted_ns=None;self.policy_time_failure=False;self.actual_order_fees={}
+
+    def _price(self,name,side):
+        if type(self.event) is PairEvent:
+            q=next((v for v in self.event.side_quotes if v.name==name),None)
+            return None if q is None else q.price(side)
+        return dict(self.event.execution_prices).get(name)
+
+    def _exposure_checkpoint(self,checkpoint):
+        if type(self.event) is not PairEvent or not self.event.exposure_response:return
+        r=mark(self.bridge.state,self.current_marks);e=r['equity_cents']
+        dollars=r['position_marks_cents'];gross=sum(abs(v) for v in dollars.values());net=abs(sum(dollars.values()))
+        failed=(e<=0 or 4*gross>5*e or 4*net>e or any(4*abs(v)>3*e for v in dollars.values()))
+        self._record('EXPOSURE_RESPONSE_CHECKPOINT',event=self.event.id,checkpoint=checkpoint,
+            actual_equity_cents=e,position_marks_cents=dollars,gross_cents=gross,absolute_net_cents=net,failed=failed)
+        if failed and self.flatten is None:
+            self.flatten={'observed_ns':self.event.at_ns,'eligible_after_ns':self.event.at_ns+self.event.latency_ns,
+                'event':self.event.id,'reasons':['EXPOSURE_RESPONSE_BREACH']}
+            self._record('FLATTEN_QUEUED',event=self.event.id,flatten=self.flatten)
 
     def _record(self, kind, **values):
         self.records.append({'sequence':len(self.records),'kind':kind, **deepcopy(values)})
@@ -237,7 +279,7 @@ class SignedEventDriver:
                 'DRIVER_EVENT_ORDER')
         require(not self.terminal or event.instruction == 'HOLD', 'DRIVER_POSTTERMINAL_RISK')
         self._seen.add(event.id); self.event=event;self.boundary=boundary; self._event_bridge_start=len(self.bridge.events)
-        self.current_marks=dict(event.marks); self._new_short_cents=0; self._active_locate=None
+        self.current_marks=dict(event.marks); self._new_short_cents=0; self._active_locate=None;self._construction_closed=False
         self._blocked={}; self.tasks=[]; self.command=None; self.phase_index=0
         self._record('BEGIN',event=event,boundary=boundary,before=self.bridge.state,previous_event=None if self.previous is None else self.previous.id)
         if event.kind=='EX' and self.previous is not None:
@@ -253,6 +295,10 @@ class SignedEventDriver:
                     base=abs(amount_cents(min(q,0),self.previous_marks[rate.name]));kind='MARKED_SHORT_NOTIONAL'
                 elif rate.component=='DEBIT_INTEREST':base=max(-base_state.free_cents,0);kind='NEGATIVE_FREE_CASH'
                 else:base=max(base_state.free_cents,0);kind='POSITIVE_FREE_CASH'
+                if type(event) is PairEvent and (base==0 or rate.annual_rate==0):
+                    self._record('ZERO_ACCRUAL_OPERANDS',event=event.id,rate=rate,base_cents=base,seconds=seconds,
+                        previous_event=self.previous.id,recognition_delta_cents=0,state_unchanged=True)
+                    continue
                 stream=self.context.account+':'+rate.component+':'+(rate.name or 'CASH')
                 self._external(accrue(self.bridge.state,event.id+':accrue:'+stream,rate.component,base,
                     rate.annual_rate,seconds,rate.provenance,stream_id=stream,base_kind=kind),self.previous_marks)
@@ -287,12 +333,13 @@ class SignedEventDriver:
         if report['equity_cents']<=0:reasons.append('ECONOMIC_NAV_DEFAULT')
         if any(risk['restriction_deficits_cents'].values()):reasons.append('RESTRICTION_SHORTFALL')
         if report['equity_cents']-requirement<event.buffer*report['equity_cents']:reasons.append('EQUITY_BUFFER_BREACH')
-        if event.recalled:reasons.append('RECALL')
+        if any(dict(self.bridge.state.positions).get(n,0)<0 for n in event.recalled):reasons.append('RECALL')
         if self.bridge.economic_execution_breach:reasons.append('RECONCILED_EXECUTION_BREACH')
         if reasons and self.flatten is None:
             self.flatten={'observed_ns':event.at_ns,'eligible_after_ns':event.at_ns+event.latency_ns,
                           'event':event.id,'reasons':reasons}
             self._record('FLATTEN_QUEUED',event=event.id,flatten=self.flatten,report=report,requirement=requirement)
+        self._exposure_checkpoint('PRECONSTRUCTION_ACTUAL_MARK')
         if event.instruction!='HOLD':
             require(event.formation not in self.formations,'DRIVER_REUSED_FORMATION')
             self.formations.add(event.formation)
@@ -363,6 +410,7 @@ class SignedEventDriver:
                      scope='MODEL_FUNDING_FAILURE_NOT_LEGAL_BROKER_DEFAULT')
 
     def _new_risk(self,phase):
+        if type(self.event) is PairEvent and (self._construction_closed or self.bridge.economic_execution_breach):return []
         if self.mandatory_funding_blockers:
             self._record('NEW_RISK_BLOCKED_DUE_FUNDING',event=self.event.id,phase=phase,
                          blockers=self.mandatory_funding_blockers);return []
@@ -373,13 +421,14 @@ class SignedEventDriver:
             self._record('PAIR_CANCELLED',event=self.event.id,reason='UNFINISHED_REVERSAL_REDUCTION');return []
         shorts=[(n,abs(t)-abs(min(positions.get(n,0),0))) for n,t in targets.items() if t<0]
         if phase=='NEW_SHORT':
+            if type(self.event) is PairEvent and self.event.portfolio_role!='PAIRED':return []
             if not shorts or shorts[0][1]<=0:
                 self._record('PAIR_CANCELLED',event=self.event.id,reason='NO_ADDED_SHORT_LOCATE_AND_MATCHING_NOTIONAL');return []
             n,q=shorts[0]
             candidates=[v for v in self.event.locates if (v.path,v.account,v.formation,v.issuer,v.side,v.execution_event)==
                 (self.context.path,self.context.account,self.event.formation,n,'SHORT',self.event.id)]
             valid=(len(candidates)==1 and candidates[0].success and candidates[0].cap>=q and
-                   candidates[0].id not in self.locate_usage and n in dict(self.event.execution_prices))
+                   candidates[0].id not in self.locate_usage and self._price(n,'SELL') is not None)
             if not valid:
                 self._record('PAIR_CANCELLED',event=self.event.id,reason='MISSING_FAILED_EXPIRED_OR_REUSED_LOCATE',
                              frozen_short_quantity=q,candidates=candidates);return []
@@ -387,12 +436,13 @@ class SignedEventDriver:
             self.locate_usage[v.id]={'token':v,'reserved':q,'filled':0,'expired':False,'orders':[]}
             self._record('LOCATE_RESERVED',event=self.event.id,token=v,frozen_short_quantity=q)
             return [(n,'SELL',q,False)]
-        if self._active_locate is None or not self._new_short_cents:return []
+        paired=type(self.event) is not PairEvent or self.event.portfolio_role=='PAIRED'
+        if paired and (self._active_locate is None or not self._new_short_cents):return []
         out=[]
         for n,t in sorted(targets.items()):
             if t>0:
-                q=max(0,t-max(positions.get(n,0),0));px=dict(self.event.execution_prices).get(n)
-                if px is not None:q=min(q,int(Fraction(self._new_short_cents,100)/px))
+                q=max(0,t-max(positions.get(n,0),0));px=self._price(n,'BUY')
+                if px is not None and paired:q=min(q,int(Fraction(self._new_short_cents,100)/px))
                 out.append((n,'BUY',q,False))
         return out
 
@@ -414,7 +464,7 @@ class SignedEventDriver:
             while self.tasks:
                 n,side,q,forced=self.tasks.pop(0)
                 if q<=0:continue
-                price=dict(self.event.execution_prices).get(n)
+                price=self._price(n,side)
                 if price is None:
                     self._record('EXECUTION_UNAVAILABLE',event=self.event.id,phase=phase,name=n,quantity=q);continue
                 locate=self._active_locate if phase=='NEW_SHORT' else None
@@ -518,6 +568,20 @@ class SignedEventDriver:
                                    'submitted_ns':self.submitted_ns,'boundary':self.boundary,
                                    'status':'ELIGIBLE_EXECUTION' if valid else 'OUT_OF_EVENT_EXECUTION'},
                      reconciliation=self.bridge.reconcile(self.current_marks))
+        if type(self.event) is PairEvent:
+            self._record('TRANSIENT_FILL_EXPOSURE',event=self.event.id,trade_id=str(fill.trade_id),
+                report=mark(self.bridge.state,self.current_marks),response_sample=False)
+            if result.operands['price_usd']!=c.price:
+                self.policy_time_failure=True;self.bridge.halted=True
+                self._record('ACTUAL_EXECUTION_QUOTE_MISMATCH',event=self.event.id,trade_id=str(fill.trade_id),
+                    expected_price=c.price,actual_price=result.operands['price_usd'])
+                require(False,'DRIVER_ACTUAL_FILL_QUOTE_MISMATCH_RECORDED')
+            tracker=self.actual_order_fees.setdefault(self.event.id,OrderFees(self.event.flat_fee_cents,self.event.fee_bps))
+            fee=tracker.fill(str(fill.client_order_id),result.operands['actual_quantity'],result.operands['price_usd'])
+            self._record('ACTUAL_ORDER_FEE_CENSUS',event=self.event.id,trade_id=str(fill.trade_id),fee=fee,
+                         actual_fee_cents=result.operands['fee_cents'])
+            if result.operands['fee_cents']!=fee['total_cents']:
+                self.bridge.halted=True;require(False,'DRIVER_ACTUAL_ORDER_FEE_MISMATCH_RECORDED')
         if not valid:
             self.policy_time_failure=True;self.bridge.halted=True
             self._record('PROTOCOL_TIME_FAILURE',event=self.event.id,order_id=str(fill.client_order_id),
@@ -531,6 +595,9 @@ class SignedEventDriver:
         self.bridge.record_terminal(order_id,status)
         self._record('TERMINAL_ORDER',event=self.event.id,command=self.command,order_id=order_id,status=status)
         self.command=None
+        if type(self.event) is PairEvent and status!='FILLED':
+            self._construction_closed=True
+            self._record('CONSTRUCTION_TERMINATED',event=self.event.id,order_id=order_id,status=status)
         # A stress160% requirement is distinct from core150% initial escrow.
         # No asynchronous topup while fills of this order remain outstanding.
         for name,need in sorted(maintenance(self.bridge.state,self.current_marks,self.event)['restriction_deficits_cents'].items()):
@@ -545,6 +612,7 @@ class SignedEventDriver:
                              expiry_ns=self.boundary.end_ns)
         require(all(self.borrow[n]==max(-dict(self.bridge.state.positions).get(n,0),0) for n in self.context.names),
                 'DRIVER_BORROW_POSITION_JOIN')
+        self._exposure_checkpoint('COMPLETED_OR_TERMINATED_CONSTRUCTION')
         self.terminal |= self.event.terminal
         result={'event':self.event.id,'state':self.bridge.state,'default_ever':self.default_ever,
                 'overdue_ever':self.overdue_ever,'unsupported':self.unsupported,'pending_flatten':deepcopy(self.flatten),

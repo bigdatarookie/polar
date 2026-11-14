@@ -95,7 +95,7 @@ def native_types():
             require(key not in self._exact_fill_ids, 'DUPLICATE_NATIVE_ACCOUNT_FILL')
             name = str(instrument.id); qty = whole(fill.last_qty)
             price = Fraction(fill.last_px.as_decimal())
-            require((price * 10**6).denominator == 1, 'NATIVE_PRICE_PRECISION')
+            require((price * 10**8).denominator == 1, 'NATIVE_PRICE_PRECISION')
             side = 'BUY' if fill.order_side == OrderSide.BUY else 'SELL'
             before = self.exact_lots.get(name, TradingLot())
             after, pnl, crossing = settled_trade(before, side, qty, price)
@@ -272,7 +272,7 @@ class SignedNativeBridge:
             from nautilus_trader.model.currencies import USD
             require(event.commission.currency == USD, 'COMMISSION_CURRENCY')
             qty = whole(event.last_qty); price = Fraction(event.last_px.as_decimal()); fee = cents(event.commission)
-            require((price * 10**6).denominator == 1, 'NATIVE_PRICE_PRECISION')
+            require((price * 10**8).denominator == 1, 'NATIVE_PRICE_PRECISION')
             require(side == p['side'] and p['filled'] + qty <= p['quantity'], 'ACTUAL_FILL_ORDER_MISMATCH')
             result = record_confirmed_fill(self.state, 'fill:'+raw['order_id']+':'+raw['trade_id'], p['name'], side,
                                            qty, price, fee, marks, execution_provenance='ACTUAL_NATIVE_CALLBACK',
