@@ -88,6 +88,12 @@ def prepare(service,config):
     require(all(closes[r['date']]==r['close_ns'] for r in rowmap.values()),'CALENDAR_ORIGINAL_SCHEDULE_CLOSE_JOIN')
     conversion=manifest.get('conversion_metadata',manifest.get('provenance',{}))
     original_role_pin=conversion.get('date_roles');original_roles=decode(pinned_bytes(original_role_pin))
+    if config['namespace']=='RETAINED':
+        pins=side['assumptions']['source_pins']
+        require(config['protocol_ref']['sha256']==DEFINITION_PINS['CALENDAR-FIRST-MERGED-METHOD-INPUT-CLAIM-v1.2.json'] and
+            all(pins.get(name)=={'sha256':ref['sha256'],'bytes':ref['bytes']} for name,ref in
+                [('input_manifest',config['input_ref']),('original_date_roles',original_role_pin),
+                 ('reference_schedule',manifest['schedule'])]),'CALENDAR_ACTUAL_PROTOCOL_SOURCE_PINS')
     require(original_roles['schema']=='polar.reference-source-date-roles/1' and original_roles['source_dates']==days and
         original_roles['symbols']==['BIL','VTI'] and original_roles['NAV']=={'dates':list(b.nav_dates),'symbols':['BIL','VTI']} and
         original_roles['WARMUP_CANDIDATE']=={'dates':[r['date'] for r in by_symbol['VTI'] if r['role']=='VTI_WARMUP_CANDIDATE'],'symbols':['VTI']} and
@@ -123,8 +129,11 @@ def authority(service,config,p,b):
     require(config['execution_authority_ref'] is not None,'CALENDAR_OPERATIVE_AUTHORITY_REQUIRED')
     from .scheduled_service import authority_for
     grant=authority_for(service,config,p,{'FINAL':{}})
+    qualification=decode(read_ref(grant['qualification_ref']))
+    require(any(v in ('tests','tests/test_calendar_study_service.py') for v in qualification.get('selection',[])),
+        'CALENDAR_CURRENT_TECHNICAL_SELECTION')
     require(grant['action']=='ORIGINAL' and all(type(grant.get(k)) is int and grant[k]==0 for k in
-        ('allowed_fit_calls','allowed_predict_calls','allowed_model_calls','allowed_rank_calls','allowed_optimizer_calls','allowed_bootstrap_samples')),
+        ('allowed_fit_calls','allowed_predict_calls','allowed_model_calls','allowed_score_calls','allowed_rank_calls','allowed_estimator_calls','allowed_optimizer_calls','allowed_bootstrap_samples')),
         'CALENDAR_ZERO_MODEL_BOUND')
     require(type(grant.get('allowed_native_accounts')) is int and grant['allowed_native_accounts']==10 and
         type(grant.get('allowed_sma_observations')) is int and grant['allowed_sma_observations']==2*(len(b.nav_ns)-2),
@@ -132,6 +141,13 @@ def authority(service,config,p,b):
     require(grant.get('family')==family(config,p) and grant.get('artifact_root_identity')==root_identity(service.store.root) and
         type(grant.get('actor_uid')) is int and grant['actor_uid']==os.getuid() and
         type(grant.get('actor_gid')) is int and grant['actor_gid']==os.getgid(),'CALENDAR_ACTUAL_ACTOR_FAMILY_ROOT')
+    resources=grant.get('resources')
+    require(type(resources) is dict and set(resources)=={'native_wall_seconds','stored_wall_seconds','cleanup_wall_seconds',
+        'remaining_family_wall_seconds','storage_upper_bound_bytes'} and
+        all(type(v) is int and v>=0 for v in resources.values()) and
+        0<resources['native_wall_seconds']<=300 and resources['cleanup_wall_seconds']>=9 and
+        sum(resources[k] for k in ('native_wall_seconds','stored_wall_seconds','cleanup_wall_seconds'))<=resources['remaining_family_wall_seconds'] and
+        0<resources['storage_upper_bound_bytes']<=service.store.limit-service.store.used(), 'CALENDAR_SELECTED_RESOURCE_BINDING')
     return grant
 
 
@@ -139,8 +155,12 @@ def preflight(service,config):
     p,b,*_=prepare(service,config)
     grant=None
     if config['execution_authority_ref'] is not None:grant=authority(service,config,p,b)
-    return {'schema':'polar.calendar-study-preflight/1','status':'METADATA_VALID_NOT_RUNNABLE' if config['namespace']=='RETAINED' and grant is None else 'READY_FOR_BOUND_OPERATION',
-        'operation_binding_sha256':sha(canonical(binding(config))),'native_accounts':10,'sma_observations':2*(len(b.nav_ns)-2),
+    directory=service.store.root/'scheduled-reference-attempts'/family(config,p)
+    require(not directory.is_symlink() and (not directory.exists() or not any(directory.iterdir())),
+        'CALENDAR_ORIGINAL_ALREADY_RECORDED')
+    return {'schema':'polar.calendar-study-preflight/1','status':('INVENTED_TECHNICAL_CONTROL_ONLY' if config['namespace']=='INVENTED' and grant is None
+        else 'METADATA_VALID_NOT_RUNNABLE' if grant is None else 'READY_FOR_BOUND_OPERATION'),
+        'namespace':config['namespace'],'operation_binding_sha256':sha(canonical(binding(config))),'native_accounts':10,'sma_observations':2*(len(b.nav_ns)-2),
         'source_values_read':0,'strategy_execution':'NOT_RUN','scientific_starts':0,
         'fit_calls':0,'predict_calls':0,'model_calls':0,'execution_authority':grant is not None,
         'public_projection':'PRIVATE_ONLY_NO_PUBLICATION','zero_target_sizing':'UNQUALIFIED_UNFINALIZED_IF_ENCOUNTERED',
@@ -176,9 +196,20 @@ def run(service,config):
             'binding':binding(config),'started_ns':time.time_ns(),'native_accounts_allowed':10,'fit_calls':0,'predict_calls':0,'model_calls':0}
         service.store._publish(parent,aid,{'start.json':canonical(start),'config.json':canonical(config),'authority.json':canonical(grant)})
     events=[];completed=None
+    def save_diagnostic(event):
+        from .event_native_witness import encode,publish_witnesses
+        if event.get('phase')=='ACCOUNT_SAVED_WITNESS':
+            ref=publish_witnesses(service.store,event['account'])
+            return {'phase':event['phase'],'leg':event['leg'],'cost_id':event['cost_id'],'witness_ref':encode(ref)}
+        if event.get('phase')=='ACCOUNT_PARTIAL':
+            raw=canonical(encode(event['evidence']));name='partial-'+sha(raw)
+            with service.store.locked():service.store._publish(parent+'/'+aid,name,{'evidence.json':raw},file_limit=32*1024**2)
+            return {k:encode(v) for k,v in event.items() if k!='evidence'}|{'evidence_ref':{
+                'path':parent+'/'+aid+'/'+name+'/evidence.json','sha256':sha(raw),'bytes':len(raw)}}
+        return event
     try:
         plan=load_plan(config,b,roles,calendars)
-        value=bounded_native(StudyRequest(plan,side,roles,b));events=value.pop('physical_native_events',[])
+        value=bounded_native(StudyRequest(plan,side,roles,b),wall_seconds=300 if grant is None else grant['resources']['native_wall_seconds'],diagnostics_callback=save_diagnostic);events=value.pop('physical_native_events',[])
         completed=len(value['accounts']);require(completed==10,'CALENDAR_COMPLETE_NATIVE_CENSUS')
         graph=publish_study(service.store,value)
         index={'schema':'polar.calendar-study-semantic-manifest/1','binding':binding(config),'study_binding':plain(asdict(b)),

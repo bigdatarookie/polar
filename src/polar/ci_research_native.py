@@ -19,7 +19,7 @@ def simulate(plan, diagnostics=None):
         from .calendar_study_service import StudyRequest
         if type(plan) is StudyRequest:
             from .event_study import produce_study
-            return produce_study(plan.plan,plan.sidecar,plan.roles,plan.binding,diagnostics_callback=diagnostics)
+            return produce_study(plan.plan,plan.sidecar,plan.roles,plan.binding,diagnostics_callback=diagnostics,preserve_accounts=True)
         from .event_native import EventPlan, simulate_event_component
         if type(plan) is EventPlan:
             return simulate_event_component(plan, diagnostics)
