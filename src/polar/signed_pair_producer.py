@@ -28,7 +28,7 @@ def epoch_date(day):return int(datetime.fromisoformat(day).replace(tzinfo=timezo
 from .signed_pair_activation import scenario_factor as factor
 
 
-def produce_account(data,control,case,*,activation=None):
+def produce_account(data,control,case,*,activation=None,observer=None):
     """Explicit caller invocation on supplied values. No retained permission."""
     preflight(data)
     for a in data.actions:
@@ -112,12 +112,14 @@ def produce_account(data,control,case,*,activation=None):
                 'default_ever':driver.default_ever,'overdue_ever':driver.overdue_ever,
                 'pending_flatten':deepcopy(driver.flatten),'event_id':begin.id})
         if t in dmap:
+            if observer:observer('DECISION_ENTRY',{'formation_id':dmap[t].id})
             f=dmap[t];report=mark(driver.bridge.state,dict(begin.marks))
             witness={'status':'UNAVAILABLE_DEFAULT_OR_NONPOSITIVE_D_NAV' if report['equity_cents']<=0 or driver.default_ever else 'SIZED',
                 'formation':asdict(f),'actual_D_event':begin.id,'actual_D_mark':begin.mark_event,
                 'actual_D_END_sequence':next(r['sequence'] for r in reversed(driver.records) if r['kind']=='END'),
                 'actual_D_state':driver.bridge.state,'own_D_report':report}
             if witness['status']=='SIZED':
+                if observer:observer('FEATURE_ENTRY',{'formation_id':f.id})
                 raw={n:decimal_token(price(rows[n][f.g_index].raw_usd_token,raw=True)*factor(case,n,closes[f.g_index],state['activation'])) for n in NAMES}
                 lag21={n:decimal_token(price(rows[n][f.endpoint21_index].adjusted_signal_token,raw=False)*factor(case,n,closes[f.endpoint21_index],state['activation'])) for n in NAMES}
                 lag252={n:decimal_token(price(rows[n][f.endpoint252_index].adjusted_signal_token,raw=False)*factor(case,n,closes[f.endpoint252_index],state['activation'])) for n in NAMES}
@@ -127,7 +129,15 @@ def produce_account(data,control,case,*,activation=None):
                 witness['sizing']=decision_targets(control,report['equity_cents'],raw,lag21,lag252)
                 witness['source_ids']={n:tuple(rows[n][i].local_id for i in (f.g_index,f.endpoint21_index,f.endpoint252_index)) for n in NAMES}
             state['decisions'][f.id]=witness;state['D_receipts'].append(witness)
-    out=run_pair_timeline(ctx,times,factory,on_completed=completed)
+    def observe_native(kind,driver=None,details=None):
+        if observer is None:return
+        def snapshot():
+            return {'schema':'polar.private-pair-active-prefix/1','control':control,'case':case,
+                'native':driver.failure_evidence(RuntimeError('PERIODIC_PREFIX_NOT_COMPLETED')) if driver else None,
+                'D_receipts':deepcopy(state['D_receipts']),'NAV':deepcopy(state['NAV']),
+                'activation':deepcopy(state['activation']),'frontier':'OBSERVED_PREFIX_ONLY_NOT_COMPLETE'}
+        observer(kind,{'details':details or {},'snapshot':snapshot})
+    out=run_pair_timeline(ctx,times,factory,on_completed=completed,observer=observe_native if observer else None)
     from .signed_pair_saved import binding_for
     from .signed_pair_activation import evidence,account_effect
     actual_binding=binding_for(data)

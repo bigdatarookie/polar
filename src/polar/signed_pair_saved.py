@@ -1,6 +1,6 @@
 """PRIVATE exact consumed pair graph verification. No policy/native/source calls."""
 from copy import deepcopy
-from dataclasses import asdict
+from dataclasses import asdict,dataclass
 from fractions import Fraction as F
 from pathlib import Path
 import gzip,zlib
@@ -22,7 +22,27 @@ def binding_for(data):
         'input_content_sha256':sha(canonical(encode(asdict(data)))),'terminal_D':data.terminal_decision_ns,'terminal_Q':data.terminal_execution_ns}
 
 
-def verify_account(account,binding,candidate_account=None):
+@dataclass(frozen=True)
+class VerifiedCandidate:
+    """In-process receipt made only after reading/verifying the actual candidate.
+
+    Never restore this receipt from untrusted graph metadata. Saved streaming
+    readers regenerate it from the immutable candidate object, then evict that
+    large object before reading its controls.
+    """
+    case:str
+    binding_sha256:str
+    activation:dict
+    ref:dict
+
+
+def candidate_receipt(account,binding,ref):
+    require(account['control']=='DYNAMIC_SPREAD','PAIR_STREAM_CANDIDATE_ROLE')
+    verify_account(account,binding)
+    return VerifiedCandidate(account['case'],sha(canonical(encode(binding))),deepcopy(account['activation']),deepcopy(ref))
+
+
+def verify_account(account,binding,candidate_account=None,*,_candidate_receipt=None):
     require(type(account) is dict and account['schema']=='polar.private-fixed-pair-account/1' and
         account['control'] in CONTROLS and account['case'] in CASES and account['input_id']==binding['input_id'] and
         account['protocol_sha256']==binding['protocol_sha256']==MERGED and account['execution_authority'] is False,
@@ -35,10 +55,16 @@ def verify_account(account,binding,candidate_account=None):
     from .signed_pair_activation import verify_candidate,account_effect,scenario_factor
     if account['control']=='DYNAMIC_SPREAD':verify_candidate(account,binding)
     elif account['case'] not in CASES[:2]:
-        require(candidate_account is not None and candidate_account['control']=='DYNAMIC_SPREAD' and
-            candidate_account['case']==account['case'],'PAIR_STANDALONE_CONTROL_REQUIRES_CANDIDATE')
-        verify_account(candidate_account,binding)
-        require(account['activation']==candidate_account['activation'],'PAIR_CONTROL_ACTUAL_CANDIDATE_ACTIVATION_JOIN')
+        if _candidate_receipt is not None:
+            proof=_candidate_receipt
+            require(type(proof) is VerifiedCandidate and proof.case==account['case'] and
+                proof.binding_sha256==sha(canonical(encode(binding))) and account['activation']==proof.activation,
+                'PAIR_STREAM_VERIFIED_CANDIDATE_JOIN')
+        else:
+            require(candidate_account is not None and candidate_account['control']=='DYNAMIC_SPREAD' and
+                candidate_account['case']==account['case'],'PAIR_STANDALONE_CONTROL_REQUIRES_CANDIDATE')
+            verify_account(candidate_account,binding)
+            require(account['activation']==candidate_account['activation'],'PAIR_CONTROL_ACTUAL_CANDIDATE_ACTIVATION_JOIN')
     require(account['intervention_effect']==account_effect(account['packet'],binding,account['activation']), 'PAIR_ACCOUNT_INTERVENTION_EFFECT_JOIN')
     external_rows={(r[0],r[1]):r for r in binding['source_rows']}
     records=account['packet']['records'];begins={r['event'].id:r['event'] for r in records if r['kind']=='BEGIN'}
@@ -128,9 +154,9 @@ def verify_study(study,binding,*,complete=True):
     return result
 
 
-def publish_account(store,account,binding,candidate_account=None):
-    verify_account(account,binding,candidate_account)
-    candidate_ref=(publish_account(store,candidate_account,binding) if account['control']!='DYNAMIC_SPREAD' and account['case'] not in CASES[:2] else None)
+def publish_account(store,account,binding,candidate_account=None,*,_candidate_receipt=None):
+    verify_account(account,binding,candidate_account,_candidate_receipt=_candidate_receipt)
+    candidate_ref=(_candidate_receipt.ref if _candidate_receipt is not None else publish_account(store,candidate_account,binding)) if account['control']!='DYNAMIC_SPREAD' and account['case'] not in CASES[:2] else None
     ref=publish_tape(store,account['packet'])
     sidecar={k:v for k,v in account.items() if k not in ('packet','NAV')}
     payload=canonical(encode({'binding':binding,'account':sidecar,'packet':ref,'candidate_ref':candidate_ref}))
@@ -145,7 +171,7 @@ def publish_account(store,account,binding,candidate_account=None):
         'aggregate_bytes':sum(len(v) for v in files.values()),'NAV_chunks':len(refs)}
 
 
-def verify_stored_account(root,ref,binding,*,_candidate_depth=0):
+def verify_stored_account(root,ref,binding,*,_candidate_depth=0,_candidate_receipt=None):
     require(_candidate_depth<=1,'PAIR_CANDIDATE_REFERENCE_DEPTH')
     parent='pair-account-components/'+ref['id'];manifest=read_file(root,parent+'/manifest.json',MAX_BYTES)
     require(ref['id']=='pair-account-'+sha(manifest)== 'pair-account-'+ref['manifest_sha256'],'PAIR_ACCOUNT_MANIFEST_PIN')
@@ -161,8 +187,11 @@ def verify_stored_account(root,ref,binding,*,_candidate_depth=0):
     candidate=None
     if d['candidate_ref'] is not None:
         require(_candidate_depth==0,'PAIR_CANDIDATE_MUST_NOT_REFERENCE_CANDIDATE')
-        candidate=verify_stored_account(root,d['candidate_ref'],binding,_candidate_depth=1)
-    verify_account(account,binding,candidate)
+        if _candidate_receipt is None:candidate=verify_stored_account(root,d['candidate_ref'],binding,_candidate_depth=1)
+        else:require(d['candidate_ref']==_candidate_receipt.ref,'PAIR_STREAM_CANDIDATE_REFERENCE_JOIN')
+    elif account['control']!='DYNAMIC_SPREAD' and account['case'] not in CASES[:2]:
+        require(False,'PAIR_STREAM_MISSING_CANDIDATE_REFERENCE')
+    verify_account(account,binding,candidate,_candidate_receipt=_candidate_receipt)
     return account
 
 

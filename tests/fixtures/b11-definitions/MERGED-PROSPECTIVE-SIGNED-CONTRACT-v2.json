@@ -1,0 +1,186 @@
+{
+  "schema": "polar.prospective-signed-research-contract/2",
+  "question": "V043-QB-RELATIVE-MOM-AAPL-AMZN-PRELIM-V1",
+  "status": "MERGED_PROSPECTIVE_NOT_RUNNABLE",
+  "authority": {
+    "candidate": "NOT_RESERVED",
+    "financial": "NOT_RUN",
+    "native_accounts": {
+      "estimate": 48,
+      "allocated": 0
+    },
+    "source_or_native_run": false
+  },
+  "normative_documents_in_original_and_controlling_appendix_order": [
+    {
+      "path": "/Users/garry/.openrig/shared-docs/rigs/polar-rig/state/quant/b/research-v043-20261113/equity-long-short-preparation-v1/PRELIMINARY-QUESTION-AND-PROTOCOL-v1.md",
+      "sha256": "d7637274131bd419fb64f715f62378842f9557354a08e4f17e412f1e9cd956a1",
+      "bytes": 10176
+    },
+    {
+      "path": "/Users/garry/.openrig/shared-docs/rigs/polar-rig/state/quant/b/research-v043-20261113/equity-long-short-preparation-v1/SOURCE-AWARE-CLOCK-AND-ACTION-DISPOSITION-v1.md",
+      "sha256": "8a70a5a72bf334b21662fefad29f67d111ee1c972f002e80a3706d0142d8e97e",
+      "bytes": 1862
+    },
+    {
+      "path": "/Users/garry/.openrig/shared-docs/rigs/polar-rig/state/quant/b/research-v043-20261113/equity-long-short-preparation-v1/SELECTED-SIGNED-ACCOUNT-CORE-DEFINITION-v1.md",
+      "sha256": "28020110e4939b60a7947b1b754c535a2b3a33ad0e01d3db4b7d2b49b494edea",
+      "bytes": 8003
+    },
+    {
+      "path": "/Users/garry/.openrig/shared-docs/rigs/polar-rig/state/quant/b/research-v043-20261113/equity-long-short-preparation-v1/SIGNED-CORE-OPENING-AND-SETTLEMENT-CORRECTION-v1.md",
+      "sha256": "fee54dd6dd555f1b1630830079462cb8150da8d41c8abf350cdae59bd4fd4212",
+      "bytes": 4527
+    },
+    {
+      "path": "/Users/garry/.openrig/shared-docs/rigs/polar-rig/state/quant/b/research-v043-20261113/equity-long-short-preparation-v1/SIGNED-CORE-TRANSITION-AND-INCOME-CLARIFICATION-v1.md",
+      "sha256": "3066359b954187232966f60e30c4f47623fa0bced9d1402fde201dc91351ab50",
+      "bytes": 4064
+    },
+    {
+      "path": "/Users/garry/.openrig/shared-docs/rigs/polar-rig/state/quant/b/research-v043-20261113/equity-long-short-preparation-v1/PROSPECTIVE-EXECUTION-AND-EVENT-CHOICES-v1.md",
+      "sha256": "bb657fd73671f3b5b560ae4b8647ba3450de02e3b42f6e0bd047e0d5e4d0ea6e",
+      "bytes": 5588
+    },
+    {
+      "path": "/Users/garry/.openrig/shared-docs/rigs/polar-rig/state/quant/b/research-v043-20261113/equity-long-short-preparation-v1/PROSPECTIVE-UTILITY-STRESS-AND-REPORT-CONTRACT-v1.md",
+      "sha256": "3418a134fdf1ce0f6e3082dea7537dd9083d9877536fb219bd23a9d80d366099",
+      "bytes": 10547
+    },
+    {
+      "path": "/Users/garry/.openrig/shared-docs/rigs/polar-rig/state/quant/b/research-v043-20261113/equity-long-short-preparation-v1/SIGNED-CORE-REDUCTION-FEES-NO-CREDIT-CLARIFICATION-v1.md",
+      "sha256": "b5f94436ff61fa42d543b1143797d3d077b740f169d9aba41a5cbcce1b421524",
+      "bytes": 1969
+    },
+    {
+      "path": "/Users/garry/.openrig/shared-docs/rigs/polar-rig/state/quant/b/research-v043-20261113/equity-long-short-preparation-v1/PROSPECTIVE-STRESS-EXECUTION-COVERAGE-NUMERIC-COMPLETION-v1.md",
+      "sha256": "1b5e8994d616d980ed5b2833a3a74490f3aadc22d09a4938ccfbd5c94f49fa0b",
+      "bytes": 7116
+    },
+    {
+      "path": "/Users/garry/.openrig/shared-docs/rigs/polar-rig/state/quant/b/research-v043-20261113/equity-long-short-preparation-v1/PROSPECTIVE-VERDICT-PAYMENT-DECIMAL-COMPLETION-v1.md",
+      "sha256": "2653400b8084186f87cb51ecc40f829831d921a3a1b66cda7bb6874579d87f58",
+      "bytes": 5204
+    },
+    {
+      "path": "/Users/garry/.openrig/shared-docs/rigs/polar-rig/state/quant/b/research-v043-20261113/equity-long-short-preparation-v1/NATIVE-EXECUTION-RESEARCH-ACCOUNT-AUTHORITY-v1.md",
+      "sha256": "c7330b8415605ddd2b499b13ed77b99cfb60d96f3b267ef04b5fc841d366eb9f",
+      "bytes": 3352
+    },
+    {
+      "path": "/Users/garry/.openrig/shared-docs/rigs/polar-rig/state/quant/b/research-v043-20261113/equity-long-short-preparation-v1/MODELED-EX-ENTITLEMENT-CLOCK-AND-ASSOCIATION-ADOPTION-v1.md",
+      "sha256": "b2f54efec72d00f90e08cd30745fb3ffeed4ca16b07fcc9ade7e735a111ce95f",
+      "bytes": 3129
+    },
+    {
+      "path": "/Users/garry/.openrig/shared-docs/rigs/polar-rig/state/quant/b/research-v043-20261113/equity-long-short-preparation-v1/EX-CLOCK-PAYMENT-AND-STALE-MARK-CARRYTHROUGH-v1.md",
+      "sha256": "180315bd789ccf89506d94a053dcd01742c9bef1eca899719bde3be3ea71fbd4",
+      "bytes": 2279
+    },
+    {
+      "path": "/Users/garry/.openrig/shared-docs/rigs/polar-rig/state/quant/b/research-v043-20261113/equity-long-short-preparation-v1/EXISTING-BOOK-MARK-BEFORE-ADMISSION-CLARIFICATION-v1.md",
+      "sha256": "fcecfa97b666d85fc1093f43eb778c3420393b21e24855613d69ec15a50a8af2",
+      "bytes": 2243
+    }
+  ],
+  "precedence": "Later controlling affected completion supersedes only its explicitly identified earlier ambiguity; no outcome tuning. Native implementation does not select economic behavior.",
+  "resolved": {
+    "names": [
+      "AAPL",
+      "AMZN"
+    ],
+    "score": {
+      "numerator_lag": 21,
+      "denominator_lag": 252,
+      "arithmetic": "Fraction",
+      "equal": "AAPL_LONG_AMZN_SHORT",
+      "positive_filter": false
+    },
+    "target_weights": [
+      [
+        1,
+        2
+      ],
+      [
+        -1,
+        2
+      ]
+    ],
+    "capital_cents": 10000000,
+    "ordinary_formations": 47,
+    "initial_date": "2022-12-30",
+    "terminal_date": "2026-11-06",
+    "clocks": "COUNTERFACTUAL_NEXT_CIVIL_UTC_MIDNIGHT_K_D_PLUS60_NEXT_REFERENCE_CLOSE",
+    "settlement_mode": "NO_CREDIT",
+    "cash_representation": "SIGNED_F_PLUS_NONNEGATIVE_PER_NAME_ESCROW_NO_DUPLICATE_DEBT",
+    "claim_vintage": "CURRENT_DISTINCT_FROM_RAWPRICE_SNAPSHOT_NULL_HISTORICAL_K",
+    "cost_cases": [
+      "BASE_3PCT_BORROW_8PCT_DEBIT",
+      "TRADING_2X_BORROW_5X_DEBIT_1P5X"
+    ],
+    "path_counts": {
+      "baseline": 2,
+      "required_development": 8,
+      "diagnostic_development": 2,
+      "accounts_each": 4
+    },
+    "survival_required_for": "DYNAMIC_SPREAD_ONLY",
+    "wealth_clause": "100*W_SPREAD>=101*W_DYNAMIC_HALF_LONG",
+    "maintenance_buffer": "(E-(.25L+.30S))/E>=.10; stress short .60",
+    "ES_comparator_nonpositive": "STRATEGY_ES<=BENCHMARK_ES",
+    "CAGR": "CAGR_TRADING252_D50_REPORT_ONLY",
+    "adoption": "INSUFFICIENT_EVIDENCE_ALWAYS",
+    "ex_event_clock": "MODELED_EX_DATE_UTC_MIDNIGHT_PRE_EVENT_SIGNED_HOLDINGS_NOT_OBSERVED_ENTITLEMENT",
+    "pay_clock": "ELIGIBILITY_ONLY_AT_DATE_UTC00_SETTLE_POST_LIQUIDATION_COMMON_CLOSE",
+    "current_actual_book_default": "MANDATORY_IDENTIFIED_MARK_EVENT_STICKY_BEFORE_PROPOSAL",
+    "stale_cum_div_plus_claim": "PERSIST_EFFECT_ON_DNAV_TARGETS_BREACHES_NOT_FAIRVALUE_INSOLVENCY"
+  },
+  "locate_scenario_lifetime": {
+    "kind": "CONDITIONAL_NOT_OBSERVED_HISTORY",
+    "identity": [
+      "path",
+      "account",
+      "formation",
+      "issuer",
+      "side",
+      "eligible_execution_event"
+    ],
+    "cap": "Frozen incremental short desired magnitude; short-opening executed sum cannot exceed cap",
+    "expiry": "End of that one eligible execution event; no carry/reuse to later event or another account",
+    "reservation": "Pre-pair check binds cap before either new increment; failed locate cancels both new increments",
+    "consumption": "Only actual added short fills consume quantity; remaining expiry still applies; no second discretionary submission after event",
+    "existing_borrow": "Recorded loan quantity persists until actual cover; recall queues actual return/cover, not deletion",
+    "rights": "Scenario flag does not certify actual inventory or loan contract"
+  },
+  "definition_reviews": {
+    "bounded_core": "bdc7149a2586b75a37fe29bd56802ac1279cf8a89bc2ad18711868b049ed2739",
+    "LS6_LS8": "9a5343e7add0dffdafe7de8d6cbefb107aaeeb834a0a26aba2493cb6a34f517d",
+    "merged_full_method": "NOT_ISSUED; bounded prior reviews retained; no new generic permission gate"
+  },
+  "local_unbound": [
+    "Typed retained input projection/source-purpose conditional application and unsupported action handling",
+    "Locate/claim/mark/accrual/forced-order event driver and source-aware producer",
+    "Private saved event schema and source-absent verifier",
+    "Actual merged-source runtime/finite trial/custody/resources/operative authority"
+  ],
+  "scope": "No B9/B10 replay; HYP007 local supplier hold unchanged; no new registry/controller/backtester",
+  "prior_packet": {
+    "path": "/Users/garry/.openrig/shared-docs/rigs/polar-rig/state/quant/b/research-v043-20261113/equity-long-short-preparation-v1/MERGED-PROSPECTIVE-SIGNED-CONTRACT-v1.json",
+    "sha256": "dfd9a54959147cd18ff1858da614dc6d03665e798320498dbdc372cd45b8a74b"
+  },
+  "accepted_components": [
+    {
+      "interface": "/Users/garry/.openrig/shared-docs/rigs/polar-rig/state/platform/v043-signed-core-author-20261114/ACCEPTED-SIGNED-CORE-INTERFACE.json",
+      "sha256": "74bdca91427f4374378ad5859b52df31f786aeb6b6fc3d760a25cae266890954"
+    },
+    {
+      "interface": "/Users/garry/.openrig/shared-docs/rigs/polar-rig/state/platform/v043-signed-native-bridge-author-20261114/ACCEPTED-SIGNED-NATIVE-BRIDGE-INTERFACE.json",
+      "sha256": "8d71fa00117f055622869791a613f518345c392b69d801d44857d2ef9af3f371"
+    }
+  ],
+  "source_association": {
+    "path": "/Users/garry/.openrig/shared-docs/rigs/polar-rig/state/data/competitive-strategies-v043-20261113/long-short-own-input-association-v1/DE-OWN-INPUT-PROSPECTIVE-ASSOCIATION-v1.json",
+    "sha256": "7897447a032b9a8673ecf239236e62c070cfd4f0c5e9ece09a1e62b5b1ce63d1"
+  },
+  "borrow_route_delta": "Historical hmds Inventory/FeeRate is not established current callable; source-specific historical pair access remains UNQUALIFIED. Scenarios unchanged."
+}

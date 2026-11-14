@@ -118,7 +118,18 @@ def evaluate(accounts):
     lookup={(a['control'],a['case']):a for a in accounts}
     require(len(lookup)==len(accounts),'PAIR_DUPLICATE_ACCOUNT')
     missing=[(c,p) for p in CASES for c in CONTROLS if (c,p) not in lookup]
-    report={c+'/'+p:metrics(a) for (c,p),a in lookup.items()};clauses=[]
+    report={c+'/'+p:metrics(a) for (c,p),a in lookup.items()}
+    return evaluate_reports(report,{p:a['activation'] for (c,p),a in lookup.items() if c=='DYNAMIC_SPREAD'})
+
+
+def evaluate_reports(report,activations):
+    """Same closed clauses on independently verified per-account scalar reports.
+
+    Allows a streaming reader to evict each full tape before the next member.
+    This function does not authenticate scalar reports or candidate activation.
+    """
+    missing=[(c,p) for p in CASES for c in CONTROLS if c+'/'+p not in report]
+    clauses=[]
     def add(id,value,**operands):clauses.append({'id':id,'status':'UNAVAILABLE' if value is None else 'MET' if value else 'NOT_MET','operands':operands})
     for p in CASES[:2]:
         s=report.get('DYNAMIC_SPREAD/'+p);b=report.get('DYNAMIC_HALF_LONG/'+p)
@@ -135,8 +146,8 @@ def evaluate(accounts):
         valid=b is not None and s['ES'].get('status')==b['ES'].get('status')=='OK'
         add(p+'/ES',(4*s['ES']['value']<=5*b['ES']['value'] if b['ES']['value']>0 else s['ES']['value']<=b['ES']['value']) if valid else None)
     for p in CASES[:10]:
-        a=lookup.get(('DYNAMIC_SPREAD',p));r=report.get('DYNAMIC_SPREAD/'+p)
-        activated=p in CASES[:2] or a is not None and a['activation'] is not None and a['activation']['status']=='ACTIVATED'
+        r=report.get('DYNAMIC_SPREAD/'+p);activation=activations.get(p)
+        activated=p in CASES[:2] or activation is not None and activation['status']=='ACTIVATED'
         add(p+'/SURVIVAL',r['survival'] if r is not None and activated else None,activation=activated)
     statuses=[c['status'] for c in clauses]
     return {'schema':'polar.private-fixed-pair-evaluation/1','metrics':report,'clauses':clauses,'missing_accounts':missing,
