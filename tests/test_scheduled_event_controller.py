@@ -4,7 +4,7 @@ from fractions import Fraction
 import json
 import pytest
 from polar.scheduled_event_controller import (
-    Context, State, Request, Observation as O, PositionMark, Anchor, RouteReceipt,
+    Context, State, Request, Observation as O, PositionMark, Anchor, RouteReceipt, TerminalOrder, SymbolEvaluation,
     ControllerError, advance_controller as advance, accept_route_receipt as accept,
     normalize_event_calendar, request_from_event, validate_anchor, ns,
 )
@@ -32,9 +32,20 @@ def anchor(p):
 def receipt(s, outcome='ZERO_DELTA_NO_ORDER'):
     p = s.awaiting
     positive = outcome != 'ZERO_DELTA_NO_ORDER'
+    evaluations = []
+    for name, delta in (('BIL', 1 if positive else 0), ('VTI', -1 if positive else 0)):
+        orders = ()
+        if positive:
+            filled = outcome == 'FILLED' or (outcome == 'PARTIAL' and name == 'BIL')
+            status = 'FILLED' if filled else 'REJECTED' if outcome == 'PARTIAL' else outcome
+            orders = (TerminalOrder(name+'-order', 'BUY' if delta > 0 else 'SELL', 1, int(filled), status, (name+'-fill',) if filled else ()),)
+        evaluations.append(SymbolEvaluation(name, delta, int(positive), None, 'consumed-sizing-proof', orders))
     return RouteReceipt(C, p.intent_id, p.generation, p.q_ns, p.q_ns, anchor(p), outcome,
                         (('BIL', 1 if positive else 0), ('VTI', -1 if positive else 0)),
-                        ('consumed-sizing-proof',), int(positive), int(outcome == 'FILLED'), int(outcome in {'FILLED', 'PARTIAL'}))
+                        ('consumed-sizing-proof',), 2*int(positive),
+                        2 if outcome == 'FILLED' else 1 if outcome == 'PARTIAL' else 0,
+                        2 if outcome == 'FILLED' else 1 if outcome == 'PARTIAL' else 0, tuple(evaluations))
+
 
 
 def routed(s):
@@ -139,9 +150,9 @@ def test_terminal_overrides_pending_but_needs_real_receipt_not_synthetic_cashout
     (lambda r: replace(r, generation=r.generation+1), 'CAUSAL_IDENTITY'),
     (lambda r: replace(r, q_ns=r.q_ns+1), 'CAUSAL_IDENTITY'),
     (lambda r: replace(r, finalized_ns=r.q_ns-1), 'CAUSAL_IDENTITY'),
-    (lambda r: replace(r, sizing_evidence_ids=()), 'CONSUMED_PROOF'),
-    (lambda r: replace(r, desired_deltas=(('VTI', 1), ('BIL', 0))), 'CONSUMED_PROOF'),
-    (lambda r: replace(r, order_count=1), 'CONSUMED_PROOF'),
+    (lambda r: replace(r, sizing_evidence_ids=()), 'SYMBOL_EVALUATION_BINDING'),
+    (lambda r: replace(r, desired_deltas=(('VTI', 1), ('BIL', 0))), 'SYMBOL_EVALUATION_BINDING'),
+    (lambda r: replace(r, order_count=1), 'SYMBOL_AGGREGATE_COUNTER_CENSUS'),
     (lambda r: replace(r, anchor=replace(r.anchor, first_route_sequence=2)), 'BARRIER'),
     (lambda r: replace(r, anchor=replace(r.anchor, generation=999)), 'ANCHOR_IDENTITY'),
     (lambda r: replace(r, anchor=replace(r.anchor, route_barrier_ns=r.q_ns+1)), 'BEFORE_ROUTE'),
@@ -273,3 +284,36 @@ def test_request_eligibility_from_accepted_conditional_clock_preserves_source_pi
     e = normalize_event_calendar([{'event_id':'a','cancelled':False,'provenance':'INVENTED'}], [r], grid).events[0]
     q = request_from_event(e)
     assert q.event_id == 'a' and q.clock_pin == e.clock_pin and q.reentry_candidate_ns > q.expiry_ns
+
+
+def test_original_two_delta_one_unattributed_order_cannot_commit():
+    s = routed(reduced())
+    r = replace(receipt(s, 'FILLED'), order_count=1, filled_order_count=1, fill_count=1, symbol_evaluations=())
+    with pytest.raises(ControllerError, match='SYMBOL_ROUTING_CENSUS'):
+        accept(s, r)
+
+
+@pytest.mark.parametrize('mutant,reason', [
+    (lambda r: r.symbol_evaluations[:1], 'SYMBOL_ROUTING_CENSUS'),
+    (lambda r: (replace(r.symbol_evaluations[0], orders=(replace(r.symbol_evaluations[0].orders[0], side='SELL'),)), r.symbol_evaluations[1]), 'SYMBOL_TERMINAL_ORDER'),
+    (lambda r: (replace(r.symbol_evaluations[0], routed_quantity=0, orders=()), r.symbol_evaluations[1]), 'CLIPPING_REASON'),
+    (lambda r: (replace(r.symbol_evaluations[0], orders=()), r.symbol_evaluations[1]), 'QUANTITY_CENSUS'),
+    (lambda r: (r.symbol_evaluations[0], replace(r.symbol_evaluations[1], consumed_sizing_id='missing')), 'EVALUATION_BINDING'),
+    (lambda r: (r.symbol_evaluations[0], replace(r.symbol_evaluations[1], orders=r.symbol_evaluations[0].orders)), 'COUNTER_CENSUS'),
+    (lambda r: (replace(r.symbol_evaluations[0], orders=(replace(r.symbol_evaluations[0].orders[0], status='PARTIAL'),)), r.symbol_evaluations[1]), 'PARTIAL_CONTRADICTION'),
+])
+def test_closed_symbol_terminal_census_mutants(mutant, reason):
+    s = routed(reduced()); r = receipt(s, 'FILLED')
+    with pytest.raises(ControllerError, match=reason):
+        accept(s, replace(r, symbol_evaluations=mutant(r)))
+
+
+def test_legitimate_explicit_clipping_not_omitted_symbol_and_all_zero_routed_not_success():
+    s = routed(reduced()); r = receipt(s, 'FILLED')
+    bil, vti = r.symbol_evaluations
+    clipped = replace(bil, routed_quantity=0, clipping_reason='FUTURE_CLOSE_FEE_AWARE_CAP', orders=())
+    r = replace(r, symbol_evaluations=(clipped, vti), order_count=1, filled_order_count=1, fill_count=1)
+    assert accept(s, r).committed == 'REDUCED'
+    both = (clipped, replace(vti, routed_quantity=0, clipping_reason='NO_EXECUTABLE_QUANTITY', orders=()))
+    with pytest.raises(ControllerError, match='COMPLETE_ROUTING'):
+        accept(s, replace(r, symbol_evaluations=both, order_count=0, filled_order_count=0, fill_count=0))

@@ -386,6 +386,70 @@ def validate_anchor(anchor, context, generation, q_ns):
 
 
 @dataclass(frozen=True)
+class TerminalOrder:
+    order_id: str
+    side: str
+    quantity: int
+    filled_quantity: int
+    status: str
+    fill_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class SymbolEvaluation:
+    symbol: str
+    desired_delta: int
+    routed_quantity: int
+    clipping_reason: str | None
+    consumed_sizing_id: str
+    orders: tuple[TerminalOrder, ...]
+
+
+def validate_symbol_census(receipt):
+    """Close evaluation and terminal census for BOTH symbols, including no-order.
+
+    Explicit affordability clipping is an evaluated result, never an omitted leg.
+    This checks supplied correspondence, not native truth or affordability math.
+    """
+    values = receipt.symbol_evaluations
+    require(isinstance(values, tuple) and len(values) == 2 and
+            all(isinstance(e, SymbolEvaluation) for e in values) and
+            {e.symbol for e in values} == {'BIL', 'VTI'}, 'SYMBOL_ROUTING_CENSUS')
+    deltas = dict(receipt.desired_deltas); order_ids, fills, complete = [], [], 0
+    for e in values:
+        require(integer(e.desired_delta) and e.desired_delta == deltas[e.symbol] and
+                integer(e.routed_quantity) and 0 <= e.routed_quantity <= abs(e.desired_delta) and
+                ident(e.consumed_sizing_id) and e.consumed_sizing_id in receipt.sizing_evidence_ids and
+                (e.clipping_reason is None or ident(e.clipping_reason)) and isinstance(e.orders, tuple),
+                'SYMBOL_EVALUATION_BINDING')
+        require(e.routed_quantity == abs(e.desired_delta) or ident(e.clipping_reason), 'CLIPPING_REASON_REQUIRED')
+        total = 0
+        for order in e.orders:
+            require(isinstance(order, TerminalOrder) and ident(order.order_id) and integer(order.quantity) and
+                    order.side == ('BUY' if e.desired_delta > 0 else 'SELL') and
+                    order.quantity > 0 and integer(order.filled_quantity) and
+                    0 <= order.filled_quantity <= order.quantity and order.status in {
+                        'FILLED', 'PARTIAL', 'REJECTED', 'CANCELLED', 'NO_FILL', 'UNKNOWN', 'INVALID'} and
+                    isinstance(order.fill_ids, tuple) and all(ident(f) for f in order.fill_ids),
+                    'SYMBOL_TERMINAL_ORDER')
+            require(bool(order.fill_ids) == (order.filled_quantity > 0), 'ORDER_FILL_CENSUS')
+            if order.status == 'FILLED':
+                require(order.filled_quantity == order.quantity, 'ORDER_NOT_FULLY_FILLED')
+                complete += 1
+            elif order.status in {'NO_FILL', 'REJECTED'}:
+                require(order.filled_quantity == 0, 'ORDER_NO_FILL_CONTRADICTION')
+            elif order.status == 'PARTIAL':
+                require(0 < order.filled_quantity < order.quantity, 'ORDER_PARTIAL_CONTRADICTION')
+            total += order.quantity; order_ids.append(order.order_id); fills.extend(order.fill_ids)
+            if receipt.outcome == 'FILLED':
+                require(order.status == 'FILLED', 'TARGET_HAS_NONFILLED_ORDER')
+        require(total == e.routed_quantity, 'SYMBOL_ROUTED_QUANTITY_CENSUS')
+    require(len(order_ids) == len(set(order_ids)) and len(fills) == len(set(fills)) and
+            len(order_ids) == receipt.order_count and complete == receipt.filled_order_count and
+            len(fills) == receipt.fill_count, 'SYMBOL_AGGREGATE_COUNTER_CENSUS')
+
+
+@dataclass(frozen=True)
 class RouteReceipt:
     context: Context
     intent_id: str
@@ -399,6 +463,7 @@ class RouteReceipt:
     order_count: int
     filled_order_count: int
     fill_count: int
+    symbol_evaluations: tuple[SymbolEvaluation, ...] = ()
 
 
 def accept_route_receipt(s, receipt):
@@ -417,6 +482,7 @@ def accept_route_receipt(s, receipt):
             {x[0] for x in r.desired_deltas if isinstance(x, tuple) and len(x) == 2} == {'BIL', 'VTI'} and
             all(integer(x[1]) for x in r.desired_deltas), 'DELTA_CENSUS')
     require(isinstance(r.sizing_evidence_ids, tuple) and all(ident(x) for x in r.sizing_evidence_ids), 'SIZING_REFERENCES')
+    validate_symbol_census(r)
     if r.outcome in {'NO_FILL', 'REJECTED'}:
         require(r.fill_count == r.filled_order_count == 0, 'NO_FILL_COUNTER_CONTRADICTION')
     if r.outcome == 'PARTIAL':

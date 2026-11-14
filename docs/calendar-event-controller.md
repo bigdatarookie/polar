@@ -55,7 +55,13 @@ an invalid call HOLD, no-fill, zero duration or successful execution.
 - `accept_route_receipt(state, RouteReceipt(...)) -> State` validates exact issued
   intent/account/leg/cost/input/calendar/protocol/generation/Q identity, a finalized
   timestamp after the supplied route barrier, anchor, two-symbol delta census,
-  explicit consumed-sizing evidence IDs and actual routing counters. An unresolved
+  explicit consumed-sizing evidence IDs and a closed BIL/VTI `SymbolEvaluation` census.
+  Each evaluation binds desired delta, actual routed quantity, clipping reason,
+  consumed sizing ID and every `TerminalOrder` with unique order/fill IDs, quantity,
+  filled quantity and terminal status. Aggregate counters must equal that census;
+  nonzero omitted symbols cannot masquerade as fully evaluated targets. Explicit
+  future-close clipping is retained separately, including a zero executable quantity.
+  An all-zero routed target with nonzero desired deltas remains unconfirmed. An unresolved
   route must be finalized (possibly UNKNOWN/INVALID) before another dispatch.
   Only complete FILLED or explicit ZERO_DELTA_NO_ORDER commits. Missing or malformed
   evidence raises; it never backfills sizing, fills, anchors or observations.
