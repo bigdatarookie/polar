@@ -70,3 +70,23 @@ completeness. Existing Operator ownership work and SRE current resource custody
 remain the owners; no second ownership survey or UNKNOWN exclusion is selected.
 A physical project upper/headroom is NOT_CERTIFIED. The new local write guard
 removes a real enforcement defect without representing this global gap as solved.
+
+## Consumed B11 log-envelope correction
+
+SRE's accepted-interface configuration consumer found an additional concrete
+admission gap: log_bytes and journal_bytes are per supervise invocation, but the
+previous admission summed one pair only. The same shared guard continuation now
+uses a single phase census for time/cleanup and log envelopes: ORIGINAL reserves
+four supervisors (original work/collector plus prospective success-only saved
+work/collector), while a separately admitted SAVED stage reserves two against
+current remaining root space/headroom. Prior actual usage is already in used().
+This is a conservative logical admission sum, not a physical/global certification.
+The root check now requires operation_store_bytes + calls*(log_bytes+journal_bytes).
+It does not double a separately accounted export or enclose external host writers.
+
+The two fully rehashed invented metadata negatives supply only one log pair of
+available global/root space; they must reject before debit or encoded input read.
+An exact four-pair boundary remains admissible metadata only, and the two/four
+phase-census assertions prevent log and cleanup multipliers drifting apart.
+Accepted PR134 and original PR13549 source evidence remain immutable predecessors;
+the corrected actual application tuple needs its affected current qualification.
