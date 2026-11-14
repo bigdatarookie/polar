@@ -79,19 +79,20 @@ def worker(connection, plan, expected_code):
         connection.close()
 
 
-def bounded_native(plan):
+def bounded_native(plan, *, wall_seconds=300, diagnostics_callback=None):
+    require(type(wall_seconds) is int and 0<wall_seconds<=300, "NATIVE_WALL_ALLOWANCE")
     ctx = multiprocessing.get_context("spawn"); parent, child = ctx.Pipe(False)
     process = ctx.Process(target=worker, args=(child, plan, code_binding())); process.start(); child.close()
     events = []; started = time.monotonic()
     try:
         while True:
-            remaining = max(0, 300-(time.monotonic()-started))
+            remaining = max(0, wall_seconds-(time.monotonic()-started))
             require(parent.poll(remaining), "NATIVE_WALL_TIMEOUT")
             status, value = parent.recv()
             if status != "DIAGNOSTIC":
                 break
             require(len(events) < 100, "NATIVE_DIAGNOSTIC_BOUND")
-            events.append(value)
+            events.append(diagnostics_callback(value) if diagnostics_callback else value)
         process.join(5)
         if status != "SUCCESS":
             raise NativeFailure("NATIVE_FAILED_"+str(value), events)

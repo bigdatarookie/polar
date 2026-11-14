@@ -1,0 +1,46 @@
+# Closed private calendar study Service
+
+This adapter reuses `ReferenceResearchService`, the existing bounded native worker, immutable `HistoryStore`, scheduled-reference attempt family, and accepted event-study producer/store. It adds no trial registry, controller, source converter, public record, scientific allocation or financial verdict. Its only profile is the selected five calendar paths × BASE/STRESS, ten native accounts, USD100000 initial capital, zero fit/predict/model/rank/optimizer calls, fixed UTC00:01 daily decisions, and event NY14:00 cutoff plus60s. Existing profiles and worker defaults remain intact.
+
+## Exact local callables and wire
+
+`polar.calendar_study_service.config_from_seed(seed)` and `Service.research_config(seed)` accept schema `polar.calendar-study-seed/1`, namespace, absolute `profile_path`, `protocol_path`, `input_path`, `sidecar_path`, `roles_path`, `study_binding_path`, `locators_path`, `timezone_path`, code_revision, runtime_image_id, candidate_id, experiment_id, and optional execution_authority_path. The artifact root comes from POLAR_ARTIFACT_ROOT. Assembly pins bytes; it is not an allocation or execution. Output schema is `polar.calendar-study-config/1`; every ref has path/sha256/bytes. Config code binding is the exact current source projection and root identity is path/device/inode.
+
+Profile schema `polar.calendar-study-profile/1` has the exact fields exercised by `tests/test_calendar_study_service.py`: protocol_id, question_id, definition, definition_pins, legs, cost_scenarios, capital_cents, file_pins, daily_clock, public_projection. Values are the accepted event-study constants; file_pins cover all seven other supplied refs; daily_clock is FIXED_UTC00_01_NEXT_ELIGIBLE_CLOSE and public_projection PRIVATE_STUDY_ONLY. No generic policy knobs are accepted.
+
+Existing CLI commands work through the ordinary facade:
+
+- `polar research-config SEED_FILE`
+- `polar research-preflight CONFIG_FILE`
+- `polar research-run CONFIG_FILE`
+- `polar research-recompute calendar-study-experiment-<sha256>`
+
+Direct equivalents are `ReferenceResearchService(root,storage_bytes).preflight(config)`, `.run(config)` and `.recompute(semantic_id)`. These are local trusted operation interfaces, not new HTTP endpoints. Preflight reads only metadata: frozen protocol/profile, original input manifest/schedule/date-role derivative, exact sidecar/binding/roles and caller source locators, timezone bytes and authority metadata if supplied. It neither opens quote payload nor runs signal/native/evaluator nor debits an attempt. Source manifest/source-date roles/caller IDs/modeled clocks are explicitly joined; original lexical rows are only read by the existing `load_reference` reader after FIRST_START. Null observed calendar/quote K is retained, calendar modeling is conditional, prediction observation is N/A, and dates do not establish historical PIT access.
+
+RETAINED requires exact current protocol v1.2 pin, full33 external binding/status census, 716 NAV, 715 daily/714 SMA observations per SMA leg, 1832 metadata source rows, original source/role/schedule pins and private rights. An actual metadata-only pass without operative authority is METADATA_VALID_NOT_RUNNABLE. INVENTED without a grant is explicitly INVENTED_TECHNICAL_CONTROL_ONLY. No retained use is authorized by author qualification. Physical source/rights selection remains owner-bound; source prices are not inferred from saved results or metadata.
+
+## Admission, resources and failure truth
+
+RETAINED run requires an explicit `polar.scheduled-reference-operation/1` ORIGINAL grant using existing method/card/current technical bindings, exact binding hash/current actor UID/GID/root/family/expected prior. Technical selection must include full tests or this calendar Service test file (plus the inherited scheduled qualification selection). No default grant is synthesized. Allowed native accounts=10, SMA observations=2*(NAV-2), all model/fit/predict/score/rank/estimator/optimizer/bootstrap counts=0 with strict integer types. Existing method and candidate dispositions are separately supplied; metadata validation does not issue them.
+
+The grant additionally supplies a closed resources object with integer native_wall_seconds, stored_wall_seconds, cleanup_wall_seconds, remaining_family_wall_seconds, storage_upper_bound_bytes. Native wall must be positive and at most the existing300s guard; cleanup covers the existing5+2+2s join/terminate/kill envelope; the selected sum must fit remaining family time and the positive declared storage upper bound must fit actual root free quota. These are prospective caller/SRE bindings, not measured CPU time, a fresh family budget or cgroup/resource reservation. Actual outer physical timing, disk bound and cleanup are SRE operation duties. No old1200/600 allowance is borrowed. The store's existing aggregate quota and per-member32MiB bound remain enforced.
+
+At run, metadata/code/root/runtime/authority are rechecked under the existing store lock and exact family prior must be empty before one immutable FIRST_START conservative debit. There is no retry, refund, alternate family or corrective-start bypass. Source values load only afterward. Each completed actual native account is streamed to the existing immutable witness publisher before proceeding to the next account. Active typed partial witnesses are saved separately before failure summary. This preserves completed/partial evidence if a later account fails, without embedding a full multi-account tape in a bounded diagnostic JSON file. Diagnostic summaries retain exact references and observed counters; absent counters are unknown, not zero. Failure is FAILED_UNFINALIZED, never financial NOT_SUPPORTED or a refunded attempt. No final graph is fabricated from partial witnesses.
+
+The existing native worker accepts a smaller caller-selected wall limit without increasing its300s default. The optional parent diagnostic callback and optional completed-account emission are only selected by this new Service request. Legacy native/component callers preserve defaults. Typed partial evidence is encoded through the existing private witness codec. Physical cleanup remains the existing bounded process finalizer and external operation owner, not a new controller.
+
+## Private success and source-absent read
+
+SUCCESS contains the private ten-account graph ref, semantic ID, actual completed native count and financial_acceptance NOT_REVIEWED. Manifest, start/config/authority, finish/diagnostics and existing graph/witness refs use existing immutable namespaces. There is no mandatory common five-series projection and no P1/publication/UI/serving change. Thus this atom does not widen public schema or pretend cost components are independent evaluated scenarios.
+
+Recompute is SUCCESS-only and checks semantic content hash, exact saved code binding, original finish/graph identity and externally saved StudyBinding, then uses `verify_stored_study`. It does not reload source/config/profile files, call native/signal/policy/model or write/rebuild a plan. Actual source-absent read proof runs in a fresh process refusing native imports/source calls/all write opens, with immutable saved hashes/mtimes preserved. Read-only verification itself does not allocate a stored operation; any actual selected use/resource guard remains separate.
+
+Zero NAV mark/metric domains remain accepted opt-in; zero target sizing is still unsupported and must preserve unfinalized evidence when encountered. Alternate daily D==NAV Q is refused by this fixed profile. Negative NAV/native accounting guards remain intact. Actual retained binding/projection/operation/resources/authority and financial judgment are NOT_RUN/unselected by source delivery.
+
+## Invented evidence
+
+Tests cover metadata-only no-debit/no-source preflight, malformed current bindings and explicit invented authority/resources, genuine ten-native original and source-absent immutable reproduction, duplicate and injected failure preservation, facade/CLI dispatch and typed partial references. Full-shape invented capacity uses an independent 716-NAV/916-source-date rectangle/33-member calendar with29 scheduled/3 revised/1 cancelled, ten actual native accounts and saved verification under the existing member bound. It copies no retained source tokens or calendar dates. This establishes technical capacity for that supplied fixture, not a retained financial outcome, general resource guarantee or scientific grant. Official frozen reports attribute actual native execution separately from injected metadata failures and existing CI baseline/replay controls.
+
+### Closed clock correction
+
+Source-row modeled availability must be the strict integer next civil UTC midnight derived from that exact row's date, for every NAV/warmup/unused-context row. Copying an earlier or null K into rehashed roles and locators does not satisfy the profile. Every fixed daily00:01 D must be on the same UTC civil date as its Q, as well as strictly before Q; a Sunday D for Monday's close is refused. Three fully rehashed invented metadata controls first reproduced predecessor acceptance and now reject before any source value/native call or attempt debit. Originalbc8 qualification and the independent source rejection remain history.
