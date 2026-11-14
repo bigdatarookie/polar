@@ -3,7 +3,7 @@
 Native fills/positions are authoritative. Core admission never installs a proposed
 state. Stock Position/Portfolio float PnL and mark functions are not exact oracles.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from fractions import Fraction
 from functools import lru_cache
 from copy import deepcopy
@@ -12,7 +12,7 @@ from types import MappingProxyType
 from .distribution_claims import half_even
 from .research_native_money import native_types as cash_types
 from .signed_account_core import (
-    State, Transition, amount_cents, mark, propose_fill, record_confirmed_fill,
+    State, Transition, amount_cents, rational, mark, propose_fill, record_confirmed_fill,
 )
 
 
@@ -130,6 +130,24 @@ def native_types():
     return MappingProxyType({**base, 'account_type': ExactCentMarginAccount})
 
 
+@dataclass(frozen=True)
+class MarkIdentity:
+    name: str
+    source_event_id: str
+    source_ref: str
+    observed_ns: int | None
+    available_ns: int | None
+    basis: str
+    provenance: str
+
+
+@dataclass(frozen=True)
+class MarkEvent:
+    valuation_id: str
+    at_ns: int
+    identities: tuple[MarkIdentity, ...]
+
+
 class SignedNativeBridge:
     """One serial order gateway; integration must expose no alternate submit path.
 
@@ -148,12 +166,21 @@ class SignedNativeBridge:
         self.pending = None; self.halted = False; self.model_survival_failed = False; self.events = []
         self.used_intents = set(); self.used_orders = set(); self.used_fills = set()
         self.native_submission_count = 0
+        self._valuation_bindings = {}; self._last_valuation_ns = -1
 
-    def propose_and_submit(self, intent_id, order, price, fee_cents, marks, *, located_cap=None,
+    def propose_and_submit(self, intent_id, order, price, fee_cents, marks, *, mark_event, located_cap=None,
                            locate_provenance=None, forced=False, funding_mode='NO_CREDIT', funding_assumption=None):
         from nautilus_trader.model.enums import OrderSide
         require(not self.halted, 'BRIDGE_HALTED')
-        require(not self.model_survival_failed or forced, 'STICKY_MODEL_DEFAULT_NO_DISCRETIONARY_SUBMISSION')
+        # Existing-book valuation is independent of the proposal and must not
+        # disappear when the hypothetical order is rejected. No proposal.after
+        # is involved in this actual-book default test.
+        self._observe_current_book(marks, mark_event, intent_id)
+        if self.model_survival_failed and not forced:
+            self.events.append({'kind':'STICKY_DEFAULT_ADMISSION_BLOCK','intent_id':intent_id,
+                                'valuation_id':mark_event.valuation_id,'native_submissions':0,
+                                'status':'REJECTED_EXISTING_BOOK_MODEL_DEFAULT'})
+            raise BridgeError('STICKY_MODEL_DEFAULT_NO_DISCRETIONARY_SUBMISSION')
         require(self.pending is None, 'PENDING_SERIAL_BARRIER')
         require(isinstance(intent_id, str) and intent_id and intent_id not in self.used_intents, 'DUPLICATE_INTENT')
         oid = str(order.client_order_id)
@@ -184,6 +211,37 @@ class SignedNativeBridge:
             self.events.append({'kind':'SUBMIT_UNKNOWN_EFFECT','order_id':oid,'error':type(exc).__name__,'reason':str(exc)})
             raise
         return deepcopy(row)
+
+    def _observe_current_book(self, marks, event, intent_id):
+        require(type(event) is MarkEvent and isinstance(event.valuation_id,str) and event.valuation_id and
+                event.valuation_id != intent_id and type(event.at_ns) is int and event.at_ns >= self._last_valuation_ns and
+                type(event.identities) is tuple and all(type(v) is MarkIdentity for v in event.identities) and
+                type(marks) is dict and {v.name for v in event.identities} == set(marks) and
+                len(event.identities) == len(marks), 'CURRENT_MARK_IDENTITY')
+        normalized = {}
+        for v in event.identities:
+            require(all(isinstance(x,str) and x for x in (v.name,v.source_event_id,v.source_ref,v.provenance)) and
+                    v.basis in {'OBSERVED','MODELED','UNKNOWN','PRE_EX_CUM_MARK_WITH_NEW_CLAIM'} and
+                    all(t is None or type(t) is int and 0 <= t <= event.at_ns for t in (v.observed_ns,v.available_ns)) and
+                    (v.available_ns is None or v.observed_ns is None or v.available_ns >= v.observed_ns),
+                    'CURRENT_MARK_PROVENANCE_OR_FUTURE')
+            normalized[v.name] = rational(marks[v.name],positive=True)
+            require((normalized[v.name]*10**6).denominator == 1, 'NATIVE_PRICE_PRECISION')
+        binding = (event, tuple(sorted(normalized.items())), self.state)
+        prior = self._valuation_bindings.get(event.valuation_id)
+        require(prior is None or prior == binding, 'VALUATION_ID_REUSED_WITH_CHANGED_BOOK_OR_MARK')
+        current = self.reconcile(normalized)
+        self._last_valuation_ns = event.at_ns
+        if prior is None:
+            self._valuation_bindings[event.valuation_id] = binding
+            self.events.append({'kind':'EXISTING_BOOK_MARK','valuation_id':event.valuation_id,'at_ns':event.at_ns,
+                'marks_usd':deepcopy(normalized),'source_identities':[asdict(v) for v in event.identities],
+                'mark_age_ns':{v.name:None if v.observed_ns is None else event.at_ns-v.observed_ns for v in event.identities},
+                'claim_ids':[c.id for c in self.state.claims if c.paid_at is None],
+                'actual_state_used_ids':self.state.used_ids,'core':deepcopy(current['core']),
+                'sticky_model_survival_failed':self.model_survival_failed,
+                'scope':'SUPPLIED_CURRENT_MARK_NOT_SOURCE_CLOCK_OR_FAIR_VALUE_QUALIFICATION'})
+        return current
 
     def record_fill(self, event, marks):
         from nautilus_trader.model.enums import OrderSide

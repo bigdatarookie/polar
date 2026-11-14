@@ -50,9 +50,24 @@ signed whole quantities. The production integration must expose no alternate
 submission path: this component supplies one gateway, not a claim that arbitrary
 external Strategy code cannot bypass Python callbacks.
 
-- `propose_and_submit(intent_id,native_order,exact_price,fee_cents,marks,...)` reads
+- `propose_and_submit(intent_id,native_order,exact_price,fee_cents,marks,mark_event=...)` reads
   actual native order instrument/side/quantity/ID, invokes core `propose_fill` and
-  records consumed admission operands. A rejected proposal submits0orders and
+  records consumed admission operands. Before any default/pending/admission check,
+  it consumes a mandatory `MarkEvent(valuation_id,at_ns,identities)` for the current
+  actual book. Each `MarkIdentity` binds name, source event/reference, observed and
+  available times (null remains unknown), basis and provenance. Future supplied
+  observation/availability is rejected; mark age, original unknowns, exact actual
+  NAV, claim IDs and conditional-model labels are saved. A valuation ID is distinct
+  from the order intent; an identical duplicate does not multiply valuation events,
+  while rebinding it to different marks/book fails. This checks supplied metadata,
+  not independent source-clock/PIT qualification or actual fair value.
+
+  Existing-book E<=0 latches before an order can be rejected, and recovery cannot
+  erase it. The rejection does not roll back this marked actual prestate/history;
+  no new fill/cash/fee/position is installed. Conversely, insolvency occurring only
+  in an unexecuted proposed post-fill state never latches actual model default.
+  Sticky-default refusals retain a separate valuation/intent-linked zero-submission
+  event. A rejected proposal submits0orders and
   installs no proposed state. A unique intent/order is consumed even on rejection;
   retry requires a separately meaningful caller decision, not implicit recycling.
   The sole submit call site saves pending state before possible synchronous native

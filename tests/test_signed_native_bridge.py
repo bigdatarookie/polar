@@ -7,7 +7,7 @@ from dataclasses import asdict, is_dataclass
 import pytest
 
 from polar.signed_account_core import State, recognize_distribution, pay_claim, accrue, settle_accrual, top_up
-from polar.signed_native_bridge import TradingLot, settled_trade, native_types, SignedNativeBridge, BridgeError, cents
+from polar.signed_native_bridge import TradingLot, settled_trade, native_types, SignedNativeBridge, BridgeError, cents, MarkIdentity, MarkEvent
 
 
 def save_control(record_property, result):
@@ -27,7 +27,7 @@ def test_partial_basis_allocation_releases_remaining_cents_exactly():
     assert lot == TradingLot() and pnl == 2 and not cross
 
 
-def engine_control(tape, *, exact=True, partial=False, external=False, duplicate=False, unexpected_cross=False, default=False):
+def engine_control(tape, *, exact=True, partial=False, external=False, duplicate=False, unexpected_cross=False, default=False, mark_recovery=False):
     from nautilus_trader.backtest.engine import BacktestEngine
     from nautilus_trader.backtest.models import FeeModel, FillModel, LatencyModel
     from nautilus_trader.config import BacktestEngineConfig, LoggingConfig, StrategyConfig, RiskEngineConfig
@@ -80,14 +80,23 @@ def engine_control(tape, *, exact=True, partial=False, external=False, duplicate
                     # the research gate. It must be preserved, never erased.
                     self.submit_order(order)
                 elif exact:
-                    self.bridge.propose_and_submit('intent-'+str(self.i),order,self.px,1,{'X':self.px},
-                                                  located_cap=qty,locate_provenance='INVENTED_LOCATE')
+                    try:
+                        self.bridge.propose_and_submit('intent-'+str(self.i),order,self.px,1,{'X':self.px},
+                                                      mark_event=MarkEvent('valuation-'+str(self.i),tick.ts_event,
+                                                        (MarkIdentity('X','quote-'+str(tick.ts_event),'INVENTED_X',tick.ts_event,tick.ts_event,'MODELED','INVENTED_CURRENT_QUOTE'),)),
+                                                      located_cap=qty,locate_provenance='INVENTED_LOCATE')
+                    except BridgeError as exc:
+                        if not mark_recovery:raise
+                        out['gate_failures'].append(str(exc))
                     # A pending admission cannot spend/locate the same resource.
                     if self.bridge.pending is not None:
-                        try:self.bridge.propose_and_submit('double-spend',order,self.px,1,{'X':self.px})
+                        try:self.bridge.propose_and_submit('double-spend',order,self.px,1,{'X':self.px},
+                            mark_event=MarkEvent('valuation-double-'+str(self.i),tick.ts_event,
+                              (MarkIdentity('X','quote-'+str(tick.ts_event),'INVENTED_X',tick.ts_event,tick.ts_event,'MODELED','INVENTED_CURRENT_QUOTE'),)))
                         except BridgeError as exc:out['gate_failures'].append(str(exc))
                 else:self.submit_order(order)
             else:
+                if mark_recovery and self.i==4:return  # no intervening standalone high-mark reconcile
                 account=engine.portfolio.account(venue);out['native_account_type']=type(account).__name__
                 if exact:
                     if self.bridge.pending is not None:self.cancel_order(self.current)
@@ -213,7 +222,7 @@ def test_core_funding_rejection_has_zero_native_submissions_fills_fees(record_pr
     r=engine_control([('SELL',1000000,'10.005000')])
     save_control(record_property,r)
     assert r['submissions']==0 and not r['fills'] and not r['account_fills']
-    assert r['state']==State(100000) and r['events'][0]['native_submissions']==0
+    assert r['state']==State(100000) and next(e for e in r['events'] if e['kind']=='ADMISSION')['native_submissions']==0
 
 
 def test_no_credit_sale_fee_cannot_mint_native_cash_or_submit(record_property):
@@ -264,3 +273,45 @@ def test_reconciliation_type_or_position_failure_is_retained_and_halts():
     with pytest.raises(BridgeError,match='NATIVE_POSITION_TYPES'):
         b.reconcile({'X':F(1)})
     assert b.halted and b.events[-1]['kind']=='NON_RECONCILED_ACCOUNT'
+
+
+def test_current_mark_default_before_rejected_order_survives_recovery(record_property):
+    r=engine_control([('SELL',1,'10.000000'),('SELL',1,'2000.000000'),('SELL',1,'10.000000')],mark_recovery=True)
+    save_control(record_property,r)
+    assert r['survival_failed'] is True
+    assert r['submissions']==1 and len(r['fills'])==1 and dict(r['state'].positions)['X']==-1
+    adverse=[e for e in r['events'] if e['kind']=='EXISTING_BOOK_MARK' and e['core']['equity_cents']<=0]
+    assert adverse[0]['core']['equity_cents']==-99001 and adverse[0]['mark_age_ns']=={'X':0}
+    assert adverse[0]['sticky_model_survival_failed'] and adverse[0]['source_identities'][0]['basis']=='MODELED'
+    assert len([e for e in r['events'] if e['kind']=='STICKY_DEFAULT_ADMISSION_BLOCK'])==2
+
+
+def test_rejected_hypothetical_postfill_insolvency_is_not_actual_default(record_property):
+    r=engine_control([('SELL',1000000,'10.005000'),('BUY',1,'10.005000')])
+    save_control(record_property,r)
+    assert r['survival_failed'] is False and r['submissions']==1 and len(r['fills'])==1
+
+
+def test_duplicate_mark_event_deduplicates_history_but_changed_or_future_metadata_rejects():
+    from types import SimpleNamespace
+    from dataclasses import replace
+    from nautilus_trader.model.enums import OrderSide
+    from nautilus_trader.model.objects import Quantity
+    class Account:
+        exact_lots={}
+        def exact_marked_trading_equity(self,marks):
+            return {'native_cash_cents':100,'exact_unrealized_cents':0,'exact_trading_equity_cents':100,
+                    'exact_realized_cents':0,'actual_fee_cents':0}
+    b=SignedNativeBridge(State(100),{'X':'X.INVENTED'},lambda o:None,lambda:{},lambda:Account(),initial_cents=100)
+    event=MarkEvent('valuation',10,(MarkIdentity('X','source-event','source-pin',9,None,'UNKNOWN','ORIGINAL_K_UNKNOWN'),))
+    def order(i):return SimpleNamespace(client_order_id='order'+str(i),instrument_id='X.INVENTED',side=OrderSide.BUY,quantity=Quantity.from_int(100000))
+    for i in (1,2):
+        result=b.propose_and_submit('intent'+str(i),order(i),F(10),1,{'X':F(10)},mark_event=event)
+        assert result['native_submissions']==0
+    assert len([e for e in b.events if e['kind']=='EXISTING_BOOK_MARK'])==1 and not b.model_survival_failed
+    with pytest.raises(BridgeError,match='REUSED_WITH_CHANGED'):
+        b.propose_and_submit('intent3',order(3),F(11),1,{'X':F(11)},mark_event=event)
+    future=replace(event,valuation_id='future',identities=(replace(event.identities[0],observed_ns=11),))
+    with pytest.raises(BridgeError,match='PROVENANCE_OR_FUTURE'):
+        b.propose_and_submit('intent4',order(4),F(10),1,{'X':F(10)},mark_event=future)
+    assert b.native_submission_count==0 and b.state==State(100)
