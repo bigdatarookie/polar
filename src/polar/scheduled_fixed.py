@@ -197,3 +197,151 @@ def diagnose_fixed_anchors(tape, schedule, prices, *, subperiods=()):
     result['subperiods'] = [slot if slot.get('status') == 'UNAVAILABLE' else
                             {**next(segments), **slot} for slot in slots]
     return result
+
+
+def event_clock_metadata(value):
+    """Pure clock1.1 metadata projection; grants no trading/source-use authority.
+
+    See docs/event-clock-metadata.md for the closed wire and eligibility scope.
+    Legacy annual calendars/plans and Service dispatch are deliberately unchanged.
+    """
+    from copy import deepcopy
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    code = 'EVENT_CLOCK_INVALID_METADATA'
+
+    def fields(obj, names):
+        require(type(obj) is dict and set(obj) == set(names.split()), code)
+
+    def text(v):
+        require(type(v) is str and 0 < len(v) <= 512, code)
+        return v
+
+    def stamp(v):
+        text(v)
+        try:
+            result = datetime.fromisoformat(v.replace('Z', '+00:00'))
+            require(result.tzinfo is not None and result.utcoffset() is not None, code)
+            return result.astimezone(timezone.utc)
+        except (ValueError, OverflowError):
+            require(False, code)
+
+    def availability(v):
+        fields(v, 'known_by basis provenance')
+        text(v['provenance'])
+        require(v['basis'] in ('OBSERVED', 'MODELED', 'UNKNOWN'), code)
+        require((v['known_by'] is None) == (v['basis'] == 'UNKNOWN'), code)
+        return None if v['known_by'] is None else stamp(v['known_by'])
+
+    def iso(v):
+        return None if v is None else v.isoformat().replace('+00:00', 'Z')
+
+    fields(value, 'schema event_id reference_period release_at release_zone calendar_availability '
+                  'event_observation_availability reference_provenance sessions quotes')
+    require(value['schema'] == 'polar.event-clock-metadata/1', code)
+    text(value['event_id']); text(value['reference_period'])
+    try:
+        zone = ZoneInfo(text(value['release_zone']))
+    except (ZoneInfoNotFoundError, ValueError):
+        require(False, code)
+    release = stamp(value['release_at'])
+    release_day = release.astimezone(zone).date()
+    calendar_k = availability(value['calendar_availability'])
+    event_k = availability(value['event_observation_availability'])
+    fields(value['reference_provenance'], 'basis provenance')
+    require(value['reference_provenance']['basis'] in ('OBSERVED', 'MODELED', 'UNKNOWN'), code)
+    text(value['reference_provenance']['provenance'])
+    require(type(value['sessions']) is list and len(value['sessions']) <= 10000, code)
+    sessions = []
+    for row in value['sessions']:
+        fields(row, 'date open_at close_at')
+        try:
+            day = date.fromisoformat(row['date']) if type(row['date']) is str else None
+        except ValueError:
+            require(False, code)
+        require(day is not None and day.isoformat() == row['date'], code)
+        opened, closed = stamp(row['open_at']), stamp(row['close_at'])
+        require(opened < closed and opened.astimezone(zone).date() == day
+                and closed.astimezone(zone).date() == day, code)
+        sessions.append((day, opened, closed))
+    require([s[0] for s in sessions] == sorted({s[0] for s in sessions}), code)
+    closes = {s[2] for s in sessions}
+    require(type(value['quotes']) is list and len(value['quotes']) <= 10000, code)
+    quotes = []
+    for row in value['quotes']:
+        fields(row, 'close_at availability')
+        close = stamp(row['close_at']); known = availability(row['availability'])
+        require(close in closes, code)
+        quotes.append((close, known, row))
+    require(len({q[0] for q in quotes}) == len(quotes), code)
+
+    prior = next((s for s in reversed(sessions) if s[0] < release_day), None)
+    cutoff = datetime.combine(prior[0], time(14), tzinfo=ZoneInfo('America/New_York')).astimezone(timezone.utc) if prior else None
+    decision = cutoff + timedelta(seconds=60) if cutoff else None
+    execution = next((s[2] for s in sessions if decision is not None and s[2] > decision), None)
+    temporal = next((s[2] for s in reversed(sessions) if decision is not None and s[2] < decision), None)
+    # Inspect supplied quote metadata only, not a claimed complete source history.
+    eligible = sorted((q for q in quotes if decision is not None and q[0] < decision
+                       and q[1] is not None and q[0] <= q[1] <= decision), key=lambda q: q[0])
+    selected = eligible[-1] if eligible else None
+    temporal_row = next((q[2] for q in quotes if q[0] == temporal), None)
+    release_closes = [s[2] for s in sessions if s[2] >= release][:2]
+    r1 = release_closes[0] if release_closes else None
+    r2 = release_closes[1] if len(release_closes) == 2 else None
+    reentry_d = datetime.combine(r2.date() + timedelta(days=1), time(0, 1), tzinfo=timezone.utc) if r2 else None
+    reentry_q = next((s[2] for s in sessions if reentry_d is not None and s[2] > reentry_d), None)
+    unavailable = []
+    for missing, name in ((prior is None, 'PRIOR_REFERENCE_SESSION_UNAVAILABLE'),
+                          (execution is None, 'EXECUTION_CLOSE_UNAVAILABLE'),
+                          (temporal is None, 'COMPLETED_REFERENCE_CLOSE_UNAVAILABLE'),
+                          (r1 is None, 'RELEASE_CLOSE_UNAVAILABLE'),
+                          (r2 is None, 'SECOND_RELEASE_CLOSE_UNAVAILABLE'),
+                          (reentry_q is None, 'REENTRY_CLOSE_UNAVAILABLE')):
+        if missing:
+            unavailable.append(name)
+    reasons = []
+    for known, bound, name in ((calendar_k, cutoff, 'CALENDAR'), (event_k, cutoff, 'EVENT_OBSERVATION')):
+        if known is None:
+            reasons.append(name + '_KNOWN_BY_UNKNOWN')
+        elif bound is not None and known > bound:
+            reasons.append(name + '_KNOWN_AFTER_CUTOFF')
+    if selected is None:
+        reasons.append('NO_AVAILABILITY_QUALIFIED_SUPPLIED_QUOTE')
+    if value['reference_provenance']['basis'] == 'UNKNOWN':
+        reasons.append('REFERENCE_CLOCK_BASIS_UNKNOWN')
+    warnings = []
+    if prior and decision is not None and prior[2] <= decision:
+        warnings.append('PRIOR_REFERENCE_CLOSE_ALREADY_ELAPSED')
+    if execution is not None and execution > release:
+        warnings.append('UNPROTECTED_EARLY_EXECUTION_UNAVAILABLE')
+    quote_checks = []
+    for close, known, row in quotes:
+        reason = ('DECISION_UNAVAILABLE' if decision is None else
+                  'QUOTE_NOT_COMPLETED_BEFORE_DECISION' if close >= decision else
+                  'QUOTE_KNOWN_BY_UNKNOWN' if known is None else
+                  'QUOTE_KNOWN_BEFORE_COMPLETION' if known < close else
+                  'QUOTE_KNOWN_AFTER_DECISION' if known > decision else None)
+        quote_checks.append({'close_at': iso(close), 'availability': deepcopy(row['availability']),
+                             'eligible': reason is None, 'reason': reason})
+    bases = [value['reference_provenance']['basis'], value['calendar_availability']['basis'],
+             value['event_observation_availability']['basis']]
+    if selected:
+        bases.append(selected[2]['availability']['basis'])
+    status = ('UNAVAILABLE' if unavailable else 'NOT_EXECUTABLE' if reasons else
+              'CONDITIONALLY_MODELED' if 'MODELED' in bases else 'OBSERVED_METADATA_ELIGIBLE')
+    return {'schema': 'polar.event-clock-projection/1', 'event_id': value['event_id'],
+            'reference_period': value['reference_period'], 'release_at': iso(release),
+            'release_zone': value['release_zone'], 'prior_reference_date': prior[0].isoformat() if prior else None,
+            'cutoff_at': iso(cutoff), 'decision_at': iso(decision), 'execution_candidate_at': iso(execution),
+            'latest_completed_candidate_at': iso(temporal),
+            'latest_completed_candidate_availability': deepcopy(temporal_row['availability']) if temporal_row else
+                {'known_by': None, 'basis': 'UNKNOWN', 'provenance': 'NO_SUPPLIED_QUOTE_METADATA'},
+            'qualified_quote': deepcopy(selected[2]) if selected else None,
+            'release_close_1_at': iso(r1), 'release_close_2_at': iso(r2), 'expiry_at': iso(r2),
+            'reentry_decision_at': iso(reentry_d), 'reentry_candidate_at': iso(reentry_q),
+            'calendar_availability': deepcopy(value['calendar_availability']),
+            'event_observation_availability': deepcopy(value['event_observation_availability']),
+            'reference_provenance': deepcopy(value['reference_provenance']), 'quote_checks': quote_checks,
+            'status': status, 'unavailable_reasons': unavailable, 'ineligibility_reasons': reasons,
+            'warnings': warnings, 'eligibility_scope': 'SUPPLIED_METADATA_ONLY_NOT_SOURCE_OR_FILL_QUALIFICATION',
+            'execution_authority': False}
