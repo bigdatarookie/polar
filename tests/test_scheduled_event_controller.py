@@ -299,7 +299,7 @@ def test_original_two_delta_one_unattributed_order_cannot_commit():
     (lambda r: (replace(r.symbol_evaluations[0], routed_quantity=0, orders=()), r.symbol_evaluations[1]), 'CLIPPING_REASON'),
     (lambda r: (replace(r.symbol_evaluations[0], orders=()), r.symbol_evaluations[1]), 'QUANTITY_CENSUS'),
     (lambda r: (r.symbol_evaluations[0], replace(r.symbol_evaluations[1], consumed_sizing_id='missing')), 'EVALUATION_BINDING'),
-    (lambda r: (r.symbol_evaluations[0], replace(r.symbol_evaluations[1], orders=r.symbol_evaluations[0].orders)), 'COUNTER_CENSUS'),
+    (lambda r: (r.symbol_evaluations[0], replace(r.symbol_evaluations[1], orders=(replace(r.symbol_evaluations[0].orders[0], side='SELL'),))), 'COUNTER_CENSUS'),
     (lambda r: (replace(r.symbol_evaluations[0], orders=(replace(r.symbol_evaluations[0].orders[0], status='PARTIAL'),)), r.symbol_evaluations[1]), 'PARTIAL_CONTRADICTION'),
 ])
 def test_closed_symbol_terminal_census_mutants(mutant, reason):
