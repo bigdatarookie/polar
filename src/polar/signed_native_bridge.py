@@ -257,7 +257,8 @@ class SignedNativeBridge:
         raw = {'order_id':str(event.client_order_id),'trade_id':str(event.trade_id),
                'instrument_id':str(event.instrument_id),'side':str(event.order_side),
                'quantity_token':str(event.last_qty),'price_token':str(event.last_px),
-               'commission_token':str(event.commission)}
+               'commission_token':str(event.commission),
+               'execution_ns':event.ts_event,'native_init_ns':event.ts_init}
         key = (raw['order_id'], raw['trade_id'])
         if key in self.used_fills:
             self.halted = True; self.events.append({'kind':'DUPLICATE_CALLBACK_REJECTED','actual_fill':raw})

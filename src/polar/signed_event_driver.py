@@ -104,6 +104,18 @@ class Event:
 
 
 @dataclass(frozen=True)
+class RoutingBoundary:
+    event_id: str
+    open_ns: int
+    end_ns: int                  # exclusive technical host event boundary
+
+    def __post_init__(self):
+        token(self.event_id)
+        require(type(self.open_ns) is int and type(self.end_ns) is int and
+                0<=self.open_ns<self.end_ns,'DRIVER_ROUTING_BOUNDARY')
+
+
+@dataclass(frozen=True)
 class OrderRequest:
     intent_id: str
     event_id: str
@@ -202,6 +214,7 @@ class SignedEventDriver:
         self._seen=set(); self._blocked={}; self._new_short_cents=0; self._active_locate=None
         self._ordinary_allowed=False; self._event_bridge_start=0; self._fill_cursor=0
         self._last_flatten_ns=-1
+        self.mandatory_funding_blockers=[];self.boundary=None;self.submitted_ns=None;self.policy_time_failure=False
 
     def _record(self, kind, **values):
         self.records.append({'sequence':len(self.records),'kind':kind, **deepcopy(values)})
@@ -213,17 +226,20 @@ class SignedEventDriver:
         self.default_ever |= self.bridge.model_survival_failed
         require(transition.before == before, 'DRIVER_EXTERNAL_BEFORE')
 
-    def begin_event(self, event):
+    def begin_event(self, event, boundary):
         validate_event(event,self.context)
+        require(type(boundary) is RoutingBoundary and boundary.event_id==event.id and
+                boundary.open_ns==event.at_ns and
+                (self.boundary is None or boundary.open_ns>=self.boundary.end_ns),'DRIVER_EVENT_BOUNDARY_JOIN')
         require(self.event is None and not self.bridge.pending and not self.bridge.halted,
                 'DRIVER_EVENT_SERIAL_BARRIER')
         require(event.id not in self._seen and (self.previous is None or event.at_ns > self.previous.at_ns),
                 'DRIVER_EVENT_ORDER')
         require(not self.terminal or event.instruction == 'HOLD', 'DRIVER_POSTTERMINAL_RISK')
-        self._seen.add(event.id); self.event=event; self._event_bridge_start=len(self.bridge.events)
+        self._seen.add(event.id); self.event=event;self.boundary=boundary; self._event_bridge_start=len(self.bridge.events)
         self.current_marks=dict(event.marks); self._new_short_cents=0; self._active_locate=None
         self._blocked={}; self.tasks=[]; self.command=None; self.phase_index=0
-        self._record('BEGIN',event=event,before=self.bridge.state,previous_event=None if self.previous is None else self.previous.id)
+        self._record('BEGIN',event=event,boundary=boundary,before=self.bridge.state,previous_event=None if self.previous is None else self.previous.id)
         if event.kind=='EX' and self.previous is not None:
             require(self.current_marks==self.previous_marks,'DRIVER_EX_DOES_NOT_INVENT_NEW_PRICE')
         # Exact elapsed calendar seconds, using saved PREVIOUS bases/rates only.
@@ -320,17 +336,25 @@ class SignedEventDriver:
 
     def _payment(self):
         if self.event.kind!='CLOSE':return
+        blockers=[]
         date=event_date(self.event.at_ns)
         for claim in sorted(self.bridge.state.claims,key=lambda c:(c.payment_date,c.name,c.id)):
             if claim.paid_at is None and claim.payment_date<=date:
                 t=pay_claim(self.bridge.state,self.event.id+':pay:'+claim.id,claim.id,date)
                 self._external(t,self.current_marks)
-                if t.status!='APPLIED':self._overdue('CLAIM',claim.id,claim.cents)
+                if t.status!='APPLIED':
+                    self._overdue('CLAIM',claim.id,claim.cents)
+                    blockers.append(('CLAIM',claim.id,claim.cents))
         for stream in sorted(self.bridge.state.accruals,key=lambda a:a.stream_id):
             if stream.recognized_cents>stream.settled_cents:
                 t=settle_accrual(self.bridge.state,self.event.id+':settle:'+stream.stream_id,stream.stream_id)
                 self._external(t,self.current_marks)
-                if t.status!='APPLIED':self._overdue('ACCRUAL',stream.stream_id,stream.recognized_cents-stream.settled_cents)
+                if t.status!='APPLIED':
+                    amount=stream.recognized_cents-stream.settled_cents
+                    self._overdue('ACCRUAL',stream.stream_id,amount)
+                    blockers.append(('ACCRUAL',stream.stream_id,amount))
+        self.mandatory_funding_blockers=blockers
+        self._record('CURRENT_MANDATORY_FUNDING_BLOCKERS',event=self.event.id,blockers=blockers)
 
     def _overdue(self,kind,identity,cents):
         self.overdue_ever=True
@@ -339,6 +363,9 @@ class SignedEventDriver:
                      scope='MODEL_FUNDING_FAILURE_NOT_LEGAL_BROKER_DEFAULT')
 
     def _new_risk(self,phase):
+        if self.mandatory_funding_blockers:
+            self._record('NEW_RISK_BLOCKED_DUE_FUNDING',event=self.event.id,phase=phase,
+                         blockers=self.mandatory_funding_blockers);return []
         if not self._ordinary_allowed or self.event.instruction!='TARGET' or self.flatten is not None or self.default_ever:
             return []
         targets=dict(self.event.targets);positions=dict(self.bridge.state.positions)
@@ -432,7 +459,22 @@ class SignedEventDriver:
             self.phase_index+=1
         self._finish_event();return None
 
-    def submit(self,order):
+    def _submission_evidence(self,c,oid,native_ns,order_init_ns):
+        require(type(native_ns) is int and type(order_init_ns) is int and native_ns==order_init_ns and
+                self.boundary.open_ns<=native_ns<self.boundary.end_ns and c.event_id==self.event.id,
+                'DRIVER_SUBMISSION_OUTSIDE_EVENT_BOUNDARY')
+        require(not c.phase.startswith('NEW_') or not self.mandatory_funding_blockers,
+                'DRIVER_SUBMISSION_CURRENT_DUE_FUNDING_BLOCK')
+        if c.locate_id is not None:
+            use=self.locate_usage[c.locate_id]
+            require(not use['expired'] and use['token'].execution_event==self.event.id and
+                    use['filled']+c.quantity<=use['reserved'] and not use['orders'], 'DRIVER_SUBMISSION_LOCATE_BOUNDARY')
+            use['orders'].append(oid)
+        self.submitted_ns=native_ns
+        self._record('SUBMIT',event=self.event.id,command=c,order_id=oid,native_submission_ns=native_ns,
+                     order_init_ns=order_init_ns,boundary=self.boundary)
+
+    def submit(self,order,*,native_ns):
         c=self.command
         require(c is not None and self.event is not None,'DRIVER_NO_COMMAND')
         # Exact order identity/type is checked by the accepted bridge. Also bind
@@ -440,15 +482,14 @@ class SignedEventDriver:
         from nautilus_trader.model.enums import OrderSide
         require(str(order.instrument_id)==str(self.bridge.instruments[c.name]) and whole(order.quantity)==c.quantity and
             order.side==(OrderSide.BUY if c.side=='BUY' else OrderSide.SELL),'DRIVER_NATIVE_COMMAND_BINDING')
-        self._record('SUBMIT',event=self.event.id,command=c,order_id=str(order.client_order_id))
-        if c.locate_id is not None:self.locate_usage[c.locate_id]['orders'].append(str(order.client_order_id))
+        self._submission_evidence(c,str(order.client_order_id),native_ns,order.ts_init)
         self.bridge.propose_and_submit(c.intent_id,order,c.price,c.fee_cents,self.current_marks,
             mark_event=MarkEvent(c.intent_id+':admission-mark',self.event.at_ns,self.event.mark_event.identities),
             located_cap=c.located_cap,locate_provenance=None if c.locate_id is None else self._active_locate.provenance,
             forced=c.forced)
         # command stays attached until actual terminal callback, including partials.
 
-    def on_fill(self,fill):
+    def on_fill(self,fill,*,received_ns):
         if self.command is None:
             # An unsolicited/late actual callback must reach the accepted
             # bridge's raw-execution error custody before the host is halted.
@@ -456,11 +497,16 @@ class SignedEventDriver:
             require(False,'DRIVER_UNEXPECTED_FILL_COMMAND')
         c=self.command;before=self.bridge.state
         result=self.bridge.record_fill(fill,self.current_marks)
+        execution=fill.ts_event;init=fill.ts_init
+        valid=(type(execution) is int and type(init) is int and type(received_ns) is int and
+               self.boundary.open_ns<=self.submitted_ns<=execution<self.boundary.end_ns and
+               execution<=init<=received_ns)
         q=result.operands['actual_quantity'];old=dict(before.positions).get(c.name,0)
         if c.side=='SELL' and old<=0:
             require(c.locate_id is not None,'DRIVER_ACTUAL_SHORT_WITHOUT_LOCATE')
             use=self.locate_usage[c.locate_id];use['filled']+=q
-            require(not use['expired'] and use['filled']<=use['reserved'],'DRIVER_LOCATE_CONSUMPTION')
+            valid &= not use['expired'] and use['filled']<=use['reserved']
+            if type(execution) is int and execution>=self.boundary.end_ns:use['expired']=True
             self.borrow[c.name]+=q;self._new_short_cents+=result.operands['settled_notional_cents']
         elif c.side=='BUY' and old<0:self.borrow[c.name]-=q
         self.default_ever |= self.bridge.model_survival_failed
@@ -468,7 +514,16 @@ class SignedEventDriver:
                      actual_fill=deepcopy(next(v['actual_fill'] for v in reversed(self.bridge.events)
                                               if v['kind']=='CONFIRMED_NATIVE_FILL')),
                      transition=result,borrow=dict(self.borrow),locate_usage=deepcopy(self.locate_usage),
+                     native_clock={'execution_ns':execution,'native_init_ns':init,'received_ns':received_ns,
+                                   'submitted_ns':self.submitted_ns,'boundary':self.boundary,
+                                   'status':'ELIGIBLE_EXECUTION' if valid else 'OUT_OF_EVENT_EXECUTION'},
                      reconciliation=self.bridge.reconcile(self.current_marks))
+        if not valid:
+            self.policy_time_failure=True;self.bridge.halted=True
+            self._record('PROTOCOL_TIME_FAILURE',event=self.event.id,order_id=str(fill.client_order_id),
+                         trade_id=str(fill.trade_id),actual_execution_ns=execution,received_ns=received_ns,
+                         scope='ACTUAL_FILL_RETAINED_EXACT_RECONCILED_NOT_ELIGIBLE_SCHEDULED_EXECUTION')
+            require(False,'DRIVER_OUT_OF_EVENT_EXECUTION_ACTUAL_FILL_RETAINED')
         return result
 
     def on_terminal(self,order_id,status):
@@ -486,12 +541,14 @@ class SignedEventDriver:
         for v in self.event.locates:
             if v.id in self.locate_usage and self.locate_usage[v.id]['token'].execution_event==self.event.id:
                 self.locate_usage[v.id]['expired']=True
-                self._record('LOCATE_EXPIRED',event=self.event.id,token=v,usage=self.locate_usage[v.id])
+                self._record('LOCATE_EXPIRED',event=self.event.id,token=v,usage=self.locate_usage[v.id],
+                             expiry_ns=self.boundary.end_ns)
         require(all(self.borrow[n]==max(-dict(self.bridge.state.positions).get(n,0),0) for n in self.context.names),
                 'DRIVER_BORROW_POSITION_JOIN')
         self.terminal |= self.event.terminal
         result={'event':self.event.id,'state':self.bridge.state,'default_ever':self.default_ever,
                 'overdue_ever':self.overdue_ever,'unsupported':self.unsupported,'pending_flatten':deepcopy(self.flatten),
+                'mandatory_funding_blockers':deepcopy(self.mandatory_funding_blockers),
                 'borrow':dict(self.borrow),'locate_usage':deepcopy(self.locate_usage),
                 'terminal_unresolved_positions':bool(self.terminal and any(q for _,q in self.bridge.state.positions)),
                 'pending_claims':[c.id for c in self.bridge.state.claims if c.paid_at is None],
@@ -522,11 +579,13 @@ class SignedEventDriver:
                 'scope':'OBSERVED_PARTIAL_NOT_RECONCILED_OR_COMPLETED'}
         except Exception as observation_error:
             observed={'status':'UNAVAILABLE','reason':str(observation_error)}
-        return {'schema':'polar.private-signed-event-partial/1','status':'TECHNICAL_UNFINALIZED',
+        return {'schema':'polar.private-signed-event-partial/1',
+            'status':'POLICY_UNFINALIZED' if self.policy_time_failure else 'TECHNICAL_UNFINALIZED',
             'context':self.context,'initial_state':self.initial,'records':deepcopy(self.records),
             'active_event':self.event,'active_command':self.command,'core_state':self.bridge.state,
             'native_instruments':{n:str(i) for n,i in self.bridge.instruments.items()},
             'bridge_events':deepcopy(self.bridge.events),'pending':deepcopy(self.bridge.pending),
-            'technical_halt':self.bridge.halted,'error_type':type(error).__name__,'reason':str(error),
+            'technical_halt':self.bridge.halted and not self.policy_time_failure,'bridge_halt':self.bridge.halted,
+            'policy_time_failure':self.policy_time_failure,'error_type':type(error).__name__,'reason':str(error),
             'actual_native_observation':observed,
             'execution_authority':False}

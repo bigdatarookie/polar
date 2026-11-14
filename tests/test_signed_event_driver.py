@@ -10,7 +10,7 @@ import pytest
 
 from polar.signed_account_core import State
 from polar.signed_native_bridge import SignedNativeBridge,MarkEvent,MarkIdentity,native_types
-from polar.signed_event_driver import AccountContext,Rate,Action,Locate,Event,SignedEventDriver,fee_for
+from polar.signed_event_driver import AccountContext,Rate,Action,Locate,Event,RoutingBoundary,SignedEventDriver,fee_for
 from polar.signed_event_saved import verify_packet,encode,verify_bytes
 from polar.gym_contract import canonical
 
@@ -45,7 +45,8 @@ def event(id,date,*,kind='CLOSE',instruction='HOLD',targets=None,price=F(10),act
         marks if kind=='CLOSE' and eligible else (),locates,actions,rates,flat_fee_cents=flat,fee_bps=0,terminal=terminal)
 
 
-def run_driver(events,*,capital=100000,partial=False,inject_unknown_submit=False,inject_late_callback=False):
+def run_driver(events,*,capital=100000,partial=False,inject_unknown_submit=False,inject_late_callback=False,
+               native_latency_ns=0,expect_time_failure=False,receive_delay_ns=0,invalid_submission_ns=None):
     from nautilus_trader.backtest.engine import BacktestEngine
     from nautilus_trader.backtest.models import FeeModel,FillModel,LatencyModel
     from nautilus_trader.config import BacktestEngineConfig,LoggingConfig,StrategyConfig,RiskEngineConfig
@@ -82,6 +83,7 @@ def run_driver(events,*,capital=100000,partial=False,inject_unknown_submit=False
         def __init__(self):
             super().__init__(StrategyConfig(strategy_id='SIGNED_EVENTS',order_id_tag='001',log_events=False,log_commands=False))
             self.driver=None;self.current_order=None;self.error=None
+            self.callback_clocks=[]
         def positions(self):
             q={n:0 for n in CTX.names}
             for p in self.cache.positions_open():q[p.instrument_id.symbol.value]+=int(F(p.quantity.as_decimal()))*(-1 if p.side==PositionSide.SHORT else 1)
@@ -94,9 +96,13 @@ def run_driver(events,*,capital=100000,partial=False,inject_unknown_submit=False
                 lambda:engine.portfolio.account(venue),initial_cents=capital,continue_economic_events=True)
             self.driver=SignedEventDriver(CTX,bridge)
             for e in events:
-                self.clock.set_time_alert_ns('begin-'+e.id,e.at_ns+100,lambda _,e=e:self.driver.begin_event(e))
+                self.clock.set_time_alert_ns('begin-'+e.id,e.at_ns+100,
+                    lambda _,e=e:self.driver.begin_event(e,RoutingBoundary(e.id,e.at_ns,e.at_ns+10000)))
                 for k in range(1,18):
                     self.clock.set_time_alert_ns('pump-'+e.id+'-'+str(k),e.at_ns+100+k*100,lambda _:self.pump())
+                if native_latency_ns:
+                    self.clock.set_time_alert_ns('late-pump-'+e.id,e.at_ns+3*native_latency_ns+5000,lambda _:self.pump())
+                    self.clock.set_time_alert_ns('final-pump-'+e.id,e.at_ns+4*native_latency_ns+8000,lambda _:self.pump())
             for iid in ids.values():self.subscribe_quote_ticks(iid)
         def pump(self):
             if self.driver.event is None or self.driver.bridge.pending:return
@@ -106,13 +112,17 @@ def run_driver(events,*,capital=100000,partial=False,inject_unknown_submit=False
                 order_side=OrderSide.BUY if c.side=='BUY' else OrderSide.SELL,quantity=Quantity.from_int(c.quantity),
                 time_in_force=TimeInForce.IOC if partial else TimeInForce.GTC,
                 client_order_id=ClientOrderId(c.intent_id))
-            self.driver.submit(self.current_order)
+            self.driver.submit(self.current_order,native_ns=self.clock.timestamp_ns() if invalid_submission_ns is None else invalid_submission_ns)
         def on_order_filled(self,f):
-            self.driver.on_fill(f)
+            self.callback_clocks.append({'order':str(f.client_order_id),'trade':str(f.trade_id),
+                'execution_ns':f.ts_event,'native_init_ns':f.ts_init,'host_callback_ns':self.clock.timestamp_ns()})
+            self.driver.on_fill(f,received_ns=self.clock.timestamp_ns()+receive_delay_ns)
+            if expect_time_failure and f.ts_event>=self.driver.event.at_ns+10000:
+                raise AssertionError('LATE_ACTUAL_FILL_RETURNED_WITHOUT_POLICY_TIME_FAILURE')
             p=self.driver.bridge.pending
             if p['filled']==p['quantity']:
                 self.driver.on_terminal(str(f.client_order_id),'FILLED')
-                if inject_late_callback:self.driver.on_fill(f)
+                if inject_late_callback:self.driver.on_fill(f,received_ns=self.clock.timestamp_ns())
         def on_order_canceled(self,e):self.driver.on_terminal(str(e.client_order_id),'CANCELLED')
         def on_order_expired(self,e):self.driver.on_terminal(str(e.client_order_id),'EXPIRED')
         def on_order_rejected(self,e):self.driver.on_terminal(str(e.client_order_id),'REJECTED')
@@ -121,7 +131,7 @@ def run_driver(events,*,capital=100000,partial=False,inject_unknown_submit=False
         engine.add_venue(venue=venue,oms_type=OmsType.NETTING,account_type=AccountType.MARGIN,
             starting_balances=[types['money_from_cents'](capital)],base_currency=USD,default_leverage=Decimal(1),
             fee_model=Fee(),fill_model=Thin() if partial else FillModel(prob_slippage=0.),
-            latency_model=LatencyModel(base_latency_nanos=0),bar_execution=False,trade_execution=False,
+            latency_model=LatencyModel(base_latency_nanos=native_latency_ns),bar_execution=False,trade_execution=False,
             allow_cash_borrowing=False,use_random_ids=False)
         AccountFactory.register_account_type(venue.value,types['account_type'])
         for n,iid in ids.items():engine.add_instrument(types['equity_type'](iid,Symbol(n),USD,6,Price.from_str('0.000001'),Quantity.from_int(1),0,0))
@@ -134,11 +144,12 @@ def run_driver(events,*,capital=100000,partial=False,inject_unknown_submit=False
                     ticks.append(QuoteTick(ids[n],px,px,Quantity.from_int(1000000),Quantity.from_int(1000000),t,t))
         engine.add_data(ticks)
         engine.add_data([CustomData(DataType(Boundary),Boundary(events[0].at_ns-1)),
-                         CustomData(DataType(Boundary),Boundary(events[-1].at_ns+10000))],client_id=ClientId('SIGNED'))
+                         CustomData(DataType(Boundary),Boundary(events[-1].at_ns+4*native_latency_ns+10000))],client_id=ClientId('SIGNED'))
         try:
-            engine.run(end=events[-1].at_ns+10000,streaming=True);engine.end()
+            engine.run(end=events[-1].at_ns+4*native_latency_ns+10000,streaming=True);engine.end()
         except Exception as exc:
-            if inject_unknown_submit or inject_late_callback:return strategy.driver.failure_evidence(exc),None
+            if inject_unknown_submit or inject_late_callback or expect_time_failure or invalid_submission_ns is not None:
+                return strategy.driver.failure_evidence(exc),None
             raise
         packet=strategy.driver.packet();verified=verify_packet(packet,CTX)
         return packet,verified
@@ -149,7 +160,8 @@ def run_driver(events,*,capital=100000,partial=False,inject_unknown_submit=False
                 'actual_fills':len(b.used_fills),'native_positions':strategy.positions(),'core_state':b.state,
                 'default_ever':strategy.driver.default_ever,'technical_halt':b.halted,
                 'active_event':None if strategy.driver.event is None else strategy.driver.event.id,
-                'completed_events':len(strategy.driver.history),'native_account_type':type(b._account()).__name__})
+                'completed_events':len(strategy.driver.history),'native_account_type':type(b._account()).__name__,
+                'actual_callback_clocks':strategy.callback_clocks})
         engine.dispose()
 
 
@@ -379,3 +391,50 @@ def test_positive_cash_income_recognition_settlement_does_not_reset_exact_origin
     stream=p['final_state'].accruals[0]
     assert stream.exact_cents==F(4003,10) and stream.recognized_cents==stream.settled_cents==400
     assert p['final_state'].free_cents==100400 and not p['final_state'].receivables_cents
+
+
+def test_due_payment_with_positive_equity_headroom_blocks_new_pair_then_resolved_later_formation(record_property):
+    opening=simple_events()[0]
+    ex=event('due-ex','2024-01-06',kind='EX',observed=at('2024-01-05'),
+        actions=(Action('due','AMZN','CASH_DISTRIBUTION',F(25,2),'2024-01-06','2024-01-06','USD','INVENTED_DUE'),))
+    due=event('due-formation','2024-01-08',instruction='TARGET',targets=(('AAPL',41),('AMZN',-41)),price=F(5))
+    exit=event('resolve','2024-01-09',instruction='EXIT',targets=(('AAPL',0),('AMZN',0)))
+    later=event('later','2024-01-10',instruction='TARGET',targets=(('AAPL',1),('AMZN',-1)))
+    p,_=run_driver([opening,ex,due,exit,later]);save(record_property,p)
+    rows=[r for r in p['records'] if r.get('event')=='due-formation']
+    assert any(r['kind']=='MODEL_OVERDUE_PAYMENT_EPISODE' for r in rows)
+    assert not any(r['kind']=='SUBMIT' for r in rows)
+    end=next(r for r in rows if r['kind']=='END')
+    assert end['reconciliation']['core']['equity_cents']>0 and not end['default_ever']
+    assert p['final_state'].claims[0].paid_at=='2024-01-09'
+    assert dict(p['final_state'].positions)=={'AAPL':1,'AMZN':-1} and p['records'][-1]['overdue_ever']
+
+
+def test_matching_pending_actual_native_execution_after_host_event_boundary_is_retained_unfinalized(record_property):
+    p,_=run_driver([simple_events()[0]],native_latency_ns=1000000,expect_time_failure=True);save(record_property,p)
+    assert p.get('status')=='POLICY_UNFINALIZED' and p['policy_time_failure'] and not p['technical_halt']
+    assert 'OUT_OF_EVENT_EXECUTION' in p['reason']
+    assert dict(p['core_state'].positions)['AMZN']==-40
+    assert p['actual_native_observation']['positions']['AMZN']==-40
+
+
+def test_eligible_execution_delayed_receive_is_not_late_execution_and_saved_clock_is_checked(record_property):
+    p,v=run_driver([simple_events()[0]],receive_delay_ns=86400*10**9);save(record_property,p)
+    fills=[r for r in p['records'] if r['kind']=='FILL']
+    assert len(fills)==2
+    assert all(r['native_clock']['execution_ns']<r['native_clock']['boundary'].end_ns<r['native_clock']['received_ns']
+               and r['native_clock']['status']=='ELIGIBLE_EXECUTION' for r in fills)
+    for axis in ('execution_ns','received_ns','native_init_ns'):
+        bad=deepcopy(p);f=next(r for r in bad['records'] if r['kind']=='FILL')
+        if axis=='execution_ns':f['actual_fill'][axis]=f['native_clock']['boundary'].end_ns
+        elif axis=='received_ns':f['native_clock'][axis]=0
+        else:f['actual_fill'][axis]=0
+        with pytest.raises(Exception):verify_bytes(canonical(encode(bad)),CTX)
+
+
+def test_invalid_native_submission_timestamp_has_zero_native_effects(record_property):
+    p,_=run_driver([simple_events()[0]],invalid_submission_ns=0);save(record_property,p)
+    assert 'SUBMISSION_OUTSIDE_EVENT_BOUNDARY' in p['reason']
+    assert not any(r['kind']=='SUBMIT' for r in p['records'])
+    assert p['core_state'].free_cents==100000 and not p['core_state'].positions
+    assert not any(p['actual_native_observation']['positions'].values())

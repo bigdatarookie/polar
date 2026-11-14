@@ -11,13 +11,13 @@ from pathlib import Path
 import math
 import re
 
-from .signed_event_driver import (AccountContext,Rate,Action,Locate,Event,OrderRequest,SignedEventDriver)
+from .signed_event_driver import (AccountContext,Rate,Action,Locate,Event,OrderRequest,RoutingBoundary,SignedEventDriver)
 from .signed_account_core import (State,Claim,Accrual,Transition,record_confirmed_fill,propose_fill,amount_cents)
 from .signed_native_bridge import (SignedNativeBridge,MarkEvent,MarkIdentity,TradingLot,settled_trade,require)
 from .gym_contract import canonical,decode,sha,MAX_BYTES
 from .history_bundle import read_file
 
-TYPES={c.__name__:c for c in (AccountContext,Rate,Action,Locate,Event,OrderRequest,State,Claim,Accrual,
+TYPES={c.__name__:c for c in (AccountContext,Rate,Action,Locate,Event,OrderRequest,RoutingBoundary,State,Claim,Accrual,
                              Transition,MarkEvent,MarkIdentity,TradingLot)}
 
 
@@ -148,19 +148,20 @@ def verify_packet(packet,expected_context):
         i=len(driver.records);row=saved[i]
         if driver.event is None:
             require(row.get('kind')=='BEGIN','SIGNED_SAVED_MISSING_EVENT_BEGIN')
-            driver.begin_event(row['event']);check()
+            driver.begin_event(row['event'],row['boundary']);check()
         else:
             c=driver.next_order();check()
             if c is None:continue
             i=len(driver.records);require(i<len(saved) and saved[i].get('kind')=='SUBMIT','SIGNED_SAVED_MISSING_SUBMISSION')
-            r=saved[i];oid=r['order_id'];driver._record('SUBMIT',event=driver.event.id,command=c,order_id=oid)
-            if c.locate_id is not None:driver.locate_usage[c.locate_id]['orders'].append(oid)
+            r=saved[i];oid=r['order_id']
+            driver._submission_evidence(c,oid,r['native_submission_ns'],r['order_init_ns'])
             bridge.admit(c,oid,driver.current_marks,driver.event);check()
             while driver.command is not None:
                 i=len(driver.records);require(i<len(saved),'SIGNED_SAVED_MISSING_TERMINAL_CALLBACK')
                 r=saved[i]
                 if r.get('kind')=='FILL':
-                    f=r['actual_fill'];driver.on_fill(SimpleNamespace(raw=f,client_order_id=f['order_id'],trade_id=f['trade_id']))
+                    f=r['actual_fill'];driver.on_fill(SimpleNamespace(raw=f,client_order_id=f['order_id'],trade_id=f['trade_id'],
+                        ts_event=f['execution_ns'],ts_init=f['native_init_ns']),received_ns=r['native_clock']['received_ns'])
                 elif r.get('kind')=='TERMINAL_ORDER':driver.on_terminal(r['order_id'],r['status'])
                 else:require(False,'SIGNED_SAVED_CALLBACK_CENSUS')
                 check()
