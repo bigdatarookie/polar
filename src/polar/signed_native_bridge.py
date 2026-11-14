@@ -230,7 +230,7 @@ class SignedNativeBridge:
                     (v.available_ns is None or v.observed_ns is None or v.available_ns >= v.observed_ns),
                     'CURRENT_MARK_PROVENANCE_OR_FUTURE')
             normalized[v.name] = rational(marks[v.name],positive=True)
-            require((normalized[v.name]*10**6).denominator == 1, 'NATIVE_PRICE_PRECISION')
+            require((normalized[v.name]*10**8).denominator == 1, 'NATIVE_PRICE_PRECISION')
         binding = (event, tuple(sorted(normalized.items())), self.state)
         prior = self._valuation_bindings.get(event.valuation_id)
         require(prior is None or prior == binding, 'VALUATION_ID_REUSED_WITH_CHANGED_BOOK_OR_MARK')

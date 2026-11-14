@@ -425,6 +425,22 @@ class SignedEventDriver:
             if not shorts or shorts[0][1]<=0:
                 self._record('PAIR_CANCELLED',event=self.event.id,reason='NO_ADDED_SHORT_LOCATE_AND_MATCHING_NOTIONAL');return []
             n,q=shorts[0]
+            if type(self.event) is PairEvent:
+                px=self._price(n,'SELL')
+                if px is not None:
+                    one=propose_fill(self.bridge.state,'applicability:'+self.event.id+':'+n,n,'SELL',1,px,
+                        fee_for(self.event,1,px),marks=self.current_marks,located_cap=q,
+                        locate_provenance='COUNTERFACTUAL_LOCATE_FOR_PURE_APPLICABILITY_NOT_ACTUAL_SUPPLY')
+                    current=one.after
+                    if one.status=='ADMITTED_PROPOSAL_NOT_EXECUTION':
+                        for issuer,need in sorted(maintenance(current,self.current_marks,self.event)['restriction_deficits_cents'].items()):
+                            if need:current=top_up(current,'applicability-topup:'+self.event.id+':'+issuer,issuer,need).after
+                    changed=maintenance(current,self.current_marks,self.event)
+                    from dataclasses import replace
+                    self._record('SHORT_ENTRY_ATTEMPT',event=self.event.id,name=n,frozen_quantity=q,
+                        actual_prestate=self.bridge.state,one_unit_proposal=one,one_unit_maintenance=changed,
+                        baseline_one_unit_maintenance=maintenance(current,self.current_marks,replace(self.event,maintenance_short=Fraction(3,10))),
+                        one_unit_admissible=one.status=='ADMITTED_PROPOSAL_NOT_EXECUTION' and changed['passes'])
             candidates=[v for v in self.event.locates if (v.path,v.account,v.formation,v.issuer,v.side,v.execution_event)==
                 (self.context.path,self.context.account,self.event.formation,n,'SHORT',self.event.id)]
             valid=(len(candidates)==1 and candidates[0].success and candidates[0].cap>=q and
@@ -602,6 +618,15 @@ class SignedEventDriver:
         # No asynchronous topup while fills of this order remain outstanding.
         for name,need in sorted(maintenance(self.bridge.state,self.current_marks,self.event)['restriction_deficits_cents'].items()):
             if need:self._external(top_up(self.bridge.state,self.event.id+':post-order-topup:'+order_id+':'+name,name,need),self.current_marks)
+        if type(self.event) is PairEvent and self.bridge.economic_execution_breach:
+            self._construction_closed=True;self._ordinary_allowed=False;self.tasks=[]
+            if self.flatten is None:
+                self.flatten={'observed_ns':self.event.at_ns,'eligible_after_ns':self.event.at_ns+self.event.latency_ns,
+                    'event':self.event.id,'reasons':['RECONCILED_EXECUTION_BREACH']}
+                self._record('FLATTEN_QUEUED',event=self.event.id,flatten=self.flatten)
+            self._record('CONSTRUCTION_TERMINATED_ACTUAL_EXECUTION_BREACH',event=self.event.id,
+                order_id=order_id,actual_state=self.bridge.state,next_eligible_close_required=True)
+
 
     def _finish_event(self):
         require(not self.bridge.pending and self.command is None,'DRIVER_FINAL_PENDING')

@@ -136,7 +136,8 @@ def decision_targets(control,equity_cents,eligible_raw,lag21_adjusted,lag252_adj
     require(control in CONTROLS and type(equity_cents) is int and equity_cents>0,'PAIR_D_SIZING_DOMAIN')
     require(all(type(v) is dict and set(v)==set(NAMES) for v in
         (eligible_raw,lag21_adjusted,lag252_adjusted)),'PAIR_D_SYMBOL_CENSUS')
-    raw={n:price(eligible_raw[n],raw=True) for n in NAMES}
+    raw={n:price(eligible_raw[n],raw=False) for n in NAMES}
+    require(all((v*10**8).denominator==1 for v in raw.values()),'PAIR_MODELED_MARK_PRECISION_UNSUPPORTED')
     score={n:price(lag21_adjusted[n],raw=False)/price(lag252_adjusted[n],raw=False)-1 for n in NAMES}
     long=min(NAMES,key=lambda n:(-score[n],n));short=next(n for n in NAMES if n!=long)
     if control=='STATIC_SPREAD':long,short=NAMES

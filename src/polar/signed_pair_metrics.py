@@ -107,7 +107,8 @@ def metrics(account):
         distribution_payable_cents=sum(c.cents for c in account['packet']['final_state'].claims if c.kind=='PAYABLE'))
     require(sum(r['total_cents'] for r in fee_rows)==result['costs']['actual_commission_cents'],'PAIR_FEE_COMPONENT_CENSUS')
     unqualified_funding=any(r['kind']=='FILL' and r['transition'].operands['funding_mode']!='NO_CREDIT' for r in records)
-    result['survival']=(not default and not unqualified_funding and not any(r['overdue_ever'] for r in nav) and
+    result['confirmed_execution_breach_ever']=any(r['kind']=='FILL' and r['transition'].status=='CONFIRMED_EXECUTION_BREACH' for r in records)
+    result['survival']=(not result['confirmed_execution_breach_ever'] and not default and not unqualified_funding and not any(r['overdue_ever'] for r in nav) and
         not any(q for _,q in account['packet']['final_state'].positions) and
         not any(r['kind'] in ('UNSUPPORTED_ACTION','MODEL_OVERDUE_PAYMENT_EPISODE') for r in account['packet']['records']))
     return result

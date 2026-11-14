@@ -27,7 +27,7 @@ class SideQuote:
                 self.bid<=self.reference<=self.ask,'SIDE_QUOTE_DOMAIN')
         # Source reference precision is unchanged; adverse execution may add two
         # decimal places. No source token is rounded/rescaled to fit native.
-        require((self.reference*10**6).denominator==1 and
+        require((self.reference*10**8).denominator==1 and
                 all((v*10**8).denominator==1 for v in (self.bid,self.ask)), 'SIDE_QUOTE_PRECISION')
 
     def price(self,side):

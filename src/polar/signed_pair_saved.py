@@ -1,5 +1,6 @@
 """PRIVATE exact consumed pair graph verification. No policy/native/source calls."""
 from copy import deepcopy
+from dataclasses import asdict
 from fractions import Fraction as F
 from pathlib import Path
 import gzip,zlib
@@ -16,10 +17,12 @@ def binding_for(data):
     return {'input_id':data.input_id,'protocol_sha256':data.protocol_sha256,'namespace':data.namespace,
         'nav_closes':data.nav_closes,'formations':tuple((f.id,f.g_index,f.decision_ns,f.execution_ns,
             f.endpoint21_index,f.endpoint252_index) for f in data.formations),
-        'source_pins':data.source_pins,'terminal_D':data.terminal_decision_ns,'terminal_Q':data.terminal_execution_ns}
+        'source_pins':data.source_pins,'source_rows':tuple((n,i,q.date,q.close_ns,q.modeled_available_ns,q.local_id,sha(canonical(encode(asdict(q)))))
+            for n in NAMES for i,q in enumerate(q for q in data.quotes if q.name==n)),
+        'input_content_sha256':sha(canonical(encode(asdict(data)))),'terminal_D':data.terminal_decision_ns,'terminal_Q':data.terminal_execution_ns}
 
 
-def verify_account(account,binding):
+def verify_account(account,binding,candidate_account=None):
     require(type(account) is dict and account['schema']=='polar.private-fixed-pair-account/1' and
         account['control'] in CONTROLS and account['case'] in CASES and account['input_id']==binding['input_id'] and
         account['protocol_sha256']==binding['protocol_sha256']==MERGED and account['execution_authority'] is False,
@@ -29,6 +32,15 @@ def verify_account(account,binding):
         ctx.path==account['case'] and ctx.source==binding['input_id'] and ctx.config==MERGED and ctx.names==NAMES,
         'PAIR_SAVED_EXTERNAL_CONTEXT')
     verify_packet(account['packet'],ctx)
+    from .signed_pair_activation import verify_candidate,account_effect,scenario_factor
+    if account['control']=='DYNAMIC_SPREAD':verify_candidate(account,binding)
+    elif account['case'] not in CASES[:2]:
+        require(candidate_account is not None and candidate_account['control']=='DYNAMIC_SPREAD' and
+            candidate_account['case']==account['case'],'PAIR_STANDALONE_CONTROL_REQUIRES_CANDIDATE')
+        verify_account(candidate_account,binding)
+        require(account['activation']==candidate_account['activation'],'PAIR_CONTROL_ACTUAL_CANDIDATE_ACTIVATION_JOIN')
+    require(account['intervention_effect']==account_effect(account['packet'],binding,account['activation']), 'PAIR_ACCOUNT_INTERVENTION_EFFECT_JOIN')
+    external_rows={(r[0],r[1]):r for r in binding['source_rows']}
     records=account['packet']['records'];begins={r['event'].id:r['event'] for r in records if r['kind']=='BEGIN'}
     ends={r['event']:r for r in records if r['kind']=='END'}
     nav=account['NAV'];require(tuple(v['nominal_ns'] for v in nav)==binding['nav_closes'],'PAIR_SAVED_NAV_CENSUS')
@@ -52,16 +64,25 @@ def verify_account(account,binding):
                     (end['default_ever'] or d['own_D_report']['equity_cents']<=0),'PAIR_SAVED_D_UNAVAILABLE')
             continue
         s=d['sizing'];tokens=d['consumed_tokens'];members=d['source_members']
-        raw={n:price(tokens['raw_g'][n],raw=True) for n in NAMES}
+        raw={n:price(tokens['raw_g'][n],raw=False) for n in NAMES}
         scores={n:price(tokens['signal21'][n],raw=False)/price(tokens['signal252'][n],raw=False)-1 for n in NAMES}
         require(dict(e.marks)==raw and s['raw_g_prices']==raw and s['scores']==scores and
             s['own_D_equity_cents']==d['own_D_report']['equity_cents']>0 and s['control']==account['control'] and
             s['Q_price_consumed'] is False,'PAIR_SAVED_CONSUMED_D_OPERANDS')
         for n in NAMES:
-            require(len(members[n])==3 and tuple(v['local_id'] for v in members[n])==d['source_ids'][n] and
-                all(v['name']==n and v['modeled_available_ns']<=f[2] and v['observed_known_ns'] is None for v in members[n]) and
-                tuple(v['close_ns'] for v in members[n])==tuple(sorted((v['close_ns'] for v in members[n]),reverse=True)),
-                'PAIR_SAVED_SOURCE_ENDPOINT_PROVENANCE')
+            selected=(f[1],f[4],f[5])
+            require(len(members[n])==3 and tuple(v['local_id'] for v in members[n])==d['source_ids'][n], 'PAIR_SAVED_SOURCE_ENDPOINT_CENSUS')
+            for m,index in zip(members[n],selected):
+                expected=external_rows[n,index]
+                require((m['name'],index,m['date'],m['close_ns'],m['modeled_available_ns'],m['local_id'])==expected[:6] and
+                    sha(canonical(encode(m)))==expected[6], 'PAIR_EXPECTED_SOURCE_ENDPOINT_COMMITMENT')
+                require(m['modeled_available_ns']<=f[2] and m['observed_known_ns'] is None,'PAIR_SOURCE_ENDPOINT_ELIGIBILITY')
+            g,p21,p252=members[n]
+            expected_raw=price(g['raw_usd_token'],raw=True)*scenario_factor(account['case'],n,g['close_ns'],account['activation'])
+            expected21=price(p21['adjusted_signal_token'],raw=False)*scenario_factor(account['case'],n,p21['close_ns'],account['activation'])
+            expected252=price(p252['adjusted_signal_token'],raw=False)*scenario_factor(account['case'],n,p252['close_ns'],account['activation'])
+            require((raw[n],price(tokens['signal21'][n],raw=False),price(tokens['signal252'][n],raw=False))==
+                    (expected_raw,expected21,expected252),'PAIR_ORIGINAL_CONSUMED_TOKEN_FACTOR_JOIN')
         # Check saved ranking/weight arithmetic without invoking policy/ranking
         # code or searching any source history. Claimed long must dominate both
         # declared exact endpoint scores, with fixed lexical tie handling.
@@ -77,7 +98,7 @@ def verify_account(account,binding):
         routed=next((v for v in begins.values() if v.at_ns==f[3]),None)
         require(routed is not None and routed.decision_ns==f[2] and routed.formation==f[0] and
                 dict(routed.targets)==s['targets'],'PAIR_SAVED_FROZEN_D_TO_Q_TARGETS')
-    return {'status':'VERIFIED_PRIVATE_PAIR_ACCOUNT','source_reads':0,'native_calls':0,'rank_policy_calls':0,'writes':0}
+    return {'status':'VERIFIED_PRIVATE_PAIR_ACCOUNT','activation_join_scope':'SELF_CANDIDATE' if account['control']=='DYNAMIC_SPREAD' else 'BASELINE_NOT_REQUIRED' if account['case'] in CASES[:2] else 'VERIFIED_SUPPLIED_CANDIDATE','source_reads':0,'native_calls':0,'rank_policy_calls':0,'writes':0}
 
 
 def member_census(identities):
@@ -94,19 +115,25 @@ def verify_study(study,binding,*,complete=True):
     pairs=[(a['control'],a['case']) for a in study['accounts']]
     if complete:member_census(pairs)
     else:require(len(set(pairs))==len(pairs),'PAIR_DUPLICATE_ACCOUNT')
+    from .signed_pair_activation import verify_candidate
+    candidates={a['case']:a for a in study['accounts'] if a['control']=='DYNAMIC_SPREAD'}
+    for case,candidate in candidates.items():
+        require(study['activations'][case]==verify_candidate(candidate,binding),'PAIR_STUDY_ACTUAL_CANDIDATE_ACTIVATION')
     for a in study['accounts']:
-        verify_account(a,binding)
+        require(a['case'] in candidates,'PAIR_MISSING_ACTUAL_CANDIDATE_WITNESS')
+        verify_account(a,binding,candidates[a['case']])
         require(a['activation']==study['activations'][a['case']],'PAIR_CROSS_CONTROL_ACTIVATION_JOIN')
     result=evaluate(study['accounts'])
     if 'evaluation' in study:require(encode(study['evaluation'])==encode(result),'PAIR_SAVED_EVALUATION_MISMATCH')
     return result
 
 
-def publish_account(store,account,binding):
-    verify_account(account,binding)
+def publish_account(store,account,binding,candidate_account=None):
+    verify_account(account,binding,candidate_account)
+    candidate_ref=(publish_account(store,candidate_account,binding) if account['control']!='DYNAMIC_SPREAD' and account['case'] not in CASES[:2] else None)
     ref=publish_tape(store,account['packet'])
     sidecar={k:v for k,v in account.items() if k not in ('packet','NAV')}
-    payload=canonical(encode({'binding':binding,'account':sidecar,'packet':ref}))
+    payload=canonical(encode({'binding':binding,'account':sidecar,'packet':ref,'candidate_ref':candidate_ref}))
     require(len(payload)<=MAX_BYTES,'PAIR_ACCOUNT_SIDECAR_SIZE')
     files,refs=chunk_rows(account['NAV'],'nav');files['account.json']=payload
     manifest=canonical({'schema':'polar.private-pair-account-manifest/1','sha256':sha(payload),'bytes':len(payload),
@@ -118,7 +145,8 @@ def publish_account(store,account,binding):
         'aggregate_bytes':sum(len(v) for v in files.values()),'NAV_chunks':len(refs)}
 
 
-def verify_stored_account(root,ref,binding):
+def verify_stored_account(root,ref,binding,*,_candidate_depth=0):
+    require(_candidate_depth<=1,'PAIR_CANDIDATE_REFERENCE_DEPTH')
     parent='pair-account-components/'+ref['id'];manifest=read_file(root,parent+'/manifest.json',MAX_BYTES)
     require(ref['id']=='pair-account-'+sha(manifest)== 'pair-account-'+ref['manifest_sha256'],'PAIR_ACCOUNT_MANIFEST_PIN')
     obj=decode(manifest);payload=read_file(root,parent+'/account.json',MAX_BYTES)
@@ -129,13 +157,19 @@ def verify_stored_account(root,ref,binding):
     nav,total=read_chunk_rows(root,parent,obj['NAV'],'nav')
     require(len(nav)==obj['NAV_count'] and total+len(payload)+len(manifest)==ref['aggregate_bytes'],'PAIR_NAV_FULL_CENSUS')
     packet=verify_tape(root,d['packet'],d['account']['context'])
-    account={**d['account'],'packet':packet,'NAV':nav};verify_account(account,binding)
+    account={**d['account'],'packet':packet,'NAV':nav}
+    candidate=None
+    if d['candidate_ref'] is not None:
+        require(_candidate_depth==0,'PAIR_CANDIDATE_MUST_NOT_REFERENCE_CANDIDATE')
+        candidate=verify_stored_account(root,d['candidate_ref'],binding,_candidate_depth=1)
+    verify_account(account,binding,candidate)
     return account
 
 
 def publish_study(store,study,binding):
     evaluation=verify_study(study,binding);refs=[]
-    for a in study['accounts']:refs.append(publish_account(store,a,binding))
+    candidates={a['case']:a for a in study['accounts'] if a['control']=='DYNAMIC_SPREAD'}
+    for a in study['accounts']:refs.append(publish_account(store,a,binding,candidates.get(a['case'])))
     payload=canonical(encode({'schema':'polar.private-fixed-pair-graph/1','binding':binding,
         'members':refs,'activations':study['activations'],'evaluation':evaluation}))
     require(len(payload)<=MAX_BYTES,'PAIR_STUDY_GRAPH_SIZE')

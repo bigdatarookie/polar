@@ -116,7 +116,7 @@ def test_fullshape_967marks47formations15actions_saved_account(tmp_path,record_p
 
 
 @pytest.mark.parametrize('case',['SHORT_1P5','RECALL_BLACKOUT2','SHORT_5','LOCATE_DENIED'])
-def test_actual_prebound_candidate_activation_failure_and_comparator_scope(case,record_property):
+def test_actual_prebound_candidate_activation_failure_and_comparator_scope(case,record_property,tmp_path):
     from polar.signed_pair_metrics import metrics
     from polar.signed_pair_saved import binding_for,verify_account
     from polar.signed_event_saved import encode
@@ -124,16 +124,22 @@ def test_actual_prebound_candidate_activation_failure_and_comparator_scope(case,
     data=fixture();candidate=produce_account(data,'DYNAMIC_SPREAD',case)
     half=produce_account(data,'DYNAMIC_HALF_LONG',case,activation=candidate['activation'])
     assert half['activation']==candidate['activation']
-    verify_account(candidate,binding_for(data));verify_account(half,binding_for(data))
+    verify_account(candidate,binding_for(data));verify_account(half,binding_for(data),candidate)
     records=candidate['packet']['records'];activation=candidate['activation']
     if case=='LOCATE_DENIED':
-        assert activation['status']=='NOT_ACTIVATED'
+        assert activation['status']=='ACTIVATED' and activation['kind']=='DENIED_VALID_SHORT_ENTRY_ATTEMPT'
+        assert activation['witnesses']
         assert not any(r['kind']=='FILL' for r in records)
         assert any(r['kind']=='FILL' for r in half['packet']['records'])
     else:
         assert activation['status']=='ACTIVATED' and activation['short']=='AMZN' and activation['long']=='AAPL'
         assert not activation['candidate_prefix_repeated']
     if case=='RECALL_BLACKOUT2':
+        from polar.signed_pair_saved import publish_account,verify_stored_account
+        from polar.gym_store import GymStore
+        with pytest.raises(Exception,match='STANDALONE_CONTROL_REQUIRES_CANDIDATE'):verify_account(half,binding_for(data))
+        ref=publish_account(GymStore(tmp_path,128*1024**2),half,binding_for(data),candidate)
+        assert verify_stored_account(tmp_path,ref,binding_for(data))==half
         shock=data.nav_closes.index(activation['shock_ns'])
         fills=[r for r in records if r['kind']=='FILL' and r['command'].name=='AMZN' and r['command'].side=='BUY' and r['native_clock']['execution_ns']>=activation['shock_ns']]
         assert fills and fills[0]['native_clock']['execution_ns']>=data.nav_closes[shock+3]
@@ -235,3 +241,81 @@ def test_exact_scalar_hand_values_latest_peak_and_known_failure_precedence(accou
     e=evaluate([outputs[0]])
     assert e['producer_screen']=='NOT_SUPPORTED' and e['missing_accounts']
     assert next(c for c in e['clauses'] if c['id']=='BASE/GROWTH')['status']=='NOT_MET'
+
+
+
+def test_saved_source_original_token_and_endpoint_mutants_reject_semantically(accounts):
+    from polar.signed_pair_saved import binding_for,verify_account
+    from copy import deepcopy
+    data,outputs=accounts;binding=binding_for(data)
+    a=deepcopy(outputs[0]);a['D_receipts'][0]['source_members']['AAPL'][1]['adjusted_signal_token']='123.456'
+    with pytest.raises(Exception,match='SOURCE_ENDPOINT_COMMITMENT'):verify_account(a,binding)
+    # Rehash the caller's selected input commitment too, so this second mutant
+    # tests original-versus-consumed arithmetic, not an outer checksum alone.
+    target=a['D_receipts'][0]['source_members']['AAPL'][1]['local_id']
+    changed=replace(data,quotes=tuple(replace(q,adjusted_signal_token='123.456') if q.local_id==target else q for q in data.quotes))
+    with pytest.raises(Exception,match='ORIGINAL_CONSUMED_TOKEN_FACTOR_JOIN'):verify_account(a,binding_for(changed))
+    b=deepcopy(outputs[0]);selected=list(b['D_receipts'][0]['source_members']['AAPL']);selected[1]=deepcopy(selected[2]);b['D_receipts'][0]['source_members']['AAPL']=tuple(selected)
+    b['D_receipts'][0]['source_ids']['AAPL']=tuple(v['local_id'] for v in b['D_receipts'][0]['source_members']['AAPL'])
+    with pytest.raises(Exception,match='SOURCE_ENDPOINT_COMMITMENT'):verify_account(b,binding)
+
+
+def test_saved_actual_candidate_activation_refuses_copied_status_or_issuer():
+    from polar.signed_pair_saved import binding_for,verify_account,verify_study
+    from copy import deepcopy
+    data=fixture();a=produce_account(data,'DYNAMIC_SPREAD','RECALL_BLACKOUT2');binding=binding_for(data)
+    for change in ('status','issuer','prefix'):
+        mutant=deepcopy(a)
+        if change=='status':mutant['activation']['status']='NOT_ACTIVATED'
+        elif change=='issuer':mutant['activation']['short']='AAPL'
+        else:mutant['activation']['pre_shock_positions']['AMZN']=0
+        with pytest.raises(Exception,match='CANDIDATE_ACTIVATION_ACTUAL_WITNESS_JOIN'):verify_account(mutant,binding)
+    graph={'schema':'polar.private-fixed-pair-study/1','input_id':data.input_id,'protocol_sha256':data.protocol_sha256,
+        'accounts':[deepcopy(a)],'actual_native_completed':1,'activations':{'RECALL_BLACKOUT2':deepcopy(a['activation'])},
+        'retained_dispatch_authority':False}
+    graph['accounts'][0]['activation']['status']='NOT_ACTIVATED';graph['activations']['RECALL_BLACKOUT2']['status']='NOT_ACTIVATED'
+    with pytest.raises(Exception,match='CANDIDATE_ACTIVATION_ACTUAL_WITNESS_JOIN'):verify_study(graph,binding,complete=False)
+
+
+@pytest.mark.parametrize('case,kind',[('ADVERSE_100BPS','ACTUAL_ALL_FILL_ADVERSE_EXECUTION'),
+    ('BORROW_50','POSITIVE_ACTUAL_POST_SHOCK_BORROW_BASE'),('MAINTENANCE_160','ACTUAL_SHORT_CHECKPOINT_OR_CHANGED_REQUIREMENT_PROPOSAL')])
+def test_intervention_specific_actual_candidate_coverage(case,kind):
+    from polar.signed_pair_saved import verify_account,binding_for
+    data=fixture();a=produce_account(data,'DYNAMIC_SPREAD',case)
+    assert a['activation']['status']=='ACTIVATED' and a['activation']['kind']==kind and a['activation']['witnesses']
+    verify_account(a,binding_for(data))
+    if case=='ADVERSE_100BPS':
+        assert len(a['activation']['witnesses'])==len([r for r in a['packet']['records'] if r['kind']=='FILL'])
+        assert a['activation']['witnesses'][0]['sequence']<next(r['sequence'] for r in a['packet']['records'] if r['kind']=='BEGIN' and r['event'].at_ns==a['activation']['shock_ns'])
+
+
+
+def test_exact_fractional_micro_overlay_preserves_original_source_and_d_join():
+    from polar.signed_pair_saved import verify_account,binding_for
+    data=fixture(formations=1);data=replace(data,quotes=tuple(replace(q,raw_usd_token='1.234567') for q in data.quotes))
+    g=274;t=[q for q in data.quotes if q.name=='AAPL'][g].close_ns
+    f=Formation('post-shock',g,t+(3*3600+60)*10**9,t+86400*10**9,g-21,g-252)
+    data=replace(data,formations=(*data.formations,f))
+    a=produce_account(data,'DYNAMIC_SPREAD','SHORT_1P5')
+    assert all(q.raw_usd_token=='1.234567' for q in data.quotes)
+    assert a['activation']['status']=='ACTIVATED'
+    d=a['D_receipts'][-1]
+    assert d['sizing']['raw_g_prices']['AMZN']==F('1.234567')*F(3,2)
+    assert (d['sizing']['raw_g_prices']['AMZN']*10**6).denominator!=1
+    verify_account(a,binding_for(data))
+
+
+
+def test_actual_reconciled_breach_terminates_ordinary_event_and_is_not_hidden():
+    from polar.signed_pair_metrics import metrics
+    data=fixture();data=replace(data,quotes=tuple(replace(q,raw_usd_token='1.234567') for q in data.quotes))
+    a=produce_account(data,'DYNAMIC_SPREAD','SHORT_1P5');records=a['packet']['records']
+    terminations=[r for r in records if r['kind']=='CONSTRUCTION_TERMINATED_ACTUAL_EXECUTION_BREACH']
+    assert terminations and a['activation']['status']=='NOT_ACTIVATED'
+    first=terminations[0]
+    assert not any(r['kind']=='SUBMIT' and r['event']==first['event'] and r['sequence']>first['sequence'] and
+                   not r['command'].forced for r in records)
+    assert any(r['kind']=='FILL' and r['command'].forced and r['event']!=first['event'] and r['sequence']>first['sequence'] for r in records)
+    report=metrics(a)
+    assert report['confirmed_execution_breach_ever'] and not report['survival']
+    assert len(a['NAV'])==len(data.nav_closes)

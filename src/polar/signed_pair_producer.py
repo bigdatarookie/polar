@@ -25,15 +25,7 @@ def decimal_token(value):
 def epoch_date(day):return int(datetime.fromisoformat(day).replace(tzinfo=timezone.utc).timestamp())*NS
 
 
-def factor(case,name,close_ns,activation):
-    if activation is None or activation['status']!='ACTIVATED' or close_ns<activation['shock_ns']:return F(1)
-    short=activation['short'];long=activation['long']
-    if name==short:
-        if case in ('SHORT_1P5','LONG_0P7_SHORT_1P5','LONG_0P7_SHORT_1P5_RECALL'):return F(3,2)
-        if case=='SHORT_2':return F(2)
-        if case=='SHORT_5':return F(5)
-    if name==long and case in ('LONG_0P7_SHORT_1P5','LONG_0P7_SHORT_1P5_RECALL'):return F(7,10)
-    return F(1)
+from .signed_pair_activation import scenario_factor as factor
 
 
 def produce_account(data,control,case,*,activation=None):
@@ -63,15 +55,10 @@ def produce_account(data,control,case,*,activation=None):
     require(not(set(dmap)&set(data.nav_closes)) and not(set(exmap)&set(data.nav_closes)),'PAIR_CLOSED_SLOT_COLLISION')
     def factory(index,driver):
         t=times[index]
-        if t==shock_ns and case not in CASES[:2] and control=='DYNAMIC_SPREAD':
-            positions=dict(driver.bridge.state.positions)
-            shorts=[n for n in NAMES if positions.get(n,0)<0];longs=[n for n in NAMES if positions.get(n,0)>0]
-            state['activation']={'status':'ACTIVATED' if len(shorts)==len(longs)==1 else 'NOT_ACTIVATED',
-                'case':case,'input_id':data.input_id,'shock_ns':shock_ns,
-                'short':shorts[0] if len(shorts)==1 else None,'long':longs[0] if len(longs)==1 else None,
-                'pre_shock_positions':positions,'actual_candidate_account':ctx.account,
-                'prior_event':None if driver.previous is None else driver.previous.id,
-                'candidate_prefix_repeated':False}
+        from .signed_pair_activation import SIDE_CASES,held_activation
+        if t==shock_ns and case in SIDE_CASES and control=='DYNAMIC_SPREAD':
+            state['activation']=held_activation(ctx,case,data.input_id,shock_ns,dict(driver.bridge.state.positions),
+                None if driver.previous is None else driver.previous.id)
         active=state['activation'];eid=ctx.account+':'+str(t)
         prior=max(i for i,q in enumerate(rows[NAMES[0]]) if q.close_ns<=t)
         marks={n:price(rows[n][prior].raw_usd_token,raw=True)*factor(case,n,closes[prior],active) for n in NAMES}
@@ -88,12 +75,12 @@ def produce_account(data,control,case,*,activation=None):
         if t==data.terminal_execution_ns:
             instruction='EXIT';targets=tuple((n,0) for n in NAMES);formation='TERMINAL_EXIT';decision_ns=data.terminal_decision_ns
         stressed=case=='TRADING_2X_BORROW_5X_DEBIT_1P5X'
-        after_shock=active is not None and active['status']=='ACTIVATED' and t>=active['shock_ns']
+        after_shock=shock_ns is not None and t>=shock_ns
         borrow=F(1,2) if after_shock and case=='BORROW_50' else F(15 if stressed else 3,100)
         rates=tuple(Rate('BORROW',n,borrow,'MODELED_CONDITIONAL_BORROW') for n in NAMES)+(
             Rate('DEBIT_INTEREST',None,F(12 if stressed else 8,100),'MODELED_CONDITIONAL_DEBIT'),)
-        affected=None if not after_shock else active['short']
-        recall=after_shock and case in ('RECALL_BLACKOUT2','LONG_0P7_SHORT_1P5_RECALL')
+        affected=active['short'] if after_shock and active is not None and active['status']=='ACTIVATED' else None
+        recall=after_shock and affected is not None and case in ('RECALL_BLACKOUT2','LONG_0P7_SHORT_1P5_RECALL')
         blacked=(recall and t in navindex and 1<=navindex[t]-navindex[active['shock_ns']]<=2)
         quotes=tuple(execution_quote(n,eid,case,marks[n],adverse=case=='ADVERSE_100BPS') for n in NAMES
             if kind=='CLOSE' and not(blacked and n==affected))
@@ -134,16 +121,22 @@ def produce_account(data,control,case,*,activation=None):
                 raw={n:decimal_token(price(rows[n][f.g_index].raw_usd_token,raw=True)*factor(case,n,closes[f.g_index],state['activation'])) for n in NAMES}
                 lag21={n:decimal_token(price(rows[n][f.endpoint21_index].adjusted_signal_token,raw=False)*factor(case,n,closes[f.endpoint21_index],state['activation'])) for n in NAMES}
                 lag252={n:decimal_token(price(rows[n][f.endpoint252_index].adjusted_signal_token,raw=False)*factor(case,n,closes[f.endpoint252_index],state['activation'])) for n in NAMES}
-                require(dict(begin.marks)=={n:price(raw[n],raw=True) for n in NAMES},'PAIR_ACTUAL_D_RAW_G_MARK_JOIN')
+                require(dict(begin.marks)=={n:price(raw[n],raw=False) for n in NAMES},'PAIR_ACTUAL_D_RAW_G_MARK_JOIN')
                 witness['consumed_tokens']={'raw_g':raw,'signal21':lag21,'signal252':lag252}
                 witness['source_members']={n:tuple(asdict(rows[n][i]) for i in (f.g_index,f.endpoint21_index,f.endpoint252_index)) for n in NAMES}
                 witness['sizing']=decision_targets(control,report['equity_cents'],raw,lag21,lag252)
                 witness['source_ids']={n:tuple(rows[n][i].local_id for i in (f.g_index,f.endpoint21_index,f.endpoint252_index)) for n in NAMES}
             state['decisions'][f.id]=witness;state['D_receipts'].append(witness)
     out=run_pair_timeline(ctx,times,factory,on_completed=completed)
+    from .signed_pair_saved import binding_for
+    from .signed_pair_activation import evidence,account_effect
+    actual_binding=binding_for(data)
+    if control=='DYNAMIC_SPREAD':state['activation']=evidence(out['packet'],actual_binding)
+    own_effect=account_effect(out['packet'],actual_binding,state['activation'])
     return {'schema':'polar.private-fixed-pair-account/1','context':ctx,'control':control,'case':case,
         'input_id':data.input_id,'protocol_sha256':data.protocol_sha256,'packet':out['packet'],
         'D_receipts':state['D_receipts'],'NAV':state['NAV'],'activation':state['activation'],
+        'intervention_effect':own_effect,
         'source_access':'UNQUALIFIED','execution_authority':False,'financial_assessment':'NOT_ISSUED'}
 
 
