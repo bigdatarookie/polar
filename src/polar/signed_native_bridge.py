@@ -154,7 +154,8 @@ class SignedNativeBridge:
     callbacks: submit_order(native_order), positions()->{source_name:signed_whole},
     account()->registered ExactCentMarginAccount. No portfolio controller here.
     """
-    def __init__(self, state, instruments, submit_order, positions, account, *, initial_cents):
+    def __init__(self, state, instruments, submit_order, positions, account, *, initial_cents,
+                 continue_economic_events=False):
         require(type(state) is State and type(instruments) is dict and instruments and
                 len(set(map(str, instruments.values()))) == len(instruments), 'BRIDGE_BINDING')
         require(type(initial_cents) is int and initial_cents == state.free_cents and
@@ -167,6 +168,9 @@ class SignedNativeBridge:
         self.used_intents = set(); self.used_orders = set(); self.used_fills = set()
         self.native_submission_count = 0
         self._valuation_bindings = {}; self._last_valuation_ns = -1
+        require(type(continue_economic_events) is bool, 'ECONOMIC_CONTINUATION_TYPE')
+        self.continue_economic_events = continue_economic_events
+        self.economic_execution_breach = False
 
     def propose_and_submit(self, intent_id, order, price, fee_cents, marks, *, mark_event, located_cap=None,
                            locate_provenance=None, forced=False, funding_mode='NO_CREDIT', funding_assumption=None):
@@ -176,7 +180,7 @@ class SignedNativeBridge:
         # disappear when the hypothetical order is rejected. No proposal.after
         # is involved in this actual-book default test.
         self._observe_current_book(marks, mark_event, intent_id)
-        if self.model_survival_failed and not forced:
+        if (self.model_survival_failed or self.economic_execution_breach) and not forced:
             self.events.append({'kind':'STICKY_DEFAULT_ADMISSION_BLOCK','intent_id':intent_id,
                                 'valuation_id':mark_event.valuation_id,'native_submissions':0,
                                 'status':'REJECTED_EXISTING_BOOK_MODEL_DEFAULT'})
@@ -243,6 +247,11 @@ class SignedNativeBridge:
                 'scope':'SUPPLIED_CURRENT_MARK_NOT_SOURCE_CLOCK_OR_FAIR_VALUE_QUALIFICATION'})
         return current
 
+    def observe_current_book(self, marks, event):
+        """Identified actual valuation for HOLD, ex events and risk checkpoints."""
+        require(not self.halted and self.pending is None, 'BRIDGE_MARK_BARRIER')
+        return self._observe_current_book(marks, event, None)
+
     def record_fill(self, event, marks):
         from nautilus_trader.model.enums import OrderSide
         raw = {'order_id':str(event.client_order_id),'trade_id':str(event.trade_id),
@@ -273,7 +282,12 @@ class SignedNativeBridge:
                                 'core_operands':deepcopy(result.operands)})
             self.reconcile(marks)
             if result.status == 'CONFIRMED_EXECUTION_BREACH':
-                self.halted = True
+                self.economic_execution_breach = True
+                # Default behavior is preserved. A bounded driver may continue
+                # claims/accrual and forced reductions after a reconciled
+                # economic breach; unknown effects/residuals still halt above.
+                if not self.continue_economic_events:
+                    self.halted = True
             return result
         except Exception as exc:
             self.halted = True
