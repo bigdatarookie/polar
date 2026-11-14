@@ -15,6 +15,10 @@ from .research_native_money import native_types
 
 
 def simulate(plan, diagnostics=None):
+    if not isinstance(plan, dict):
+        from .event_native import EventPlan, simulate_event_component
+        if type(plan) is EventPlan:
+            return simulate_event_component(plan, diagnostics)
     if plan.get('profile', {}).get('kind') == 'RAW_ACTION_REINVEST':
         from .raw_action_native import simulate as raw_simulate
         return raw_simulate(plan, diagnostics)
