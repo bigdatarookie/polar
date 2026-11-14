@@ -36,8 +36,8 @@ class LimitedStore(GymStore):
 
 
 class Collector:
-    def __init__(self,store,path,limits):
-        self.store=store;self.path=path;self.limits=limits;self.counts=dict(COUNTERS);self.seq=0
+    def __init__(self,store,path,limits,*,max_decisions=0):
+        self.store=store;self.path=path;self.limits=limits;self.counts=dict(COUNTERS);self.seq=0;self.max_decisions=max_decisions
         self.counter_bytes=0;self.partial_bytes=0;self.latest=None;self.current=None;self.since=0;self.observed=dict(COUNTERS)
     def __call__(self,kind,payload):
         require(kind in KIND or kind=='NATIVE_PARTIAL','PAIR_OPERATION_UNKNOWN_ENTRY')
@@ -49,7 +49,8 @@ class Collector:
                 'PAIR_OPERATION_ORDERED_ACCOUNT_ENTRY')
             self.current={'control':payload['control'],'case':payload['case']};self.latest=None;self.since=0
         require(next_counts['native_call_entries']<=48 and next_counts['account_entries']<=48 and
-            next_counts['scientific_entries']<=1 and next_counts['saved_entries']<=1,'PAIR_OPERATION_ENTRY_BOUND')
+            next_counts['scientific_entries']<=1 and next_counts['saved_entries']<=1 and
+            next_counts['feature_entries']<=self.max_decisions and next_counts['decision_entries']<=self.max_decisions,'PAIR_OPERATION_ENTRY_BOUND')
         detail=payload.get('details',payload)
         detail={k:v for k,v in detail.items() if k not in ('snapshot','member')}
         self.since+=1;self.observed=next_counts
@@ -60,8 +61,8 @@ class Collector:
         if kind in ('EVENT_CHECKPOINT','FILL_CALLBACK') and self.since<self.limits['checkpoint_interval_events']:
             return
         if snapshot is not None and (kind in ('NATIVE_PARTIAL','NATIVE_ACCOUNT_OBSERVED') or self.since>=self.limits['checkpoint_interval_events']):
-            before=self.store.used();ref=save_prefix(self.store,self.path+'/checkpoints',snapshot(),max_bytes=self.limits['partial_bytes']-self.partial_bytes)
-            added=self.store.used()-before;self.partial_bytes+=added
+            before=self.store.used();ref=save_prefix(self.store,self.path+'/checkpoints',snapshot(),max_bytes=self.limits['partial_bytes']-self.partial_bytes,max_logical_bytes=self.limits['partial_bytes'])
+            added=ref['new_bytes'];self.partial_bytes+=added
             require(self.partial_bytes<=self.limits['partial_bytes'],'PAIR_OPERATION_PARTIAL_AGGREGATE_LIMIT')
             self.latest=ref;self.since=0
         record={'schema':'polar.private-pair-durable-counter/1','sequence':self.seq,'kind':kind,'details':detail,
@@ -94,7 +95,7 @@ def context(root,path,limit):
 
 
 def work(root,path,limit):
-    store,config,start,resources=context(root,path,limit);observer=Collector(store,path,resources)
+    store,config,start,resources=context(root,path,limit);observer=Collector(store,path,resources,max_decisions=48*len(start['input_binding']['formations']) if config['stage']=='ORIGINAL' else 0)
     try:
         if config['stage']=='ORIGINAL':
             observer('SCIENTIFIC_ENTRY',{});source=decode(read_ref(config['source_manifest_ref']))

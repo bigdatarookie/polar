@@ -170,7 +170,8 @@ def prepare(service,config,*,check_registry=True):
         grant['actor_uid']==os.getuid() and grant['actor_gid']==os.getgid() and
         all(type(grant.get(k)) is int and grant[k]==v for k,v in [('scientific_calls',1 if config['stage']=='ORIGINAL' else 0),
             ('native_accounts',48 if config['stage']=='ORIGINAL' else 0),('saved_calls',1 if config['stage']=='SAVED' else 0),
-            ('fit_calls',0),('model_calls',0)]),'PAIR_OPERATION_OPERATIVE_AUTHORITY')
+            ('fit_calls',0),('model_calls',0),('feature_calls_max',48*len(expected_binding['formations']) if config['stage']=='ORIGINAL' else 0),
+            ('decision_calls_max',48*len(expected_binding['formations']) if config['stage']=='ORIGINAL' else 0)]),'PAIR_OPERATION_OPERATIVE_AUTHORITY')
     return selection,source,expected_binding,bound,index
 
 

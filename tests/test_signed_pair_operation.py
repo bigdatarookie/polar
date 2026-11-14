@@ -73,7 +73,8 @@ def fixture(tmp_path,*,data=None):
         'expected_registry':[],'semantic_id':None}
     grant={'schema':'polar.private-pair-operation-authority/1','stage':'ORIGINAL','binding_sha256':sha(canonical(binding(cfg))),
         'resources_sha256':rp['sha256'],'family':family(cfg),'expected_registry':[],'actor_uid':os.getuid(),'actor_gid':os.getgid(),
-        'scientific_calls':1,'native_accounts':48,'saved_calls':0,'fit_calls':0,'model_calls':0,'scope':'INVENTED_TEST_ONLY'}
+        'scientific_calls':1,'native_accounts':48,'saved_calls':0,'fit_calls':0,'model_calls':0,
+        'feature_calls_max':48*len(data.formations),'decision_calls_max':48*len(data.formations),'scope':'INVENTED_TEST_ONLY'}
     cfg['authority_ref']=put(tmp_path/'authority.json',grant)
     return service,cfg,data
 
@@ -336,3 +337,18 @@ def test_structural48_saved_reader_lifetime_complete_census_and_tamper(tmp_path,
         # Failed reads can retain traceback locals until the exception leaves scope;
         # the next run starts only after the full fixture exception is released.
         import gc;gc.collect();assert live['now']==0
+
+
+def test_current_prefix_reuses_immutable_chunks_and_preserves_old_snapshot(tmp_path):
+    from polar.signed_pair_stream import save_prefix,verify_prefix
+    from polar.gym_store import GymStore
+    store=GymStore(tmp_path,64*1024**2)
+    value={'native':{'records':[{'n':i,'payload':'X'*40000} for i in range(250)],'bridge_events':[]},'NAV':[],'D_receipts':[]}
+    one=save_prefix(store,'checkpoints',value,max_bytes=32*1024**2,max_logical_bytes=32*1024**2)
+    before=store.used();value['native']['records'].append({'n':250,'payload':'Y'*40000})
+    two=save_prefix(store,'checkpoints',value,max_bytes=32*1024**2,max_logical_bytes=32*1024**2)
+    assert store.used()-before==two['new_bytes']<two['aggregate_bytes']
+    assert len(verify_prefix(tmp_path,one)['native']['records'])==250
+    assert len(verify_prefix(tmp_path,two)['native']['records'])==251
+    bad={**two,'sha256':'0'*64}
+    with pytest.raises(Exception):verify_prefix(tmp_path,bad)

@@ -110,18 +110,51 @@ def verify_stream(root,ref,binding):
         'financial_assessment':'NOT_ISSUED','full_tapes_retained_in_reader':False}
 
 
-def save_prefix(store,parent,value,*,max_bytes=None):
-    """Chunk actual active record/bridge prefixes with the existing8MiB codec."""
+def save_prefix(store,parent,value,*,max_bytes=None,max_logical_bytes=None):
+    """Content-share immutable prefix chunks; no cumulative copy of old prefixes."""
     native=value.get('native') or {};header={k:v for k,v in native.items() if k not in ('records','bridge_events')}
-    files,records=chunk_rows(native.get('records',[]),'records')
-    bridge_files,bridge=chunk_rows(native.get('bridge_events',[]),'bridge');files.update(bridge_files)
     other={k:v for k,v in value.items() if k!='native'}
-    # NAV/D receipts can also grow; keep every supplied operand in bounded chunks.
-    nav_files,nav=chunk_rows(other.pop('NAV',[]),'nav');files.update(nav_files)
-    d_files,decisions=chunk_rows(other.pop('D_receipts',[]),'decisions');files.update(d_files)
-    raw=canonical(encode({'schema':'polar.pair-stream-active-prefix/1','native_header':header,'other':other,
-        'records':records,'bridge':bridge,'NAV':nav,'D_receipts':decisions,'completed_account':False}))
-    require(len(raw)<=MAX_BYTES,'PAIR_STREAM_PARTIAL_HEADER');files['record.json']=raw;name='prefix-'+sha(raw)
-    require(max_bytes is None or sum(len(v) for v in files.values())<=max_bytes,'PAIR_OPERATION_PARTIAL_AGGREGATE_LIMIT')
-    with store.locked():store._publish(parent,name,files,file_limit=MAX_BYTES)
-    return {'parent':parent,'id':name,'sha256':sha(raw),'bytes':len(raw),'aggregate_bytes':sum(len(v) for v in files.values())}
+    series={'records':native.get('records',[]),'bridge':native.get('bridge_events',[]),
+        'NAV':other.pop('NAV',[]),'D_receipts':other.pop('D_receipts',[])}
+    shared={};groups={};logical=0
+    for label,rows in series.items():
+        files,refs=chunk_rows(rows,label.lower())
+        groups[label]=[]
+        for r in refs:
+            compressed=files[r['name']];name='prefix-chunk-'+sha(compressed)
+            shared[name]=compressed
+            groups[label].append({**r,'storage_parent':'pair-stream-prefix-chunks/'+name})
+            logical+=len(compressed)
+    raw=canonical(encode({'schema':'polar.pair-stream-active-prefix/2','native_header':header,'other':other,
+        'chunks':groups,'completed_account':False}))
+    require(len(raw)<=MAX_BYTES,'PAIR_STREAM_PARTIAL_HEADER');name='prefix-'+sha(raw);logical+=len(raw)
+    require(max_logical_bytes is None or logical<=max_logical_bytes,'PAIR_OPERATION_PARTIAL_LOGICAL_LIMIT')
+    with store.locked():
+        new=sum(len(raw) for key,raw in shared.items() if not (store.root/'pair-stream-prefix-chunks'/key).exists())
+        if not (store.root/parent/name).exists():new+=len(raw)
+        require(max_bytes is None or new<=max_bytes,'PAIR_OPERATION_PARTIAL_AGGREGATE_LIMIT')
+        for key,compressed in shared.items():
+            store._publish('pair-stream-prefix-chunks',key,{'chunk-00000.json.gz':compressed},file_limit=MAX_BYTES//4)
+        store._publish(parent,name,{'record.json':raw},file_limit=MAX_BYTES)
+    return {'parent':parent,'id':name,'sha256':sha(raw),'bytes':len(raw),'aggregate_bytes':logical,'new_bytes':new}
+
+
+def verify_prefix(root,ref):
+    header=read_object(root,ref);require(header['schema']=='polar.pair-stream-active-prefix/2' and
+        header['completed_account'] is False,'PAIR_STREAM_PREFIX_SCHEMA')
+    restored={};aggregate=ref['bytes']
+    for label,refs in header['chunks'].items():
+        rows=[]
+        for i,r in enumerate(refs):
+            require(r['name']==label.lower()+'-'+str(i).zfill(5)+'.json.gz' and r['first']==len(rows) and
+                r['storage_parent']=='pair-stream-prefix-chunks/prefix-chunk-'+r['sha256'],
+                'PAIR_STREAM_PREFIX_CHUNK_JOIN')
+            single={k:v for k,v in r.items() if k not in ('name','first','storage_parent')}
+            single.update(name='chunk-00000.json.gz',first=0)
+            value,total=read_chunk_rows(root,r['storage_parent'],[single],'chunk')
+            rows.extend(value);aggregate+=total
+        restored[label]=rows
+    require(aggregate==ref['aggregate_bytes'],'PAIR_STREAM_PREFIX_COMPLETE_BYTES')
+    return {'schema':'polar.private-pair-active-prefix/1','native':{**header['native_header'],
+        'records':restored['records'],'bridge_events':restored['bridge']},**header['other'],
+        'NAV':restored['NAV'],'D_receipts':restored['D_receipts'],'completed_account':False}
