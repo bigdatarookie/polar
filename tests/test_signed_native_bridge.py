@@ -27,7 +27,7 @@ def test_partial_basis_allocation_releases_remaining_cents_exactly():
     assert lot == TradingLot() and pnl == 2 and not cross
 
 
-def engine_control(tape, *, exact=True, partial=False, external=False, duplicate=False, unexpected_cross=False, default=False, mark_recovery=False):
+def engine_control(tape, *, exact=True, partial=False, external=False, duplicate=False, unexpected_cross=False, default=False, mark_recovery=False, proposal_fees=None):
     from nautilus_trader.backtest.engine import BacktestEngine
     from nautilus_trader.backtest.models import FeeModel, FillModel, LatencyModel
     from nautilus_trader.config import BacktestEngineConfig, LoggingConfig, StrategyConfig, RiskEngineConfig
@@ -81,7 +81,8 @@ def engine_control(tape, *, exact=True, partial=False, external=False, duplicate
                     self.submit_order(order)
                 elif exact:
                     try:
-                        self.bridge.propose_and_submit('intent-'+str(self.i),order,self.px,1,{'X':self.px},
+                        self.bridge.propose_and_submit('intent-'+str(self.i),order,self.px,
+                                                      1 if proposal_fees is None else proposal_fees[(self.i-1)//2],{'X':self.px},
                                                       mark_event=MarkEvent('valuation-'+str(self.i),tick.ts_event,
                                                         (MarkIdentity('X','quote-'+str(tick.ts_event),'INVENTED_X',tick.ts_event,tick.ts_event,'MODELED','INVENTED_CURRENT_QUOTE'),)),
                                                       located_cap=qty,locate_provenance='INVENTED_LOCATE')
@@ -287,9 +288,17 @@ def test_current_mark_default_before_rejected_order_survives_recovery(record_pro
 
 
 def test_rejected_hypothetical_postfill_insolvency_is_not_actual_default(record_property):
-    r=engine_control([('SELL',1000000,'10.005000'),('BUY',1,'10.005000')])
+    # This fee is a supplied HYPOTHETICAL proposal operand only. The order
+    # rejects before submit; actual later native commission remains exactly1c.
+    r=engine_control([('BUY',1,'10.000000'),('BUY',1,'10.000000')],proposal_fees=[100001,1])
     save_control(record_property,r)
+    first_mark=next(e for e in r['events'] if e['kind']=='EXISTING_BOOK_MARK')
+    first_proposal=next(e for e in r['events'] if e['kind']=='ADMISSION')
+    assert first_mark['core']['equity_cents']==100000 > 0
+    assert first_proposal['operands']['post_fill_admission']['equity_cents']==-1 < 0
+    assert first_proposal['status']!='ADMITTED_PROPOSAL_NOT_EXECUTION' and first_proposal['native_submissions']==0
     assert r['survival_failed'] is False and r['submissions']==1 and len(r['fills'])==1
+    assert r['fills'][0]['fee']==1 and dict(r['state'].positions)['X']==1
 
 
 def test_duplicate_mark_event_deduplicates_history_but_changed_or_future_metadata_rejects():
