@@ -8,12 +8,12 @@ from .ci_research import require, fee_cents, maximum_buy, INITIAL_CENTS
 from .obs158_math import cent_round_micro
 
 
-def nav_cents(cash, held, prices):
+def nav_cents(cash, held, prices, *, allow_zero=False):
     require(type(cash) is int and cash >= 0 and set(held) == set(prices), 'ALLOCATION_STATE')
     require(all(type(q) is int and 0 <= q <= 1000000000 for q in held.values()) and
             all(type(p) is int and p > 0 for p in prices.values()), 'ALLOCATION_DOMAIN')
     amounts = {s: cent_round_micro(held[s]*prices[s]) for s in held}
-    nav = cash+sum(amounts.values()); require(nav > 0, 'ALLOCATION_NONPOSITIVE_NAV')
+    nav = cash+sum(amounts.values()); require(type(allow_zero) is bool and (nav >= 0 if allow_zero else nav > 0), 'ALLOCATION_NONPOSITIVE_NAV')
     return nav, amounts
 
 
