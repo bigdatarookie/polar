@@ -7,6 +7,8 @@ change legacy annual `calendar_value`, `plan_phase`, profiles or Service dispatc
 
 Input schema `polar.event-clock-metadata/1` has exactly:
 
+- `purpose`: PRE_RELEASE_SIGNAL or CALENDAR_ONLY. This selects only clock
+  eligibility semantics, not a policy or scientific candidate.
 - `event_id`, `reference_period`: nonempty strings identifying independent event
   and reference period, not an inferred release/outcome identity.
 - `release_at`: aware ISO timestamp (explicit offset or Z), `release_zone`: IANA
@@ -16,7 +18,12 @@ Input schema `polar.event-clock-metadata/1` has exactly:
   `{known_by, basis, provenance}`. `basis` is OBSERVED, MODELED or UNKNOWN. UNKNOWN
   requires null known_by; other bases require an aware timestamp. Provenance is
   a nonempty supplied reference/description. Assertions are caller-supplied
-  metadata, not independently verified source qualifications.
+  metadata, not independently verified source qualifications. The event object
+  additionally requires `observation_at`: the pre-release signal observation or
+  candle-end time, never actual CPI release/outcome/publication. It may be null
+  while unknown. In CALENDAR_ONLY purpose this object must instead have
+  basis NOT_APPLICABLE and both observation_at/known_by null, with provenance.
+  Calendar and quote objects do not accept NOT_APPLICABLE.
 - `reference_provenance`: `{basis, provenance}` with the same basis enum. MODELED
   reference sessions are not observed primary-venue fills.
 - `sessions`: at most 10000 ordered unique `{date, open_at, close_at}` records.
@@ -55,11 +62,19 @@ Clock rules:
    is 00:01 UTC next civil UTC date after r2; reentry candidate first close >D.
    Missing predecessor, completed close, execution, r1/r2 or reentry close yields
    UNAVAILABLE with partial chronology retained; no stale fill or extension.
-5. Calendar and event observation K must separately be known <=cutoff. Their
-   absence does not become quote K or release time. Quote K eligibility is <=D.
+5. Calendar K and quote K are checked separately <=D. For PRE_RELEASE_SIGNAL,
+   observation/candle END<=cutoff AND signal K<=cutoff are required by the
+   consumer. D is computation latency, not an extended observation window.
+   event_observation_chronology separately exposes generic known_by_decision,
+   known_by_consumer_cutoff and observed_by_consumer_cutoff; a signal arriving
+   during latency may fit generic D chronology but remains NOT_EXECUTABLE for
+   this consumer with explicit reasons. K before its observation is invalid
+   eligibility. Unknown clocks remain null and never become actual release
+   time. CALENDAR_ONLY has no prediction observation and does not require
+   foreknowledge of an actual future release/outcome/publication.
 
 Status precedence: missing required chronology -> UNAVAILABLE; otherwise unknown
-reference basis or missing/late calendar/event K or no qualified quote ->
+reference basis or missing/late calendar K, required signal clock/cutoff failure, or no qualified quote ->
 NOT_EXECUTABLE. With full metadata eligibility, any modeled constituent produces
 CONDITIONALLY_MODELED; all observed constituents produce
 OBSERVED_METADATA_ELIGIBLE. The latter is metadata algebra only, not source,
@@ -67,6 +82,13 @@ rights, physical fill, PIT or financial acceptance. Every output has
 `execution_authority: false` and explicit supplied-metadata-only scope. Late
 execution warning is separate from availability status; downstream policy must
 preserve the unprotected gap rather than pretending protection preceded release.
+
+Owner10:45/10:46 clarification supersedes original draft fd51817: calendar-only
+N/A and pre-release signal cutoff fitness are explicit. Original metadata
+normalization referring to unknown actual_release/publication is retained as
+history, not used as the signal clock definition. Corrected normalization keeps
+unknown pre-release signal observation/K instead, without requiring the future
+outcome.
 
 No weights, event policy/SMA, probability proxy, ES/utility, six-leg profile,
 grouped report, signed account, public wire/Orders/UI or scientific grant is

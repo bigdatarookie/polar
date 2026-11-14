@@ -236,9 +236,10 @@ def event_clock_metadata(value):
     def iso(v):
         return None if v is None else v.isoformat().replace('+00:00', 'Z')
 
-    fields(value, 'schema event_id reference_period release_at release_zone calendar_availability '
+    fields(value, 'schema purpose event_id reference_period release_at release_zone calendar_availability '
                   'event_observation_availability reference_provenance sessions quotes')
     require(value['schema'] == 'polar.event-clock-metadata/1', code)
+    require(value['purpose'] in ('PRE_RELEASE_SIGNAL', 'CALENDAR_ONLY'), code)
     text(value['event_id']); text(value['reference_period'])
     try:
         zone = ZoneInfo(text(value['release_zone']))
@@ -247,7 +248,17 @@ def event_clock_metadata(value):
     release = stamp(value['release_at'])
     release_day = release.astimezone(zone).date()
     calendar_k = availability(value['calendar_availability'])
-    event_k = availability(value['event_observation_availability'])
+    event_meta = value['event_observation_availability']
+    fields(event_meta, 'known_by basis provenance observation_at')
+    signal = value['purpose'] == 'PRE_RELEASE_SIGNAL'
+    if signal:
+        event_k = availability({k: event_meta[k] for k in ('known_by', 'basis', 'provenance')})
+        observation = None if event_meta['observation_at'] is None else stamp(event_meta['observation_at'])
+    else:
+        require(event_meta['basis'] == 'NOT_APPLICABLE' and event_meta['known_by'] is None
+                and event_meta['observation_at'] is None, code)
+        text(event_meta['provenance'])
+        event_k = observation = None
     fields(value['reference_provenance'], 'basis provenance')
     require(value['reference_provenance']['basis'] in ('OBSERVED', 'MODELED', 'UNKNOWN'), code)
     text(value['reference_provenance']['provenance'])
@@ -300,11 +311,22 @@ def event_clock_metadata(value):
         if missing:
             unavailable.append(name)
     reasons = []
-    for known, bound, name in ((calendar_k, cutoff, 'CALENDAR'), (event_k, cutoff, 'EVENT_OBSERVATION')):
+    for known, bound, name in ((calendar_k, decision, 'CALENDAR'),):
         if known is None:
             reasons.append(name + '_KNOWN_BY_UNKNOWN')
         elif bound is not None and known > bound:
-            reasons.append(name + '_KNOWN_AFTER_CUTOFF')
+            reasons.append(name + '_KNOWN_AFTER_DECISION')
+    if signal:
+        if event_k is None:
+            reasons.append('SIGNAL_KNOWN_BY_UNKNOWN')
+        elif cutoff is not None and event_k > cutoff:
+            reasons.append('SIGNAL_KNOWN_AFTER_CONSUMER_CUTOFF')
+        if observation is None:
+            reasons.append('SIGNAL_OBSERVATION_TIME_UNKNOWN')
+        elif cutoff is not None and observation > cutoff:
+            reasons.append('SIGNAL_OBSERVATION_AFTER_CONSUMER_CUTOFF')
+        if event_k is not None and observation is not None and event_k < observation:
+            reasons.append('SIGNAL_KNOWN_BEFORE_OBSERVATION')
     if selected is None:
         reasons.append('NO_AVAILABILITY_QUALIFIED_SUPPLIED_QUOTE')
     if value['reference_provenance']['basis'] == 'UNKNOWN':
@@ -329,7 +351,12 @@ def event_clock_metadata(value):
         bases.append(selected[2]['availability']['basis'])
     status = ('UNAVAILABLE' if unavailable else 'NOT_EXECUTABLE' if reasons else
               'CONDITIONALLY_MODELED' if 'MODELED' in bases else 'OBSERVED_METADATA_ELIGIBLE')
-    return {'schema': 'polar.event-clock-projection/1', 'event_id': value['event_id'],
+    return {'schema': 'polar.event-clock-projection/1', 'purpose': value['purpose'],
+            'event_observation_chronology': {
+                'known_by_decision': None if not signal or event_k is None or decision is None else event_k <= decision,
+                'known_by_consumer_cutoff': None if not signal or event_k is None or cutoff is None else event_k <= cutoff,
+                'observed_by_consumer_cutoff': None if not signal or observation is None or cutoff is None else observation <= cutoff},
+            'event_id': value['event_id'],
             'reference_period': value['reference_period'], 'release_at': iso(release),
             'release_zone': value['release_zone'], 'prior_reference_date': prior[0].isoformat() if prior else None,
             'cutoff_at': iso(cutoff), 'decision_at': iso(decision), 'execution_candidate_at': iso(execution),

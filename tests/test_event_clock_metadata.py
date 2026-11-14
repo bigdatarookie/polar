@@ -13,10 +13,10 @@ def availability(known=None, basis='UNKNOWN'):
 
 def fixture():
     days = ['2024-02-09', '2024-02-12', '2024-02-13', '2024-02-14', '2024-02-15']
-    return {'schema': 'polar.event-clock-metadata/1', 'event_id': 'invented-event',
+    return {'schema': 'polar.event-clock-metadata/1', 'purpose': 'PRE_RELEASE_SIGNAL', 'event_id': 'invented-event',
             'reference_period': '2024-01', 'release_at': '2024-02-13T08:30:00-05:00',
             'release_zone': 'America/New_York', 'calendar_availability': availability(),
-            'event_observation_availability': availability(),
+            'event_observation_availability': {**availability(), 'observation_at': None},
             'reference_provenance': {'basis': 'MODELED', 'provenance': 'INVENTED_REFERENCE_NOT_VENUE'},
             'sessions': [{'date': d, 'open_at': d+'T14:30:00Z', 'close_at': d+'T21:00:00Z'} for d in days],
             'quotes': [{'close_at': days[0]+'T21:00:00Z', 'availability': availability()}]}
@@ -25,6 +25,7 @@ def fixture():
 def qualified(value, basis='OBSERVED'):
     for name in ('calendar_availability', 'event_observation_availability'):
         value[name] = availability('2024-02-01T12:00:00Z', basis)
+    value['event_observation_availability']['observation_at']='2024-02-01T11:00:00Z'
     value['quotes'][0]['availability'] = availability('2024-02-09T21:00:01Z', basis)
     return value
 
@@ -64,6 +65,7 @@ def test_explicit_modeled_availability_never_observed_pit():
 @pytest.mark.parametrize('field', ['calendar_availability','event_observation_availability'])
 def test_availability_clocks_independent(field):
     v=qualified(fixture());v[field]=availability()
+    if field=='event_observation_availability':v[field]['observation_at']=None
     r=event_clock_metadata(v)
     assert r['status']=='NOT_EXECUTABLE' and r['qualified_quote'] is not None
     assert r[field]['known_by'] is None
@@ -154,12 +156,11 @@ def test_closed_metadata_rejects_malformed(mutate):
         event_clock_metadata(v)
 
 
-@pytest.mark.parametrize('field', ['calendar_availability','event_observation_availability'])
-def test_known_after_cutoff_does_not_become_eligible_at_decision(field):
-    v=qualified(fixture());v[field]=availability('2024-02-12T19:00:01Z','OBSERVED')
-    r=event_clock_metadata(v)
-    assert r['status']=='NOT_EXECUTABLE'
-    assert any(x.endswith('_KNOWN_AFTER_CUTOFF') for x in r['ineligibility_reasons'])
+def test_calendar_known_during_latency_is_separate_from_signal_cutoff():
+    v=qualified(fixture());v['calendar_availability']=availability('2024-02-12T19:00:30Z','OBSERVED')
+    assert event_clock_metadata(v)['status']=='CONDITIONALLY_MODELED'
+    v['calendar_availability']=availability('2024-02-12T19:01:01Z','OBSERVED')
+    assert 'CALENDAR_KNOWN_AFTER_DECISION' in event_clock_metadata(v)['ineligibility_reasons']
 
 
 def test_unknown_reference_basis_blocks_otherwise_complete_metadata():
@@ -173,3 +174,34 @@ def test_temporal_candidate_preserved_without_quote_metadata():
     assert r['latest_completed_candidate_at']=='2024-02-09T21:00:00Z'
     assert r['latest_completed_candidate_availability']['basis']=='UNKNOWN'
     assert r['qualified_quote'] is None
+
+
+def test_pre_release_signal_between_cutoff_and_decision_misses_consumer_cutoff():
+    v=qualified(fixture());v['purpose']='PRE_RELEASE_SIGNAL'
+    v['event_observation_availability']={**availability('2024-02-12T19:00:30Z','OBSERVED'), 'observation_at':'2024-02-12T18:59:59Z'}
+    r=event_clock_metadata(v)
+    assert r['status']=='NOT_EXECUTABLE'
+    assert r['event_observation_chronology']['known_by_decision'] is True
+    assert r['event_observation_chronology']['known_by_consumer_cutoff'] is False
+
+
+def test_calendar_only_needs_no_prediction_or_actual_release_k():
+    v=qualified(fixture());v['purpose']='CALENDAR_ONLY'
+    v['event_observation_availability']={**availability(None,'NOT_APPLICABLE'), 'observation_at':None}
+    r=event_clock_metadata(v)
+    assert r['status']=='CONDITIONALLY_MODELED'
+    assert r['event_observation_availability']['known_by'] is None
+    assert r['purpose']=='CALENDAR_ONLY'
+
+
+def test_signal_end_after_cutoff_even_if_known_before_d_is_ineligible():
+    v=qualified(fixture());v['event_observation_availability']={**availability('2024-02-12T19:00:40Z','OBSERVED'), 'observation_at':'2024-02-12T19:00:30Z'}
+    r=event_clock_metadata(v)
+    assert 'SIGNAL_OBSERVATION_AFTER_CONSUMER_CUTOFF' in r['ineligibility_reasons']
+    assert r['event_observation_chronology']['known_by_decision'] is True
+
+
+@pytest.mark.parametrize('purpose,basis', [('CALENDAR_ONLY','UNKNOWN'),('PRE_RELEASE_SIGNAL','NOT_APPLICABLE')])
+def test_purpose_does_not_fabricate_or_drop_signal_metadata(purpose,basis):
+    v=fixture();v['purpose']=purpose;v['event_observation_availability']['basis']=basis
+    with pytest.raises(Exception,match='EVENT_CLOCK_INVALID_METADATA'):event_clock_metadata(v)
