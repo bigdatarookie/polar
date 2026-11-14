@@ -45,6 +45,10 @@ magnitude charge, zero for zero quantity. No fee schedule is chosen here.
   notional minus fee. Every discretionary long increase needs full marks and
   F>=0, all per-name exact initial restrictions, and initial equity admission.
   C/U and charges remain in NAV. Positive F alone cannot override a payable.
+  Proposed long sales also block unchanged when fees exceed F+sale proceeds;
+  risk reduction grants no implicit credit. Hypothetical-funding long-sale
+  proposals are explicitly unsupported by this bounded API. Confirmed actual
+  long sales still retain their true debit/breach through the recording API.
 - Short increase requires a located quantity cap/provenance, credits actual sale
   proceeds to that name's escrow, then transfers the minimum whole own cents to
   reach CEILING(1.5*post-fill marked short liability cents), not HE(half-fill
@@ -136,7 +140,9 @@ financial verdict is produced.
 ## Qualification scope
 
 Owner base28020110, append-only opening/settlement correctionfee54dd6 and
-transition/income clarification control this atom. Existing Validator32 literals
+transition/income clarification and reduction-fees no-credit clarification
+b5f94436 control this atom. Original2eca NOT_ACCEPTED and the observed invented
+red1FAIL are preserved; correction never erases a confirmed execution. Existing Validator32 literals
 were read as prior evidence, not replayed or claimed as implementation tests;
 new invented implementation controls test the actual selected core. Official
 scripts/ci.sh also runs its separate invented native baseline/runtime/Node checks;

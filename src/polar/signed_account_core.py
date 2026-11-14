@@ -206,7 +206,10 @@ def propose_fill(state, fill_id, name, side, quantity, price, fee_cents, *, forc
             require(not forced and funding_mode == 'NO_CREDIT', 'SIGNED_DISCRETIONARY_FUNDING_MODE')
         else:
             kind = 'LONG_SALE'; require(quantity <= q, 'SIGNED_REVERSAL_REQUIRES_SPLIT')
+            require(funding_mode == 'NO_CREDIT', 'SIGNED_UNSUPPORTED_REDUCTION_FUNDING')
             free += notional - fee_cents
+            if free < 0:
+                failed.append('SETTLEMENT_BLOCKED_INSUFFICIENT_FREE_CASH')
     proposed = replace(state, free_cents=free, positions=tuple(sorted(positions.items())), escrow=tuple(sorted(escrow.items())))
     if kind in ('LONG_BUY', 'SHORT_INCREASE'):
         require(type(marks) is dict, 'SIGNED_OPENING_MARKS_REQUIRED')
@@ -226,7 +229,7 @@ def propose_fill(state, fill_id, name, side, quantity, price, fee_cents, *, forc
         'negative_free_cash_delta_cents': max(-free, 0) - max(-state.free_cents, 0)}
     if failed:
         return _blocked(state, fill_id, kind, operands,
-                        'SETTLEMENT_BLOCKED_INSUFFICIENT_FREE_CASH' if kind == 'COVER' else 'REJECTED_DISCRETIONARY_ADMISSION')
+                        'SETTLEMENT_BLOCKED_INSUFFICIENT_FREE_CASH' if kind in ('COVER', 'LONG_SALE') else 'REJECTED_DISCRETIONARY_ADMISSION')
     return replace(transition(state, fill_id, kind, operands, free_cents=free,
         positions=tuple(sorted(positions.items())), escrow=tuple(sorted(escrow.items()))), status='ADMITTED_PROPOSAL_NOT_EXECUTION')
 

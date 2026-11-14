@@ -221,3 +221,14 @@ def test_duplicate_ids_and_reversal_reject_without_mutation():
     lambda:State(1,positions=(('S',1),('S',1))),lambda:Accrual('BORROW','x','MARKED_SHORT_NOTIONAL','p',F(1),2,0)])
 def test_restore_constructor_rejects_malformed(factory):
     with pytest.raises(Exception):factory()
+
+
+def test_proposed_sale_fee_shortfall_blocks_but_confirmed_sale_debit_retained():
+    s=State(0,(('L',1),))
+    proposed=propose_fill(s,'sale','L','SELL',1,F(1,100),2)
+    assert proposed.after is s
+    assert proposed.status=='SETTLEMENT_BLOCKED_INSUFFICIENT_FREE_CASH'
+    assert proposed.operands['funding_shortfall_cents']==1
+    actual=record_confirmed_fill(s,'sale','L','SELL',1,F(1,100),2,{},execution_provenance='CONFIRMED_INVENTED')
+    assert actual.after.free_cents==-1 and dict(actual.after.positions)['L']==0
+    assert 'UNQUALIFIED_EXECUTION_FUNDING' in actual.operands['breaches']
