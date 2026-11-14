@@ -57,3 +57,15 @@ Authority also binds explicit feature_calls_max and decision_calls_max:48 times 
 The shared-prefix full-size test completed its native account within the same180s guard and partial128MiB cap, then exposed Python's4300-decimal-digit JSON integer conversion limit on exact variance operands. No statistic is rounded or recomputed differently. New private stream reports/graphs/counter payloads use `polar.private-pair-exact-wire/1`: legacy typed encoding, with integers above512bits represented as canonical bounded `$int_hex` strings. The decoder restores the identical integer before the existing typed codec. Hex conversion avoids the process-global decimal conversion setting; source input/legacy packet wire and all financial algebra stay unchanged. Per-object32MiB/per-chunk8MiB remain. Mandatory entry/completion counters persist before snapshot serialization, so a report/prefix codec failure cannot erase a known native completion.
 
 The first1f official composed run passed158 cases and failed only a fresh-reader test launcher: the1.9MiB expected metadata binding exceeded argv size. The production Service already transports config/binding by pinned files. The test now likewise uses a read-only metadata file and emits actual process/counter/storage properties before final transport assertions; the source-absent/no-native/no-write guards are unchanged. That official failure is retained rather than described as a product PASS.
+
+### Aggregate supervisor log admission
+
+The caps log_bytes and journal_bytes apply PER supervise call. Current admission
+requires operation_store_bytes + N*(log_bytes+journal_bytes) for both certified
+global headroom and remaining root logical quota, with N=4 for ORIGINAL including
+its prospective success-only SAVED, N=2 for a separately admitted SAVED operation.
+The same phase census sets cumulative stage/cleanup allowances. Existing actual
+root bytes are charged by used(); current SAVED admission does not subtract them
+or reuse original headroom blindly. This local logical check still needs actual
+physical store/staging/export/host logging/allocation-margin certification; no
+physical/global bound or operative grant is inferred from this formula alone.
