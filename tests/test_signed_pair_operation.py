@@ -219,6 +219,11 @@ main()
     assert len(verify_stored_account(service.store.root,ref,b)['NAV'])==967
     assert finish['process']['cleanup']==finish['collector']['cleanup']=='COMPLETE'
     assert finish['process']['failure'] is None and finish['process']['sampled_group_rss_peak_bytes']>0
+    record_property('supervised_capacity_before_RO_transport',json.dumps({'process':finish['process'],
+        'collector':finish['collector'],'counters':finish['durable_counters'],'partial_bytes':finish['partial_bytes'],
+        'store_bytes':service.store.used(),'actual_new_native':1,'full48native':'NOT_RUN'},sort_keys=True))
+    expected_binding=put(tmp_path/'RO-EXPECTED-BINDING.json',canonical(encode(b)))
+    Path(expected_binding['path']).chmod(0o400)
     private_input=decode(Path(cfg['source_manifest_ref']['path']).read_bytes())['encoded_input']
     Path(private_input['path']).unlink()
     before={str(p):(sha(p.read_bytes()),p.stat().st_mtime_ns) for p in service.store.root.rglob('*') if p.is_file()}
@@ -241,10 +246,10 @@ def guard(fn):
   return fn(p,mode,*a,**kw)
  return wrapped
 builtins.open=guard(builtins.open);io.open=guard(io.open)
-a=verify_stored_account(sys.argv[1],json.loads(sys.argv[2]),restore(json.loads(sys.argv[3])))
+a=verify_stored_account(sys.argv[1],json.loads(sys.argv[2]),restore(json.loads(open(sys.argv[3]).read())))
 print(json.dumps({'NAV':len(a['NAV']),'source_calls':0,'native_calls':0,'writes':0}))
 '''
-    proof=subprocess.run([sys.executable,'-c',code,str(service.store.root),json.dumps(ref),json.dumps(encode(b))],
+    proof=subprocess.run([sys.executable,'-c',code,str(service.store.root),json.dumps(ref),expected_binding['path']],
         env={**os.environ,'PYTHONDONTWRITEBYTECODE':'1'},capture_output=True,text=True,timeout=60)
     assert proof.returncode==0,proof.stderr
     assert before=={str(p):(sha(p.read_bytes()),p.stat().st_mtime_ns) for p in service.store.root.rglob('*') if p.is_file()}
