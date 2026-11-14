@@ -289,7 +289,7 @@ def _simulate_account(plan, leg, cost_id, cost, *, diagnostics=None, fill_model=
                         if p.destination=='EXIT':targets={s:0 for s in SYMBOLS}
                         else:targets=desired_targets(self.cash(),self.held,prices,{'VTI':p.vti_weight,'BIL':p.bil_weight},witness=witness)
                         self.sizing[p.intent_id]={'id':key([context.account_id,p.intent_id,'sizing']),'intent_id':p.intent_id,
-                            'decision_ns':p.decision_ns,'native_capture_ns':event.ts_event,'cash_cents':self.cash(),
+                            'decision_ns':p.decision_ns,'native_capture_ns':event.ts_event,'capture_sequence':record['sequence'],'cash_cents':self.cash(),
                             'holdings':dict(self.held),'prices_micro':prices,'source_rows':{s:asdict(v) for s,v in selected.items()},
                             'targets':targets,'weights':{'VTI':p.vti_weight,'BIL':p.bil_weight},'consumed':witness,
                             'terminal':p.destination=='EXIT','context':asdict(context)}
@@ -480,10 +480,49 @@ def verify_saved_event_witnesses(account):
         total=sum(signal['prices_micro']);margin=200*signal['prices_micro'][-1]-total
         require((signal['sum_micro'],signal['last_micro'],signal['margin_micro'],signal['category'])==
                 (total,signal['prices_micro'][-1],margin,'NORMAL' if margin>0 else 'BIL'),'EVENT_SAVED_SMA_FORMULA')
-    for a in anchors.values():validate_anchor(a,context,a.generation,a.q_ns)
+    def prefix(at_ns,sequence):
+        cash=account['initial_cash_cents'];held={s:0 for s in SYMBOLS};flat=bps=0
+        for f in sorted(account['fills'],key=lambda v:(v['at_ns'],v['sequence'])):
+            if (f['at_ns'],f['sequence'])>=(at_ns,sequence):break
+            s=next((n for n,iid in account['native_instruments'].items() if iid==f['instrument_id']),None)
+            require(s in SYMBOLS,'EVENT_SAVED_FILL_INSTRUMENT')
+            qty=Fraction(f['quantity']);price=Fraction(f['price'])*10**6;fee=Fraction(f['commission'])*100
+            require(qty.denominator==price.denominator==fee.denominator==1,'EVENT_SAVED_FILL_PRECISION')
+            sign=1 if f['side']=='BUY' else -1
+            held[s]+=sign*qty.numerator;cash-=sign*cent_round_micro(qty.numerator*price.numerator)+fee.numerator
+            flat+=account['cost_profile']['flat_cents'];bps+=fee.numerator-account['cost_profile']['flat_cents']
+        return cash,held,flat,bps
+    for a in anchors.values():
+        validate_anchor(a,context,a.generation,a.q_ns)
+        cash,held,flat,bps=prefix(a.mark_ns,a.mark_sequence)
+        prices={v.symbol:int(v.close*10**6) for v in a.positions};value,amounts=nav_cents(cash,held,prices)
+        require((a.cash_cents,{v.symbol:v.quantity for v in a.positions},
+                 {v.symbol:v.rounded_value_cents for v in a.positions},a.nav_cents,
+                 a.cumulative_flat_cents,a.cumulative_bps_cents)==(cash,held,amounts,value,flat,bps),
+                'EVENT_SAVED_ANCHOR_EXECUTED_PREFIX')
     sizing_by_id={}
     for intent_id,w in account['sizing'].items():
         require(w['context']==asdict(context),'EVENT_SAVED_SIZING_CONTEXT')
+        original_id=w['intent_id'];origin=account['sizing'].get(original_id)
+        require(origin is not None and w['id']==key([context.account_id,original_id,'sizing']) and
+                (intent_id==original_id or 'coalesced_from' in w and w['coalesced_from'] in account['sizing'] and
+                 {k:v for k,v in w.items() if k!='coalesced_from'}==
+                 {k:v for k,v in account['sizing'][w['coalesced_from']].items() if k!='coalesced_from'}),
+                'EVENT_SAVED_SIZING_ORIGIN')
+        expected_capture=w['decision_ns']+(150 if w['decision_ns'] in anchors else 0)
+        require(w['native_capture_ns']==expected_capture and type(w['capture_sequence']) is int and
+                any(d.get('pending_id')==original_id and d['decision_ns']==w['decision_ns'] and
+                    d['observed_native_ns']==w['native_capture_ns'] and d['sequence']==w['capture_sequence']
+                    for d in account['decisions']), 'EVENT_SAVED_SIZING_CAPTURE')
+        if w['decision_ns'] in anchors:
+            a=anchors[w['decision_ns']]
+            require(a.mark_ns<w['native_capture_ns']<a.route_barrier_ns and
+                    a.mark_sequence<w['capture_sequence']<a.first_route_sequence and
+                    all(d['sequence']<w['capture_sequence'] for d in account['decisions']
+                        if d['decision_ns']==w['decision_ns'] and d['action']=='ROUTE_INTENT'),
+                    'EVENT_SAVED_SIZING_Q_BARRIER')
+        cash,held,_,_=prefix(w['native_capture_ns'],w['capture_sequence'])
+        require((w['cash_cents'],w['holdings'])==(cash,held),'EVENT_SAVED_SIZING_EXECUTED_PREFIX')
         require(all(r['close_ns']<w['decision_ns'] and r['available_ns'] is not None and
                     r['close_ns']<=r['available_ns']<=w['decision_ns'] and r['price_micro']==w['prices_micro'][s]
                     for s,r in w['source_rows'].items()),'EVENT_SAVED_SIZING_ELIGIBILITY')
@@ -496,6 +535,7 @@ def verify_saved_event_witnesses(account):
     require({r.intent_id for r in account['receipts']}==set(issued) and len(account['receipts'])==len(issued),
             'EVENT_SAVED_RECEIPT_CENSUS')
     all_orders={o['order_id']:o for o in account['orders'] if o['routed_quantity']}
+    receipt_by_intent={r.intent_id:r for r in account['receipts']}
     for receipt in account['receipts']:
         p=issued[receipt.intent_id]
         require(receipt.context==context and receipt.anchor==anchors.get(receipt.q_ns) and
@@ -541,6 +581,13 @@ def verify_saved_event_witnesses(account):
                     order['actual_settled_cents']==cent_round_micro(q*p),'EVENT_SAVED_FEE_SETTLEMENT')
             for fill in order['fills']:
                 require(fill['fill_id'] not in fill_ids,'EVENT_SAVED_DUPLICATE_FILL');fill_ids.add(fill['fill_id'])
+                receipt=receipt_by_intent.get(order['intent_id']);a=anchors[order['q_ns']]
+                require(receipt is not None and fill['order_id']==order['order_id'] and
+                        a.mark_ns<order['at_ns']<=fill['at_ns']<=receipt.finalized_ns<order['q_ns']+1000 and
+                        a.first_route_sequence<order['sequence']<fill['sequence'] and
+                        all(fill['sequence']<later['sequence'] for later in account['orders']
+                            if later['q_ns']==order['q_ns'] and later['sequence']>order['sequence']),
+                        'EVENT_SAVED_FILL_CAUSAL_ORDER_JOIN')
     actual_fills={f['fill_id']:f for f in account['fills']}
     require(len(actual_fills)==len(account['fills']) and set(actual_fills)==fill_ids,'EVENT_SAVED_ACTUAL_FILL_CENSUS')
     cash=account['initial_cash_cents'];held={s:0 for s in SYMBOLS};flat=bps=0

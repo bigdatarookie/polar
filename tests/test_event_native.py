@@ -155,6 +155,40 @@ def test_saved_actual_operand_identity_and_census_mutants(native_account,mutatio
     with pytest.raises(Exception,match=reason):verify_saved_event_witnesses(a)
 
 
+@pytest.mark.parametrize('axis',['hold_nav','hold_fees','hold_position','sizing_capture','sizing_book',
+                                'coalesced_book','fill_order','fill_time','fill_sequence'])
+def test_saved_consumed_causal_join_mutants_are_semantic_not_only_hash(native_account,axis):
+    from polar.event_native_witness import encode,verify_witness_bytes
+    from polar.gym_contract import canonical
+    a=deepcopy(native_account)
+    if axis.startswith('hold_'):
+        i=next(i for i,v in enumerate(a['anchors']) if v.q_ns in a['required_anchors'] and
+               not any(r.q_ns==v.q_ns for r in a['receipts']) and any(p.quantity for p in v.positions))
+        v=a['anchors'][i]
+        if axis=='hold_nav':v=replace(v,nav_cents=v.nav_cents+1)
+        elif axis=='hold_fees':v=replace(v,cumulative_flat_cents=v.cumulative_flat_cents+1)
+        else:v=replace(v,positions=(replace(v.positions[0],rounded_value_cents=v.positions[0].rounded_value_cents+1),)+v.positions[1:])
+        a['anchors'][i]=v
+    elif axis.startswith('sizing_') or axis=='coalesced_book':
+        w=next(v for v in a['sizing'].values() if bool(v.get('coalesced_from'))==(axis=='coalesced_book'))
+        if axis=='sizing_capture':w['native_capture_ns']=a['nav'][-1]['sample_ns']+1
+        else:
+            # Cash increase too small to alter any whole target: floor arithmetic
+            # alone remains consistent, but it is not the consumed actual book.
+            w['cash_cents']+=1
+    else:
+        f=a['orders'][0]['fills'][0]
+        if axis=='fill_order':f['order_id']='UNRELATED_ORDER'
+        elif axis=='fill_time':f['at_ns']=0
+        else:f['sequence']=a['orders'][0]['sequence']
+        a['fills'][0]=deepcopy(f)
+    # Build fresh canonical bytes, so hash/transport guards cannot stand in for
+    # the advertised consumed-operand validation.
+    raw=canonical({'schema':'polar.event-native-component-witnesses/1','account':encode(a)})
+    with pytest.raises(Exception,match='EVENT_SAVED_(ANCHOR|SIZING|FILL)'):
+        verify_witness_bytes(raw,a['context'])
+
+
 def test_sma_saved_window_mutant_cannot_be_reported_as_valid(component_accounts):
     a=deepcopy(next(a for a in component_accounts['accounts'] if a['leg']=='SMA200'))
     a['sma'][0]['prices_micro']=a['sma'][0]['prices_micro'][:-1]
