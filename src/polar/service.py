@@ -28,6 +28,9 @@ class Service:
         return ResearchResults(self.artifacts.root, self.artifacts.limit)
 
     def _research_engine(self, config=None, semantic_id=None):
+        if (isinstance(config,dict) and config.get('schema')=='polar.private-pair-operation-config/1') or (semantic_id or '').startswith('pair-stream-operation-'):
+            from .signed_pair_operation import PairOperationService
+            return PairOperationService(self.artifacts.root,self.artifacts.limit)
         if (isinstance(config,dict) and config.get('schema') in ('polar.reference-research-config/1', 'polar.scheduled-reference-config/1','polar.calendar-study-config/1')) or (semantic_id or '').startswith(('reference-experiment-', 'scheduled-reference-experiment-','calendar-study-experiment-')):
             from .reference_service import ReferenceResearchService
             return ReferenceResearchService(self.artifacts.root,self.artifacts.limit)
@@ -35,6 +38,7 @@ class Service:
         return ResearchService(self.artifacts.root, self.artifacts.limit)
 
     def research_preflight(self, config):
+        if config.get('schema')=='polar.private-pair-operation-config/1':return self._research_engine(config).preflight(config)
         if config.get('schema') in ('polar.reference-research-config/1', 'polar.scheduled-reference-config/1','polar.calendar-study-config/1'):
             return self._research_engine(config).preflight(config)
         from .ci_research_service import operation_binding

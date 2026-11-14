@@ -13,7 +13,7 @@ from .signed_native_bridge import SignedNativeBridge,native_types,require
 from .signed_execution_terms import OrderFees
 
 
-def run_pair_timeline(context,times,event_factory,*,capital_cents=10000000,on_completed=None,invented_partial_order=False):
+def run_pair_timeline(context,times,event_factory,*,capital_cents=10000000,on_completed=None,invented_partial_order=False,observer=None):
     require(type(invented_partial_order) is bool and (not invented_partial_order or context.account.startswith('INVENTED')),'PAIR_PARTIAL_CONTROL_INVENTED_ONLY')
     require(type(times) is tuple and times and all(type(t) is int and t>=0 for t in times) and
             all(a+10000<b for a,b in zip(times,times[1:])),'PAIR_NATIVE_TIMELINE')
@@ -76,6 +76,7 @@ def run_pair_timeline(context,times,event_factory,*,capital_cents=10000000,on_co
             bridge=SignedNativeBridge(State(capital_cents),ids,self.submit_order,self.positions,
                 lambda:engine.portfolio.account(venue),initial_cents=capital_cents,continue_economic_events=True)
             self.driver=SignedEventDriver(context,bridge)
+            if observer:observer('NATIVE_ACCOUNT_OBSERVED',self.driver,{'native_account_id':str(bridge._account().id)})
             for index,t in enumerate(times):
                 self.clock.set_time_alert_ns('begin-'+str(index),t+100,lambda _,i=index:self.begin(i))
                 for k in range(1,25):self.clock.set_time_alert_ns('pump-'+str(index)+'-'+str(k),t+100+k*100,lambda _:self.pump())
@@ -101,6 +102,7 @@ def run_pair_timeline(context,times,event_factory,*,capital_cents=10000000,on_co
             self.driver.submit(order,native_ns=self.clock.timestamp_ns())
         def on_order_filled(self,fill):
             self.driver.on_fill(fill,received_ns=self.clock.timestamp_ns())
+            if observer:observer('FILL_CALLBACK',self.driver,{'order_id':str(fill.client_order_id),'execution_ns':fill.ts_event,'receive_ns':self.clock.timestamp_ns()})
             p=self.driver.bridge.pending
             if p['filled']==p['quantity']:self.driver.on_terminal(str(fill.client_order_id),'FILLED')
         def on_order_canceled(self,e):self.driver.on_terminal(str(e.client_order_id),'CANCELLED')
@@ -118,6 +120,7 @@ def run_pair_timeline(context,times,event_factory,*,capital_cents=10000000,on_co
         # Start with only a clock boundary. Future source quotes are not in the
         # native cache when a causal D factory captures its actual account.
         engine.add_data([CustomData(DataType(Boundary),Boundary(times[0]-1))],client_id=ClientId('PAIR'))
+        if observer:observer('NATIVE_CALL_ENTRY')
         engine.run(end=times[0]-1,streaming=True)
         for index,t in enumerate(times):
             e=event_factory(index,strategy.driver)
@@ -131,9 +134,14 @@ def run_pair_timeline(context,times,event_factory,*,capital_cents=10000000,on_co
             engine.add_data([CustomData(DataType(Boundary),Boundary(t+10000))],client_id=ClientId('PAIR'))
             engine.run(end=t+10000,streaming=True)
             require(strategy.driver.event is None and not strategy.driver.bridge.pending,'PAIR_NATIVE_UNFINISHED_SLOT')
+            if observer:observer('EVENT_CHECKPOINT',strategy.driver,{'event_id':e.id,'at_ns':t})
         engine.end();packet=strategy.driver.packet();verified=verify_packet(packet,context)
+        if observer:observer('NATIVE_COMPLETED',strategy.driver,{'native_account_id':packet['native_account_id']})
         return {'packet':packet,'verification':verified,'completed':strategy.observations}
     except Exception as exc:
+        if observer and 'strategy' in locals() and strategy.driver is not None:
+            try:observer('NATIVE_PARTIAL',strategy.driver,{'error':str(exc)[:240]})
+            except Exception as collection_error:exc.pair_collection_error=str(collection_error)[:240]
         if 'strategy' in locals() and strategy.driver is not None:
             exc.pair_partial=strategy.driver.failure_evidence(exc)
             exc.pair_native_entry={'native_account_id':str(strategy.driver.bridge._account().id),'actual_entry_observed':True}

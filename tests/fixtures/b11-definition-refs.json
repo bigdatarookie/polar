@@ -1,0 +1,35 @@
+{
+  "protocol": {
+    "name": "MERGED-PROSPECTIVE-SIGNED-CONTRACT-v2.json",
+    "sha256": "8f4a1ae99499a9663aa6e741e4a9da17b76f84becb3459d028dfdb912fa6760c",
+    "bytes": 9665
+  },
+  "appendices": [
+    {
+      "name": "RECONCILED-ECONOMIC-CONTINUATION-CLARIFICATION-v1.md",
+      "sha256": "dabff077714bd02055520ec31f7e0d9d988eb785963f8c6eed5b0fe2ffc29013",
+      "bytes": 3051
+    },
+    {
+      "name": "PENDING-PAYMENT-AND-TEMPORAL-JOIN-CLARIFICATION-v1.md",
+      "sha256": "a2e201a54a2d47ccda16e87cba5543359c3104f0d72573593bb538606b6de11d",
+      "bytes": 3041
+    },
+    {
+      "name": "PAIRED-CONSTRUCTION-EXPOSURE-CHECKPOINTS-v1.md",
+      "sha256": "024c1f5054b7d3f97d0796105bc137d4e3150598cab58b9ce4b376cd1af829c3",
+      "bytes": 3725
+    },
+    {
+      "name": "COMPARATOR-EXPOSURE-AND-SHORT-OBLIGATION-SCOPE-v1.md",
+      "sha256": "0d80f3fd478b6b03d6172a73967c3ce41974e03fb63f0e08fefa39a76429a070",
+      "bytes": 2534
+    },
+    {
+      "name": "INTERVENTION-SPECIFIC-ACTIVATION-WITNESSES-v1.md",
+      "sha256": "5f5061b00f63fd962517f3278f03e64d9b9f75523389a53fcb4bc3d8f7a7c009",
+      "bytes": 4325
+    }
+  ],
+  "scope": "First-party frozen source definitions only; no captured quote/action payload or financial result."
+}
