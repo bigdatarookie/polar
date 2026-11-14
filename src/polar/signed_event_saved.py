@@ -11,13 +11,15 @@ from pathlib import Path
 import math
 import re
 
-from .signed_event_driver import (AccountContext,Rate,Action,Locate,Event,OrderRequest,RoutingBoundary,SignedEventDriver)
+from .signed_event_driver import (AccountContext,Rate,Action,Locate,Event,PairEvent,OrderRequest,RoutingBoundary,SignedEventDriver)
 from .signed_account_core import (State,Claim,Accrual,Transition,record_confirmed_fill,propose_fill,amount_cents)
 from .signed_native_bridge import (SignedNativeBridge,MarkEvent,MarkIdentity,TradingLot,settled_trade,require)
 from .gym_contract import canonical,decode,sha,MAX_BYTES
 from .history_bundle import read_file
 
-TYPES={c.__name__:c for c in (AccountContext,Rate,Action,Locate,Event,OrderRequest,RoutingBoundary,State,Claim,Accrual,
+from .signed_execution_terms import SideQuote
+
+TYPES={c.__name__:c for c in (SideQuote,PairEvent,AccountContext,Rate,Action,Locate,Event,OrderRequest,RoutingBoundary,State,Claim,Accrual,
                              Transition,MarkEvent,MarkIdentity,TradingLot)}
 
 
@@ -128,10 +130,12 @@ def verify_packet(packet,expected_context):
         type(expected_context) is AccountContext and packet['execution_authority'] is False,
         'SIGNED_SAVED_CONTEXT_SCHEMA')
     require(type(packet['records']) is list and packet['records'],'SIGNED_SAVED_RECORDS')
-    bridge=_SavedBridge(packet);driver=SignedEventDriver(expected_context,bridge);saved=packet['records']
+    bridge=_SavedBridge(packet);driver=SignedEventDriver(expected_context,bridge);saved=packet['records'];checked=0
     def check():
+        nonlocal checked
         n=len(driver.records)
-        actual=encode(driver.records);expected=encode(saved[:n])
+        require(checked<=n,'SIGNED_SAVED_PREFIX_LENGTH')
+        actual=encode(driver.records[checked:n]);expected=encode(saved[checked:n])
         def diff(a,b,path='records'):
             if type(a) is not type(b):return path+':type'
             if type(a) is dict:
@@ -144,6 +148,7 @@ def verify_packet(packet,expected_context):
                     if x!=y:return diff(x,y,path+'['+str(i)+']')
             return path
         require(n<=len(saved) and actual==expected,'SIGNED_SAVED_CONSUMED_EVENT_MISMATCH:'+diff(actual,expected))
+        checked=n
     while len(driver.records)<len(saved):
         i=len(driver.records);row=saved[i]
         if driver.event is None:
