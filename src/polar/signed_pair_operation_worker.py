@@ -38,10 +38,10 @@ class LimitedStore(GymStore):
 class Collector:
     def __init__(self,store,path,limits):
         self.store=store;self.path=path;self.limits=limits;self.counts=dict(COUNTERS);self.seq=0
-        self.counter_bytes=0;self.partial_bytes=0;self.latest=None;self.current=None;self.since=0
+        self.counter_bytes=0;self.partial_bytes=0;self.latest=None;self.current=None;self.since=0;self.observed=dict(COUNTERS)
     def __call__(self,kind,payload):
         require(kind in KIND or kind=='NATIVE_PARTIAL','PAIR_OPERATION_UNKNOWN_ENTRY')
-        next_counts=dict(self.counts)
+        next_counts=dict(self.observed)
         if kind in KIND:next_counts[KIND[kind]]+=1
         if kind=='ACCOUNT_ENTRY':
             i=next_counts['account_entries']-1
@@ -52,15 +52,20 @@ class Collector:
             next_counts['scientific_entries']<=1 and next_counts['saved_entries']<=1,'PAIR_OPERATION_ENTRY_BOUND')
         detail=payload.get('details',payload)
         detail={k:v for k,v in detail.items() if k not in ('snapshot','member')}
-        self.since+=1
+        self.since+=1;self.observed=next_counts
         snapshot=payload.get('snapshot')
+        # Native/feature/decision/account boundaries are always synchronous.
+        # Routine already-completed event/fill callbacks are checkpointed in
+        # bounded batches rather than fsyncing a second tape one row at a time.
+        if kind in ('EVENT_CHECKPOINT','FILL_CALLBACK') and self.since<self.limits['checkpoint_interval_events']:
+            return
         if snapshot is not None and (kind in ('NATIVE_PARTIAL','NATIVE_ACCOUNT_OBSERVED') or self.since>=self.limits['checkpoint_interval_events']):
             before=self.store.used();ref=save_prefix(self.store,self.path+'/checkpoints',snapshot(),max_bytes=self.limits['partial_bytes']-self.partial_bytes)
             added=self.store.used()-before;self.partial_bytes+=added
             require(self.partial_bytes<=self.limits['partial_bytes'],'PAIR_OPERATION_PARTIAL_AGGREGATE_LIMIT')
             self.latest=ref;self.since=0
         record={'schema':'polar.private-pair-durable-counter/1','sequence':self.seq,'kind':kind,'details':detail,
-            'account':self.current,'counters':next_counts,'latest_prefix':self.latest,'recorded_ns':time.time_ns(),
+            'account':self.current,'increments':{k:next_counts[k]-self.counts[k] for k in COUNTERS},'counters':next_counts,'latest_prefix':self.latest,'recorded_ns':time.time_ns(),
             'frontier':'EXACT_OBSERVED_PREFIX_NOT_UNOBSERVED_TOTAL'}
         if kind=='ACCOUNT_PERSISTED':record['member']=payload['member']
         raw=canonical(encode(record));require(self.counter_bytes+len(raw)<=self.limits['counter_bytes'],
@@ -128,7 +133,13 @@ def collect(root,path,limit):
         for seq,p in enumerate(sorted(directory.iterdir())):
             record=restore(decode(read_file(root,str((p/'record.json').relative_to(root)),MAX_BYTES)))
             require(p.name==str(seq).zfill(8) and record['sequence']==seq,'PAIR_OPERATION_COUNTER_SEQUENCE')
-            if record['kind'] in KIND:counts[KIND[record['kind']]]+=1
+            increments=record['increments']
+            require(set(increments)==set(COUNTERS) and all(type(v) is int and v>=0 for v in increments.values()),
+                'PAIR_OPERATION_COUNTER_INCREMENT_TYPES')
+            for k in COUNTERS:
+                if k not in ('fill_callbacks','event_checkpoints'):
+                    require(increments[k]==int(KIND.get(record['kind'])==k),'PAIR_OPERATION_MANDATORY_ENTRY_CENSUS')
+                counts[k]+=increments[k]
             require(record['counters']==counts,'PAIR_OPERATION_COUNTER_RECONCILIATION')
             latest=record['latest_prefix'];actual_events+=1
             if record['kind']=='ACCOUNT_PERSISTED':members.append(record['member'])
