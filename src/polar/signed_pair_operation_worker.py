@@ -7,6 +7,7 @@ from dataclasses import asdict
 import sys,json,time,os
 from .gym_contract import canonical,decode,sha,read_ref,MAX_BYTES
 from .signed_event_saved import encode,restore
+from .signed_pair_wire import wire_bytes,wire_read
 from .signed_pair_input import PairInput,Quote,Formation,CONTROLS,CASES
 from .signed_event_driver import Action
 from .signed_pair_saved import binding_for
@@ -60,19 +61,26 @@ class Collector:
         # bounded batches rather than fsyncing a second tape one row at a time.
         if kind in ('EVENT_CHECKPOINT','FILL_CALLBACK') and self.since<self.limits['checkpoint_interval_events']:
             return
-        if snapshot is not None and (kind in ('NATIVE_PARTIAL','NATIVE_ACCOUNT_OBSERVED') or self.since>=self.limits['checkpoint_interval_events']):
-            before=self.store.used();ref=save_prefix(self.store,self.path+'/checkpoints',snapshot(),max_bytes=self.limits['partial_bytes']-self.partial_bytes,max_logical_bytes=self.limits['partial_bytes'])
-            added=ref['new_bytes'];self.partial_bytes+=added
-            require(self.partial_bytes<=self.limits['partial_bytes'],'PAIR_OPERATION_PARTIAL_AGGREGATE_LIMIT')
-            self.latest=ref;self.since=0
+        need_prefix=snapshot is not None and (kind in ('NATIVE_PARTIAL','NATIVE_ACCOUNT_OBSERVED','NATIVE_COMPLETED') or
+            self.since>=self.limits['checkpoint_interval_events'])
+        # Persist observed entry/completion before potentially failing snapshot
+        # serialization. A prefix error cannot erase known native completion.
+        self.persist(kind,detail,next_counts,payload.get('member'))
+        if need_prefix:
+            ref=save_prefix(self.store,self.path+'/checkpoints',snapshot(),
+                max_bytes=self.limits['partial_bytes']-self.partial_bytes,max_logical_bytes=self.limits['partial_bytes'])
+            self.partial_bytes+=ref['new_bytes'];self.latest=ref;self.since=0
+            self.persist('PREFIX_SAVED',{'prefix':ref},next_counts)
+    def persist(self,kind,detail,next_counts,member=None):
         record={'schema':'polar.private-pair-durable-counter/1','sequence':self.seq,'kind':kind,'details':detail,
-            'account':self.current,'increments':{k:next_counts[k]-self.counts[k] for k in COUNTERS},'counters':next_counts,'latest_prefix':self.latest,'recorded_ns':time.time_ns(),
+            'account':self.current,'increments':{k:next_counts[k]-self.counts[k] for k in COUNTERS},
+            'counters':next_counts,'latest_prefix':self.latest,'recorded_ns':time.time_ns(),
             'frontier':'EXACT_OBSERVED_PREFIX_NOT_UNOBSERVED_TOTAL'}
-        if kind=='ACCOUNT_PERSISTED':record['member']=payload['member']
-        raw=canonical(encode(record));require(self.counter_bytes+len(raw)<=self.limits['counter_bytes'],
+        if kind=='ACCOUNT_PERSISTED':record['member']=member
+        raw=wire_bytes(record);require(self.counter_bytes+len(raw)<=self.limits['counter_bytes'],
             'PAIR_OPERATION_COUNTER_OUTPUT_LIMIT')
         with self.store.locked():self.store._publish(self.path+'/counters',str(self.seq).zfill(8),{'record.json':raw})
-        self.counter_bytes+=len(raw);self.seq+=1;self.counts=next_counts
+        self.counter_bytes+=len(raw);self.seq+=1;self.counts=dict(next_counts)
 
 
 def load_input(source,expected):
@@ -121,7 +129,7 @@ def work(root,path,limit):
     result.update(counters=dict(observer.counts),last_durable_sequence=observer.seq-1,latest_prefix=observer.latest,
         counter_bytes=observer.counter_bytes,partial_bytes=observer.partial_bytes,
         counter_scope='DURABLE_PREFIX_MINIMUM_ON_FAILURE_EXACT_ON_COMPLETE')
-    with store.locked():store._publish(path,'work-result',{'record.json':canonical(encode(result))},file_limit=MAX_BYTES)
+    with store.locked():store._publish(path,'work-result',{'record.json':wire_bytes(result)},file_limit=MAX_BYTES)
     return result
 
 
@@ -132,8 +140,9 @@ def collect(root,path,limit):
     directory=Path(root)/path/'counters';counts=dict(COUNTERS);latest=None;members=[];actual_events=0
     if directory.exists():
         for seq,p in enumerate(sorted(directory.iterdir())):
-            record=restore(decode(read_file(root,str((p/'record.json').relative_to(root)),MAX_BYTES)))
+            record=wire_read(read_file(root,str((p/'record.json').relative_to(root)),MAX_BYTES))
             require(p.name==str(seq).zfill(8) and record['sequence']==seq,'PAIR_OPERATION_COUNTER_SEQUENCE')
+            require(record['kind'] in set(KIND)|{'NATIVE_PARTIAL','PREFIX_SAVED'},'PAIR_OPERATION_COUNTER_KIND')
             increments=record['increments']
             require(set(increments)==set(COUNTERS) and all(type(v) is int and v>=0 for v in increments.values()),
                 'PAIR_OPERATION_COUNTER_INCREMENT_TYPES')
@@ -146,7 +155,7 @@ def collect(root,path,limit):
             if record['kind']=='ACCOUNT_PERSISTED':members.append(record['member'])
     result_path=Path(root)/path/'work-result/record.json'
     if process['failure'] is None and process['exit_code']==0 and result_path.exists():
-        result=restore(decode(read_file(root,str(result_path.relative_to(root)),MAX_BYTES)))
+        result=wire_read(read_file(root,str(result_path.relative_to(root)),MAX_BYTES))
         require(result['counters']==counts,'PAIR_OPERATION_WORK_RESULT_COUNTERS')
         if result['status']=='SUCCESS':
             require(config['stage']=='ORIGINAL' and len(members)==counts['account_persisted']==counts['native_completed']==48,
@@ -159,7 +168,7 @@ def collect(root,path,limit):
         'counter_scope':'LAST_DURABLE_PREFIX_ONLY_TOTAL_FRONTIER_UNKNOWN','frontier':'UNKNOWN_AFTER_LAST_DURABLE_COUNTER_OR_PREFIX'}
     result.update(durable_counters=counts,actual_counter_records=actual_events,completed_member_refs=members,
         latest_prefix=latest,automatic_retry=False,refund=False)
-    with store.locked():store._publish(path,'collected',{'record.json':canonical(encode(result))},file_limit=MAX_BYTES)
+    with store.locked():store._publish(path,'collected',{'record.json':wire_bytes(result)},file_limit=MAX_BYTES)
     return result
 
 

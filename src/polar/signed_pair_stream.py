@@ -10,6 +10,7 @@ from .signed_pair_saved import (publish_account,verify_stored_account,candidate_
     member_census,chunk_rows,read_chunk_rows,exact_members)
 from .signed_pair_metrics import metrics,evaluate_reports
 from .signed_event_saved import encode,restore
+from .signed_pair_wire import wire_bytes,wire_read
 from .gym_contract import canonical,decode,sha,MAX_BYTES
 from .history_bundle import read_file
 from .signed_native_bridge import require
@@ -21,7 +22,7 @@ def criterion_view(report):
 
 
 def put_object(store,parent,prefix,value):
-    raw=canonical(encode(value));require(len(raw)<=MAX_BYTES,'PAIR_STREAM_OBJECT_LIMIT')
+    raw=wire_bytes(value);require(len(raw)<=MAX_BYTES,'PAIR_STREAM_OBJECT_LIMIT')
     name=prefix+sha(raw)
     with store.locked():store._publish(parent,name,{'record.json':raw},file_limit=MAX_BYTES)
     return {'parent':parent,'id':name,'sha256':sha(raw),'bytes':len(raw)}
@@ -31,7 +32,7 @@ def read_object(root,ref):
     raw=read_file(root,ref['parent']+'/'+ref['id']+'/record.json',MAX_BYTES)
     require(sha(raw)==ref['sha256'] and len(raw)==ref['bytes'] and ref['id'].endswith(sha(raw)),
         'PAIR_STREAM_OBJECT_PIN')
-    return restore(decode(raw))
+    return wire_read(raw)
 
 
 def stream_members(data,emit,observer):
@@ -125,8 +126,8 @@ def save_prefix(store,parent,value,*,max_bytes=None,max_logical_bytes=None):
             shared[name]=compressed
             groups[label].append({**r,'storage_parent':'pair-stream-prefix-chunks/'+name})
             logical+=len(compressed)
-    raw=canonical(encode({'schema':'polar.pair-stream-active-prefix/2','native_header':header,'other':other,
-        'chunks':groups,'completed_account':False}))
+    raw=wire_bytes({'schema':'polar.pair-stream-active-prefix/2','native_header':header,'other':other,
+        'chunks':groups,'completed_account':False})
     require(len(raw)<=MAX_BYTES,'PAIR_STREAM_PARTIAL_HEADER');name='prefix-'+sha(raw);logical+=len(raw)
     require(max_logical_bytes is None or logical<=max_logical_bytes,'PAIR_OPERATION_PARTIAL_LOGICAL_LIMIT')
     with store.locked():

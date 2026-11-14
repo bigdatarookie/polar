@@ -12,6 +12,7 @@ from .ci_research_service import root_identity
 from .signed_native_bridge import require
 from .signed_pair_input import MERGED,CONTROLS,CASES
 from .signed_event_saved import encode,restore
+from .signed_pair_wire import wire_plain
 from .history_bundle import read_file
 from .process_budget import supervise
 
@@ -227,7 +228,7 @@ def run(service,config):
     try:
         stage_receipt=supervised('work',config['stage'].lower() if config['stage']=='SAVED' else 'original')
         collector_receipt=supervised('collect','collector')
-        result=decode(read_file(service.store.root,path+'/collected/record.json',MAX_BYTES))
+        result=wire_plain(read_file(service.store.root,path+'/collected/record.json',MAX_BYTES))
         require(collector_receipt['failure'] is None and collector_receipt['exit_code']==0 and collector_receipt['cleanup']=='COMPLETE',
             'PAIR_OPERATION_COLLECTOR_FAILED')
     except Exception as exc:

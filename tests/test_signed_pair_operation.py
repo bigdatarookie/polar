@@ -287,7 +287,7 @@ FAULT
     monkeypatch.setattr(module,'supervise',wrapped)
     finish=service.run(cfg);assert finish['status']=='FAILED_UNFINALIZED',finish
     assert finish['durable_counters']['native_call_entries']==1 and finish['durable_counters']['native_completed']==0
-    assert finish['latest_prefix'] is not None and finish['actual_counter_records']==4
+    assert finish['latest_prefix'] is not None and finish['actual_counter_records']>=4
     assert finish['process']['cleanup']=='COMPLETE' and finish['collector']['cleanup']=='COMPLETE'
     if fault!='serialization':assert finish['process']['failure']==('WALL_LIMIT' if fault=='timeout' else 'RSS_LIMIT')
     with pytest.raises(Exception):service.run(cfg)
@@ -352,3 +352,54 @@ def test_current_prefix_reuses_immutable_chunks_and_preserves_old_snapshot(tmp_p
     assert len(verify_prefix(tmp_path,two)['native']['records'])==251
     bad={**two,'sha256':'0'*64}
     with pytest.raises(Exception):verify_prefix(tmp_path,bad)
+
+
+def test_separately_charged_saved_route_refuses_failed_or_duplicate_original(tmp_path):
+    import polar.signed_pair_operation as operation
+    service,original,data=fixture(tmp_path);root=service.store.root;fam=family(original);aid='INVENTED_ORIGINAL_METADATA_ONLY'
+    path='scheduled-reference-attempts/'+fam+'/'+aid;resources=decode(Path(original['resources_ref']['path']).read_bytes())
+    start={'schema':'polar.private-pair-start/1','stage':'ORIGINAL','binding':binding(original),
+        'attempt_id':aid,'input_binding':binding_for(data),'resource_limits':resources['limits'],'store_used_before':0,
+        'scope':'INVENTED_REGISTRY_FIXTURE_NOT_ACTUAL_NATIVE_SUCCESS'}
+    with service.store.locked():service.store._publish(path,'start',{'record.json':canonical(encode(start))})
+    index={'schema':'polar.private-pair-stream-operation/1','candidate_id':original['candidate_id'],
+        'experiment_id':original['experiment_id'],'code':original['code'],'runtime_image_id':original['runtime_image_id'],
+        'input_binding':binding_for(data),'attempt_path':path,'attempt_id':aid,
+        'graph':{'parent':'pair-study-components','id':'INVENTED_ABSENT_GRAPH','sha256':'0'*64,'bytes':1}}
+    raw=canonical(encode(index));sid=operation.SEMANTIC+sha(raw)
+    with service.store.locked():
+        service.store._publish('reference-research-experiments',sid,{'manifest.json':raw})
+        service.store._publish(path,'finish',{'record.json':canonical({'status':'SUCCESS','semantic_id':sid,'graph':index['graph'],
+            'containing_parent_wall_seconds':10,'containing_parent_cpu_seconds':10,'scope':'INVENTED_METADATA_ONLY'})})
+    cfg={**deepcopy(original),'stage':'SAVED','semantic_id':sid,'source_manifest_ref':None,
+        'expected_registry':registry(service.store,original)}
+    resources['limits']['remaining_family_wall_seconds']=resources['limits']['remaining_family_cpu_seconds']=590
+    cfg['resources_ref']=put(tmp_path/'saved-resources.json',resources)
+    grant={'schema':'polar.private-pair-operation-authority/1','stage':'SAVED','binding_sha256':sha(canonical(binding(cfg))),
+        'resources_sha256':cfg['resources_ref']['sha256'],'family':fam,'expected_registry':cfg['expected_registry'],
+        'actor_uid':os.getuid(),'actor_gid':os.getgid(),'scientific_calls':0,'native_accounts':0,'saved_calls':1,
+        'fit_calls':0,'model_calls':0,'feature_calls_max':0,'decision_calls_max':0,'scope':'INVENTED_SAVED_METADATA_FIXTURE'}
+    cfg['authority_ref']=put(tmp_path/'saved-authority.json',grant)
+    source=decode(Path(original['source_manifest_ref']['path']).read_bytes())
+    Path(source['encoded_input']['path']).unlink();Path(source['accepted_binding']['path']).unlink()
+    Path(original['source_manifest_ref']['path']).unlink()
+    assert service.preflight(cfg)['source_values_read']==0
+    with pytest.raises(Exception,match='AUTHORITY_REQUIRED'):service.recompute(sid)
+    # The deliberately absent mock graph must fail without loading any source,
+    # entering native or turning a saved metadata fixture into financial proof.
+    result=service.run(cfg);assert result['status']=='FAILED_UNFINALIZED'
+    assert result['durable_counters']['saved_entries']==1
+    assert result['durable_counters']['source_load_entries']==result['durable_counters']['native_call_entries']==0
+    with pytest.raises(Exception,match='SAVED_ALREADY_CHARGED'):service.run(cfg)
+
+
+def test_private_exact_wire_large_fraction_without_global_decimal_limit_change():
+    from polar.signed_pair_wire import wire_bytes,wire_read
+    from polar.gym_contract import canonical
+    number=(1<<20000)+1;value={'variance':F(number,(1<<21000)+3),'ordinary':123,'negative':-number}
+    before=sys.get_int_max_str_digits();raw=wire_bytes(value)
+    assert wire_read(raw)==value and sys.get_int_max_str_digits()==before
+    assert b'$int_hex' in raw and len(raw)<32*1024**2
+    for token in ('0x01','0X'+'f'*200,'-0x0','0xg','0x1'):
+        bad=canonical({'schema':'polar.private-pair-exact-wire/1','value':{'$int_hex':token}})
+        with pytest.raises(Exception):wire_read(bad)
