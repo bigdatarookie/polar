@@ -149,3 +149,173 @@ def prepare_composition(config,root,limit):
     return {'schema':'polar.reference-input-preparation/1','status':'PREPARED_SOURCE_ONLY','revision':revision,
         'input_ref':pin,'symbols':len(symbols),'rows':len(quotes),'quote_bytes':len(raw),
         'scientific_fitness':'NOT_ASSESSED','strategy_execution':'NOT_RUN'}
+
+
+VIEW_PROFILE = 'CALENDAR-VTI-BIL-SOURCE-VIEW-V1'
+
+
+def source_view_metadata(config):
+    """Closed source-view metadata checks before any quote/source value access."""
+    from datetime import date
+    from .reference_input import project_schedule
+    from .research_reference import reference_schedule
+
+    def fields(obj, expected, code):
+        require(type(obj) is dict and set(obj) == set(expected.split()), code)
+
+    fields(config, 'schema profile_id namespace input_ref purpose schedule date_range', 'REFERENCE_VIEW_CONFIG')
+    require(config['schema'] == 'polar.reference-input-conversion-config/6' and
+            config['profile_id'] == VIEW_PROFILE and config['namespace'] in ('INVENTED', 'RETAINED'),
+            'REFERENCE_VIEW_CONFIG')
+    fields(config['date_range'], 'start end count', 'REFERENCE_VIEW_DATES')
+    require(type(config['date_range']['start']) is str and type(config['date_range']['end']) is str and
+            type(config['date_range']['count']) is int and config['date_range']['count'] == 916,
+            'REFERENCE_VIEW_DATES')
+    manifest = decode(pinned_bytes(config['input_ref']))
+    purpose = decode(pinned_bytes(config['purpose']))
+    fields(purpose, 'schema input_ref symbols schedule date_range roles consumer_protocol source_acceptance '
+                    'rights_source_refs rights event_panel date_association', 'REFERENCE_VIEW_PURPOSE')
+    require(purpose['schema'] == 'polar.reference-input-selected-view-purpose/1' and
+            canonical(purpose['input_ref']) == canonical(config['input_ref']) and canonical(purpose['schedule']) == canonical(config['schedule']) and
+            canonical(purpose['date_range']) == canonical(config['date_range']) and
+            purpose['symbols'] == ['BIL', 'VTI'], 'REFERENCE_VIEW_PURPOSE')
+    rights = 'INVENTED_PUBLIC_TEST' if config['namespace'] == 'INVENTED' else RIGHTS
+    require(purpose['rights'] == rights, 'REFERENCE_VIEW_RIGHTS')
+    require(type(manifest) is dict and manifest.get('schema') == 'polar.synthetic-reference-source-input/2'
+            and manifest.get('symbols') == ['BIL', 'SHY', 'VTI'] and
+            manifest.get('quote_basis') == 'VENDOR_ALL_ADJUSTED_REFERENCE_CLOSE' and
+            manifest.get('unit_type') == 'SYNTHETIC_REFERENCE_UNIT_NOT_RAW_SHARE' and
+            manifest.get('double_action_policy') == 'NO_ADDITIONAL_SPLIT_DIVIDEND_CREDIT_IN_REFERENCE_UNIT_MODEL'
+            and manifest.get('rights') == rights, 'REFERENCE_VIEW_PARENT_BASIS')
+    meta = manifest.get('conversion_metadata', manifest.get('provenance'))
+    require(type(meta) is dict and meta.get('converter') == 'polar.reference-input-composer/2'
+            and meta.get('profile') == SELECTED_PROFILE, 'REFERENCE_VIEW_PARENT_PRODUCER')
+    semantic = meta.get('semantic')
+    require(type(semantic) is dict and type(semantic.get('config')) is dict and
+            semantic['config'].get('namespace') == config['namespace'], 'REFERENCE_VIEW_NAMESPACE')
+    parent_config = semantic['config']
+    require(semantic.get('converter') == 'polar.reference-input-composer/2' and
+            parent_config.get('schema') == 'polar.reference-input-conversion-config/5' and
+            parent_config.get('profile_id') == SELECTED_PROFILE and
+            canonical(parent_config.get('date_range')) == canonical(manifest.get('dates')) and
+            semantic.get('quotes_sha256') == manifest.get('quotes', {}).get('sha256') and
+            semantic.get('schedule_sha256') == manifest.get('schedule', {}).get('sha256') and
+            semantic.get('relations_sha256') == manifest.get('source_relations', {}).get('sha256'),
+            'REFERENCE_VIEW_PARENT_SEMANTIC')
+    fixture = {'kind': 'DETERMINISTIC_INVENTED_FIXTURE', 'producer': 'polar-public-tests', 'source_payloads': 'NONE'}
+    require(type(manifest.get('provenance')) is dict, 'REFERENCE_VIEW_NAMESPACE')
+    parent_revision = manifest.get('parent_dataset_revision')
+    require(type(parent_revision) is str, 'REFERENCE_VIEW_NAMESPACE')
+    if config['namespace'] == 'INVENTED':
+        require(parent_revision.startswith('INVENTED-') and manifest.get('provenance') == fixture,
+                'REFERENCE_VIEW_NAMESPACE')
+    else:
+        require(not parent_revision.startswith('INVENTED-') and
+                manifest.get('provenance', {}).get('kind') != fixture['kind'], 'REFERENCE_VIEW_NAMESPACE')
+    require(schedule_binding_matches(manifest, config['schedule']), 'REFERENCE_VIEW_PARENT_SCHEDULE')
+    parent_schedule = decode(pinned_bytes(manifest['schedule']))
+    _, parent_days = reference_schedule(parent_schedule)
+    fields(manifest.get('dates'), 'start end count', 'REFERENCE_VIEW_PARENT_GRID')
+    require(type(manifest['dates']['count']) is int and manifest['dates'] ==
+            {'start': parent_days[0], 'end': parent_days[-1], 'count': len(parent_days)} and
+            type(manifest.get('rows')) is int and manifest['rows'] == len(parent_days) * 3,
+            'REFERENCE_VIEW_PARENT_GRID')
+    selected = project_schedule(parent_schedule, config['date_range'])
+    _, days = reference_schedule(selected)
+    roles = purpose['roles']
+    fields(roles, 'nav_dates warmup_dates warmup_symbol context_symbol', 'REFERENCE_VIEW_ROLES')
+    nav, warm = roles['nav_dates'], roles['warmup_dates']
+    require(type(nav) is list and len(nav) == 716 and type(warm) is list and len(warm) == 200
+            and roles['warmup_symbol'] == 'VTI' and roles['context_symbol'] == 'BIL', 'REFERENCE_VIEW_ROLES')
+    for dates in (nav, warm):
+        require(all(type(d) is str for d in dates), 'REFERENCE_VIEW_ROLE_DATES')
+        try:
+            require(all(date.fromisoformat(d).isoformat() == d for d in dates), 'REFERENCE_VIEW_ROLE_DATES')
+        except ValueError:
+            require(False, 'REFERENCE_VIEW_ROLE_DATES')
+        require(dates == sorted(set(dates)), 'REFERENCE_VIEW_ROLE_DATES')
+    require(warm + nav == days and warm[0] == '2023-03-16' and warm[-1] == '2023-12-29'
+            and nav[0] == '2024-01-02' and nav[-1] == '2026-11-06', 'REFERENCE_VIEW_ROLE_MEMBERSHIP')
+    wrapper = decode(pinned_bytes(purpose['consumer_protocol']))
+    fields(wrapper, 'schema protocol packet', 'REFERENCE_VIEW_PROTOCOL')
+    require(wrapper['schema'] == 'polar.captured-reference-protocol-binding/1', 'REFERENCE_VIEW_PROTOCOL')
+    pinned_bytes(wrapper['protocol'])
+    require(type(decode(pinned_bytes(wrapper['packet']))) is dict, 'REFERENCE_VIEW_PROTOCOL')
+    for key in ('source_acceptance', 'event_panel', 'date_association'):
+        require(type(decode(pinned_bytes(purpose[key]))) is dict, 'REFERENCE_VIEW_METADATA_REF')
+    refs = purpose['rights_source_refs']
+    require(type(refs) is list and 1 <= len(refs) <= 16, 'REFERENCE_VIEW_RIGHTS_REFS')
+    for pin in refs: pinned_bytes(pin)
+    return manifest, purpose, selected, days
+
+
+def prepare_source_view(config, root, limit):
+    """One lossless rectangle, explicit role support, unchanged accepted v2 reader."""
+    from copy import deepcopy
+    manifest, purpose, schedule, days = source_view_metadata(config)
+    market = load_reference(config['input_ref'])
+    require(set(days) <= set(market['dates']) and set(purpose['symbols']) <= set(market['symbols']),
+            'REFERENCE_VIEW_PARENT_GRID')
+    symbols = purpose['symbols']; selected_days = set(days); quotes = {}
+    for line in pinned_bytes(manifest['quotes']).splitlines(keepends=True):
+        row = decode(line)
+        if row['date'] not in selected_days or row['symbol'] not in symbols: continue
+        key = (row['date'], row['symbol'])
+        require(key not in quotes, 'REFERENCE_VIEW_DUPLICATE_QUOTE')
+        quotes[key] = line
+    require(set(quotes) == {(d, s) for d in days for s in symbols}, 'REFERENCE_VIEW_RECTANGLE')
+    raw = b''.join(quotes[d, s] for d in days for s in symbols)
+    require(len(raw) <= MAX_BYTES, 'REFERENCE_VIEW_BYTES_BOUND')
+    relations = deepcopy(market['source_relations'])
+    relations['records'] = [r for r in relations['records'] if r['literal_alias'] in symbols]
+    relations['eligibility_ledger'] = {'schema': 'polar.selected-source-purpose-membership/1',
+                                     'selected_aliases_fixed_order': symbols}
+    # Keep the original component graph; unselected metadata is not an economic row.
+    relations['parent_source_relations'] = manifest['source_relations']
+    relations['source_purpose'] = config['purpose']
+    relations['source_view_parent'] = config['input_ref']
+    membership = {'schema': 'polar.reference-source-date-roles/1', 'source_dates': days,
+                  'symbols': symbols, 'NAV': {'dates': purpose['roles']['nav_dates'], 'symbols': symbols},
+                  'WARMUP_CANDIDATE': {'dates': purpose['roles']['warmup_dates'], 'symbols': ['VTI']},
+                  'UNUSED_WARMUP_CONTEXT': {'dates': purpose['roles']['warmup_dates'], 'symbols': ['BIL']},
+                  'counts': {'source_dates': 916, 'source_rows': 1832, 'NAV_dates': 716,
+                             'NAV_rows': 1432, 'VTI_warmup_rows': 200, 'BIL_unused_context_rows': 200},
+                  'clock_eligibility': 'NOT_DERIVED', 'financial': 'NOT_RUN'}
+    schedule_raw = canonical(schedule); role_raw = canonical(membership)
+    semantic = {'converter': 'polar.reference-input-source-view/1', 'config': config,
+                'quotes_sha256': sha(raw), 'schedule_sha256': sha(schedule_raw),
+                'relations_sha256': sha(canonical(relations)), 'roles_sha256': sha(role_raw)}
+    revision = 'reference-input-' + sha(canonical(semantic))
+    destination = Path(root) / 'reference-inputs' / revision
+    pin = lambda name, data: {'path': str(destination / name), 'sha256': sha(data), 'bytes': len(data)}
+    provenance = {'converter': 'polar.reference-input-source-view/1', 'profile': VIEW_PROFILE,
+                  'parent_input': config['input_ref'], 'parent_schedule': config['schedule'],
+                  'source_purpose': config['purpose'], 'date_roles': pin('date-roles.json', role_raw),
+                  'semantic': semantic, 'economic_distinct_count': 'NOT_ESTABLISHED',
+                  'model_execution': 'UNSUPPORTED_BY_THIS_CONVERTER'}
+    output = {'schema': 'polar.synthetic-reference-source-input/2',
+              'quote_basis': manifest['quote_basis'], 'unit_type': manifest['unit_type'],
+              'double_action_policy': manifest['double_action_policy'], 'symbols': symbols,
+              'dates': config['date_range'], 'rows': len(quotes), 'rights': purpose['rights'],
+              'schedule': pin('schedule.json', schedule_raw), 'quotes': pin('quotes.ndjson', raw),
+              'source_relations': pin('source-relations.json', canonical(relations)),
+              'source_members': manifest['source_members'],
+              'parent_dataset_revision': ('INVENTED-' if config['namespace'] == 'INVENTED' else '') + 'source-view-' + sha(canonical(semantic)),
+              'provenance': provenance}
+    if config['namespace'] == 'INVENTED':
+        output['conversion_metadata'] = provenance
+        output['provenance'] = {'kind': 'DETERMINISTIC_INVENTED_FIXTURE', 'producer': 'polar-public-tests', 'source_payloads': 'NONE'}
+    files = {'manifest.json': canonical(output), 'quotes.ndjson': raw, 'schedule.json': schedule_raw,
+             'source-relations.json': canonical(relations), 'date-roles.json': role_raw,
+             'quality.json': canonical({'scope': 'SOURCE_ONLY_EXPLICIT_ROLES_NOT_MODEL_MEMBERSHIP',
+                 'rows': len(quotes), 'observed_clocks': 'PRESERVED_NOT_INFERRED',
+                 'scale': 'LOSSLESS_ORIGINAL_LEXEMES', 'scientific_fitness': 'NOT_ASSESSED',
+                 'native_calls': 0, 'financial': 'NOT_RUN'})}
+    store = HistoryStore(root, limit)
+    with store.locked():
+        store._publish('reference-inputs', revision, files, file_limit=MAX_BYTES)
+    result_pin = pin('manifest.json', files['manifest.json']); load_reference(result_pin)
+    return {'schema': 'polar.reference-input-preparation/1', 'status': 'PREPARED_SOURCE_ONLY',
+            'revision': revision, 'input_ref': result_pin, 'date_roles': pin('date-roles.json', role_raw),
+            'symbols': len(symbols), 'rows': len(quotes), 'role_counts': membership['counts'],
+            'scientific_fitness': 'NOT_ASSESSED', 'strategy_execution': 'NOT_RUN'}
