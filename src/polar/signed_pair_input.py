@@ -7,8 +7,7 @@ from dataclasses import dataclass
 from fractions import Fraction as F
 import re
 from datetime import datetime,timezone
-from .signed_native_bridge import re
-from datetime import datetime,timezonequire
+from .signed_native_bridge import require
 from .signed_event_driver import Action
 
 NAMES=('AAPL','AMZN')
