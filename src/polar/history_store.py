@@ -52,6 +52,9 @@ class HistoryStore:
         return path
 
     def _publish(self, parent_name, name, files, *, file_limit=MAX_FILE):
+        # Validate the entire transaction before creating staging or opening a
+        # writer. Readback remains a second check, not the first size guard.
+        require(all(len(raw) <= file_limit for raw in files.values()), "HISTORY_FILE_LIMIT")
         parent = self._directory(parent_name)
         final = parent / name
         require(not final.is_symlink(), "HISTORY_SYMLINK")

@@ -54,6 +54,17 @@ def registry(store,config):
     return found
 
 
+def supervision_phases(stage):
+    require(stage in ('ORIGINAL','SAVED'),'PAIR_OPERATION_STAGE')
+    return ('original','saved','collector','collector') if stage=='ORIGINAL' else ('saved','collector')
+
+
+def operation_storage_bound(value,stage):
+    # Each work/collector supervisor has a distinct log and journal. ORIGINAL
+    # reserves its prospective success-only SAVED pair as well as its own pair.
+    return value['operation_store_bytes']+len(supervision_phases(stage))*(value['log_bytes']+value['journal_bytes'])
+
+
 def limits(value,stage):
     fields={'original','saved','collector','cleanup_seconds','remaining_family_wall_seconds','remaining_family_cpu_seconds',
         'rss_bytes','log_bytes','journal_bytes','counter_bytes','partial_bytes','checkpoint_interval_events',
@@ -64,8 +75,8 @@ def limits(value,stage):
             all(positive(v) for v in value[phase].values()),'PAIR_OPERATION_STAGE_LIMIT')
     require(all(positive(v) for k,v in value.items() if k not in ('original','saved','collector')),
         'PAIR_OPERATION_FINITE_RESOURCES')
-    phases=('original','saved','collector','collector') if stage=='ORIGINAL' else ('saved','collector')
-    cleanups=4 if stage=='ORIGINAL' else 2
+    phases=supervision_phases(stage)
+    cleanups=len(phases)
     require(sum(value[p]['wall_seconds'] for p in phases)+cleanups*value['cleanup_seconds']<=value['remaining_family_wall_seconds'] and
         sum(value[p]['cpu_seconds'] for p in phases)<=value['remaining_family_cpu_seconds'],
         'PAIR_OPERATION_CUMULATIVE_ALLOWANCE')
@@ -142,8 +153,8 @@ def prepare(service,config,*,check_registry=True):
     require(resources['schema']=='polar.private-pair-resource-admission/1' and resources['status']=='SUFFICIENT_CERTIFIED' and
         resources['artifact_root_identity']==config['artifact_root_identity'] and resources['actor_uid']==os.getuid() and
         resources['actor_gid']==os.getgid() and resources['runtime_image_id']==config['runtime_image_id'] and
-        resources['global_storage_headroom_bytes']>=bound['operation_store_bytes']+bound['log_bytes']+bound['journal_bytes'] and
-        service.store.limit-service.store.used()>=bound['operation_store_bytes']+bound['log_bytes']+bound['journal_bytes'],
+        resources['global_storage_headroom_bytes']>=operation_storage_bound(bound,config['stage']) and
+        service.store.limit-service.store.used()>=operation_storage_bound(bound,config['stage']),
         'PAIR_OPERATION_CURRENT_RESOURCE_ADMISSION')
     if config['stage']=='SAVED':
         prior_start=restore(decode(read_file(service.store.root,index['attempt_path']+'/start/record.json',MAX_BYTES)))
