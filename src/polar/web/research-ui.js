@@ -29,9 +29,12 @@ function createResearchWorkspace({root,historyWorkspace,fetcher,theme=()=> 'auto
   const pagination=el('div',undefined,'research-pagination'),prev=button('Previous',()=>load(Math.max(0,(committed?.catalog.offset||0)-10)), 'research-prev'),next=button('Next',()=>load(committed?.catalog.next_offset),'research-next'),pageLabel=el('small');pagination.append(prev,pageLabel,next);
   const appearance=el('div',undefined,'research-appearance');appearance.append(el('small','Theme'));
   for(const mode of ['auto','light','dark'])appearance.append(button(mode[0].toUpperCase()+mode.slice(1),()=>{setTheme(mode);renderChart();},'research-theme-'+mode));
-  const note=button('',()=>location.assign('/ui/notes/dtb3.html'),'dtb3-note-link');note.className='research-result';
-  note.append(el('b','How material is the zero-carry assumption?'),el('small','Analytical note · descriptive discount reference · no strategy return'));
-  aside.append(head,el('p','Analytical note','research-muted'),note,catalogStatus,reload,pickerLabel,list,pagination,appearance);
+  const note=el('a');note.id='dtb3-note-link';note.href='/ui/notes/dtb3.html';note.className='research-result';
+  note.append(el('b','How material is the zero-carry assumption?'),el('small','DTB3 · descriptive synthetic discount reference'));
+  note.onclick=()=>{try{saveDtb3Return({schema:'polar.dtb3-research-return/1',pending:true,result_id:committed?.detail?.result_id||null,
+    offset:committed?.catalog.offset||0,theme:theme(),main_scroll:main.scrollTop,catalog_scroll:aside.scrollTop,root_scroll:root.scrollTop,
+    disclosures:[...root.querySelectorAll('details')].map(d=>d.open),url:location.href},sessionStorage,location.href);}catch{}};
+  aside.append(head,el('p','Analytical notes','research-muted'),note,catalogStatus,reload,pickerLabel,list,pagination,appearance);
   const main=el('div',undefined,'research-main'),intro=el('header',undefined,'research-intro'),plot=el('section',undefined,'research-plot');plot.setAttribute('aria-label','Supplied outcome comparison by strategy and baseline');
   const legend=el('div',undefined,'research-legends'),canvas=el('div');canvas.id='research-chart';const metricLabel=el('label','Supplied comparison metric','research-metric-label'),metricPicker=el('select');metricPicker.id='research-metric';metricLabel.htmlFor=metricPicker.id;metricLabel.append(metricPicker);metricPicker.onchange=()=>{metricChoice=metricPicker.value;renderChart();};
   const chartNote=el('p','','research-chart-note'),pointLabel=el('label','Inspect supplied UTC sample','research-point-label'),pointInput=el('input');pointInput.id='research-point';pointInput.type='range';pointInput.min='0';pointInput.step='1';pointInput.setAttribute('aria-describedby','research-point-summary');pointLabel.htmlFor=pointInput.id;
@@ -41,7 +44,16 @@ function createResearchWorkspace({root,historyWorkspace,fetcher,theme=()=> 'auto
   const inspector=el('div',undefined,'research-inspector');inspector.append(pointLabel,pointInput,pointSummary,pointDetails);
   const content=el('section',undefined,'research-content');content.id='research-content';content.setAttribute('aria-label','Result metrics, costs, limitations and provenance');
   plot.append(metricLabel,legend,canvas,chartNote);const exactSamples=details('Inspect exact supplied NAV & ledger samples',inspector);content.append(exactSamples);main.append(intro,content);root.append(aside,main);
-  function open(show,selection=null,offset=0){active=show;root.hidden=!show;historyWorkspace.hidden=show;priceButton.setAttribute('aria-pressed',String(!show));savedButton.setAttribute('aria-pressed',String(show));onToggle(show);if(show){if(selection)load(offset,selection);else if(!committed&&!loading)load(0);else{render();requestAnimationFrame(renderChart);}}else{client.cancel();loading=false;}}
+  function open(show,selection=null,offset=0){active=show;root.hidden=!show;historyWorkspace.hidden=show;priceButton.setAttribute('aria-pressed',String(!show));savedButton.setAttribute('aria-pressed',String(show));onToggle(show);if(show){if(selection)return load(offset,selection);else if(!committed&&!loading)return load(offset);else{render();requestAnimationFrame(renderChart);}}else{client.cancel();loading=false;}}
+  async function restoreDtb3(context){
+    const saved=dtb3ReturnContext(context,location.href);if(!saved)return open(true);
+    setTheme(saved.theme);await open(true,saved.result_id,saved.offset);
+    if(saved.result_id!==null&&committed?.detail?.result_id!==saved.result_id)return;
+    requestAnimationFrame(()=>{[...root.querySelectorAll('details')].forEach((d,i)=>{d.open=saved.disclosures[i]===true;});
+      main.scrollTop=saved.main_scroll;aside.scrollTop=saved.catalog_scroll;root.scrollTop=saved.root_scroll;note.focus({preventScroll:true});
+      saveDtb3Return({...saved,pending:false},sessionStorage,location.href);
+      const url=new URL(location.href);url.searchParams.delete('dtb3_return');history.replaceState(history.state,'',url);});
+  }
   function renderPending(){
     const target=committed?.catalog.items.find(i=>i.result_id===request.selection)?.question.label;
     const label=loading?'Updating '+(target||'saved research')+(committed?' · current result retained.':'. Waiting for a complete result.'):error?'Update failed · '+error+(committed?'. Last coherent result retained.':'. No result available.'):committed?.detail?'Research ready':committed?'No saved research results.':'Open saved research to load persisted results.';
@@ -162,7 +174,7 @@ function createResearchWorkspace({root,historyWorkspace,fetcher,theme=()=> 'auto
   }
   const observer=new ResizeObserver(()=>{cancelAnimationFrame(renderFrame);renderFrame=requestAnimationFrame(renderChart);});observer.observe(root);
   const themeObserver=new MutationObserver(()=>{if(active)render();});themeObserver.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
-  open(false);return {navigation:nav,open,openResult:(id,offset=0)=>open(true,id,offset),refresh:()=>load(request.offset,request.selection),isActive:()=>active,isLoading:()=>loading,applyAutomaticSnapshot,setAutoError(value){if(autoError===value)return;autoError=value;renderPending();},reset(){client.cancel();committed=null;loading=false;error=null;automaticSnapshot=null;pinnedResultId=null;request={offset:0,selection:null};inspect=0;chartResult=null;chart?.clear();open(false);}};
+  open(false);return {navigation:nav,open,restoreDtb3,openResult:(id,offset=0)=>open(true,id,offset),refresh:()=>load(request.offset,request.selection),isActive:()=>active,isLoading:()=>loading,applyAutomaticSnapshot,setAutoError(value){if(autoError===value)return;autoError=value;renderPending();},reset(){client.cancel();committed=null;loading=false;error=null;automaticSnapshot=null;pinnedResultId=null;request={offset:0,selection:null};inspect=0;chartResult=null;chart?.clear();open(false);}};
 }
 
 if(typeof module!=='undefined')module.exports={researchTableScrollTarget};

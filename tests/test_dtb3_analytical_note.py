@@ -37,9 +37,12 @@ def test_existing_static_report_route_preserves_assessed_scope_without_service()
                       'Strict prior-date joining does not establish observed publication-known-by timestamps.',
                       'No strategy NAV, order, fill, annualized portfolio return or cash-earnings series exists'):
             assert saved in text
+        assert 'Original source: Board of Governors of the Federal Reserve System, H.15 Selected Interest Rates.' in text
+        assert 'Historical known-by and revision history remain UNKNOWN.' in text
+        assert any(a.get('href') == 'https://fred.stlouisfed.org/legal/' for a in parsed.attributes)
         assert 'canvas' not in parsed.tags
-        assert any(a.get('href') == '/ui/?workspace=research#dtb3-note-link' for a in parsed.attributes)
-        assert any(a.get('data-source-result-sha256') == 'fe81bb31c76faf11c8ffccd67c40f734d00b765d47c89432d1d61b49a4ddf241' and
+        assert any(a.get('href') == '/ui/?workspace=research' for a in parsed.attributes)
+        assert any(a.get('data-source-result-sha256') == 'b93c92d89e01a9a046de2ed1542cb5d0669f13692645489880cad748d8e5e89e' and a.get('data-source-fitness-sha256') == '8d2e4e390fa08eaa1ed9923640ad5aed6283b3db273c615f6e80eb9d41d358ae' and
                    a.get('data-review-sha256') == '9dacd84d5121f7cc794715f86f084d173b1591703382ad8ba56a1a264d6074ba' for a in parsed.attributes)
     # A fresh application instance serves the same immutable note, with no DB.
     with TestClient(create_app(NoServiceCalls())) as client:
