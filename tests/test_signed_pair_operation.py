@@ -211,9 +211,10 @@ main()
         return actual_supervise(argv,**kwargs)
     monkeypatch.setattr(module,'supervise',wrapped)
     finish=service.run(cfg)
+    record_property('fullshape_supervised_finish',json.dumps(finish,sort_keys=True))
     assert finish['status']=='FAILED_UNFINALIZED',finish
     assert finish['durable_counters']['native_call_entries']==finish['durable_counters']['native_completed']==1,finish
-    assert finish['durable_counters']['account_completed']==finish['durable_counters']['account_persisted']==1
+    assert finish['durable_counters']['account_completed']==finish['durable_counters']['account_persisted']==1,finish
     assert len(finish['completed_member_refs'])==1
     ref=finish['completed_member_refs'][0]['account'];b=binding_for(data)
     assert len(verify_stored_account(service.store.root,ref,b)['NAV'])==967
