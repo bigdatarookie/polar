@@ -5,21 +5,25 @@ calendar `research-preflight` or `research-run` CLI to the existing bounded Linu
 `process_budget.supervise` and immutable `HistoryStore`. It accepts no arbitrary
 command, export path, new scheduler, financial grant or retry policy. The existing
 calendar FIRST_START/family registry and scientific authority remain unchanged.
-A retained original Service call now requires the config-bound child of this
-entry point. Preflight remains metadata-only; source values stay after FIRST_START.
+Retained ORIGINAL admission is explicitly unavailable until a trusted external
+physical/aggregate guard interface exists. Direct retained Service calls also
+fail closed. A caller-supplied PID/environment or CERTIFIED JSON is not proof.
+Invented preflight stays metadata-only; source values stay after FIRST_START.
 
 ## Required explicit admission
 
-`polar.calendar-host-admission/1` is a trusted local SRE input, not something this
-adapter manufactures. The exact example shape is executable in
+`polar.calendar-host-admission/1` describes required finite inputs. The implemented
+consumer is INVENTED only; RETAINED is refused before writer/child even when a
+caller claims certification. A real trusted SRE interface is unavailable and
+this adapter does not manufacture one. The example shape is executable in
 `tests/test_calendar_hosting.py:fixture`; `hosting_binding` defines the guard pin.
 Fields are closed: schema, action (`PREFLIGHT` or `ORIGINAL`), config_sha256,
 artifact_root_identity (path/device/inode), actor_uid/gid, runtime_image_id,
 limits, physical, export_bytes. Config is canonical-hash pinned, current-code
 bound, and copied into an immutable hosting directory before launching. The
-child receives that copy and an immutable admission ref. Retained child admission
-also checks its supervisor parent PID; arbitrary environment text alone does not
-select a different command or config.
+child receives that immutable config copy. There is no environment/PID capability
+or self-issued guard handoff. The earlier PID check was rejected in review and
+removed; the forged-envelope regression preserves that failure.
 
 Every limit is a required positive integer: wall_seconds, cpu_seconds,
 outer_wall_seconds, outer_cpu_seconds, cleanup_seconds, poll_seconds, rss_bytes,
@@ -49,18 +53,19 @@ ACTIVE_ENFORCED (INVENTED_TEST_ONLY for controls), binding_sha256 of the whole
 admission except the guard ref itself, root_identity, allocated_growth_upper_bytes,
 valid_until_ns, guard_id, and exact coverage: parent, store, staging, supervision,
 collector, host_logs, docker_logs, concurrent_writers, metadata_inflight.
-For retained use, memory_max_bytes and cpu_max must match the actual finite Linux
-cgroup files, RSS must fit memory.max, and current POLAR_RUNTIME_IMAGE_ID and
-POLAR_OPERATION_GUARD_ID must match. A current qualified SRE owner must supply
-and substantiate this receipt. It is an explicit trusted prerequisite, **not**
-an independent physical-guard attestation generated or verified by this code.
-A matching string, a Docker rotation flag, or these source tests alone do not
-establish aggregate enforcement. No current retained guard or headroom is supplied
-by this change; unavailable/UNKNOWN inputs fail before a child or write.
+For future retained use, actual runtime/root/actor/prior, finite cgroup CPU/RAM,
+all-writer physical allocation, outer parent/collector limits and a trusted guard
+issuer/interface remain required resources. Those interfaces are NOT implemented
+or installed here. Strings, hashes, PID, cgroup equality and Docker rotation flags
+do not authenticate aggregate guard custody. Both hosting prepare and direct
+retained Service run fail closed while that interface is unavailable. Enabling
+retained integration requires the actual guard resource and affected source
+integration; this is not a financial admission or a scientific finding. Independent
+metadata and research work continue.
 
 ## Bounded consumer and failure
 
-The existing root lock encloses admission recheck and immutable config/admission
+For the invented consumer, the existing root lock encloses admission recheck and immutable config/admission
 publication. Before launching, the adapter reserves selected receipt capacity
 including collection; insufficient capacity rejects without a child. The child
 gets an absolute logical store limit calculated from current usage plus selected
@@ -93,6 +98,7 @@ explicitly identified nonfinancial surrogate pressure children through the same
 outer supervisor/store/collector path. They exercise fail-closed unknown/expired/
 insufficient allocation, changed guard/config/actor, bounded output and wall
 cleanup, store refusal with completed-record preservation, and immutable bounded
-collection. No retained values, original scientific attempt, native financial
+collection, plus rejection of a forged environment/parent-PID envelope.
+No retained values, original scientific attempt, native financial
 run, resource deletion, serving reconfiguration or physical admission is tested
 or claimed. Existing calendar scientific tests remain separate technical controls.

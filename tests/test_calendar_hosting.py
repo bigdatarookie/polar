@@ -158,3 +158,33 @@ MODE
     assert (directory/'console.resources.ndjson').stat().st_size <= a['limits']['journal_bytes']
     assert (directory/'collection/record.json').exists()
     assert result['refund'] is False and result['automatic_retry'] is False
+
+
+def test_forged_environment_parent_pid_is_not_supervision_proof(tmp_path, monkeypatch):
+    root, config, admission = fixture(tmp_path)
+    admission['action'] = 'ORIGINAL'
+    ref = put(tmp_path/'self-asserted-admission.json', admission)
+    # Grant the predecessor all other metadata checks at this boundary: even
+    # then a caller's real parent PID is not proof of the bounded supervisor.
+    monkeypatch.setattr(host, 'prepare', lambda *args: admission['limits'])
+    monkeypatch.setenv('POLAR_CALENDAR_HOST_CHILD', canonical({
+        'supervisor_pid': os.getppid(), 'admission_ref': ref}).decode())
+    service = type('Service', (), {'store': HistoryStore(root, 1)})()
+    with pytest.raises(ValueError, match='CALENDAR_HOST_REQUIRED'):
+        host.validate_child(service, config)
+    assert list(root.iterdir()) == []
+
+
+def test_self_asserted_certification_cannot_enable_retained_host(tmp_path):
+    root, config, admission = fixture(tmp_path)
+    config['namespace'] = 'RETAINED'
+    admission['config_sha256'] = sha(canonical(config))
+    admission['physical']['status'] = 'CERTIFIED'
+    bind_guard(tmp_path, admission)
+    p = Path(admission['physical']['guard_ref']['path'])
+    guard = decode(p.read_bytes())
+    guard['status'] = 'ACTIVE_ENFORCED'
+    admission['physical']['guard_ref'] = put(p, guard)
+    with pytest.raises(ValueError, match='TRUSTED_GUARD_UNAVAILABLE'):
+        host.run(root, config, admission)
+    assert list(root.iterdir()) == []

@@ -4,8 +4,6 @@ A current trusted SRE physical/guard receipt is a prerequisite, not a fact this
 adapter can derive from logical store bytes, Docker.raw size or sampled RSS.
 """
 import os
-import platform
-import re
 import sys
 import time
 import uuid
@@ -13,7 +11,7 @@ from pathlib import Path
 
 from .ci_research import require
 from .ci_research_service import root_identity
-from .gym_contract import MAX_BYTES, GymError, canonical, decode, read_ref, sha
+from .gym_contract import MAX_BYTES, canonical, decode, read_ref, sha
 from .gym_service import code_binding
 from .history_bundle import read_file
 from .history_store import HistoryStore
@@ -47,6 +45,11 @@ def prepare(root, config, admission):
     require(type(config) is dict and config.get('schema') == 'polar.calendar-study-config/1' and
             config.get('namespace') in ('INVENTED', 'RETAINED') and config.get('code') == code_binding() and
             admission['config_sha256'] == sha(canonical(config)), 'CALENDAR_HOST_CONFIG_BINDING')
+    # No installed trusted physical/aggregate guard interface currently exists.
+    # Caller-supplied status/hash/PID/env/cgroup equality cannot establish one.
+    # Keep RETAINED unavailable, including with a fabricated CERTIFIED receipt.
+    require(config['namespace'] != 'RETAINED',
+            'CALENDAR_HOST_PHYSICAL_UNCERTIFIED_TRUSTED_GUARD_UNAVAILABLE')
     identity = root_identity(root)
     require(identity == config.get('artifact_root_identity') == admission['artifact_root_identity'] and
             type(admission['actor_uid']) is int and admission['actor_uid'] == os.getuid() and
@@ -89,29 +92,12 @@ def prepare(root, config, admission):
             guard.get('valid_until_ns') == physical['valid_until_ns'] and
             type(guard.get('guard_id')) is str and bool(guard['guard_id']) and
             guard.get('root_identity') == identity, 'CALENDAR_HOST_GUARD_UNBOUND')
-    if config['namespace'] == 'RETAINED':
-        require(platform.system() == 'Linux' and
-                os.environ.get('POLAR_RUNTIME_IMAGE_ID') == admission['runtime_image_id'] and
-                os.environ.get('POLAR_OPERATION_GUARD_ID') == guard['guard_id'] and
-                positive(guard.get('memory_max_bytes')) and bounds['rss_bytes'] <= guard['memory_max_bytes'] and
-                Path('/sys/fs/cgroup/memory.max').read_text().strip() == str(guard['memory_max_bytes']) and
-                type(guard.get('cpu_max')) is str and re.fullmatch(r'[1-9][0-9]* [1-9][0-9]*', guard['cpu_max']) and
-                Path('/sys/fs/cgroup/cpu.max').read_text().strip() == guard['cpu_max'],
-                'CALENDAR_HOST_CURRENT_CGROUP_GUARD')
     return bounds
 
 
 def validate_child(service, config):
-    """Retained ORIGINAL must be the bound child of this hosting invocation."""
-    try:
-        envelope = decode(os.environ['POLAR_CALENDAR_HOST_CHILD'].encode())
-        require(type(envelope['supervisor_pid']) is int and
-                os.getppid() == envelope['supervisor_pid'], 'CALENDAR_HOST_PARENT')
-        admission = decode(read_ref(envelope['admission_ref']))
-        require(admission['action'] == 'ORIGINAL', 'CALENDAR_HOST_ACTION')
-        prepare(service.store.root, config, admission)
-    except (KeyError, ValueError, GymError, OSError):
-        require(False, 'CALENDAR_HOST_REQUIRED')
+    """A caller's environment/PID cannot prove the unavailable guard interface."""
+    require(False, 'CALENDAR_HOST_REQUIRED_TRUSTED_GUARD_UNAVAILABLE')
 
 
 def run(root, config, admission):
@@ -136,12 +122,9 @@ def run(root, config, admission):
         store._publish('calendar-hosting', name,
                        {'config.json': config_raw, 'admission.json': admission_raw}, file_limit=MAX_BYTES)
     directory = root / parent
-    admission_path = directory / 'admission.json'
-    ref = {'path': str(admission_path), 'sha256': sha(admission_raw), 'bytes': len(admission_raw)}
     env = {**os.environ, 'POLAR_ARTIFACT_ROOT': str(root),
            'POLAR_STORAGE_BYTES': str(before + bounds['store_growth_bytes']),
-           'PYTHONDONTWRITEBYTECODE': '1',
-           'POLAR_CALENDAR_HOST_CHILD': canonical({'supervisor_pid': os.getpid(), 'admission_ref': ref}).decode()}
+           'PYTHONDONTWRITEBYTECODE': '1'}
     command = 'research-preflight' if admission['action'] == 'PREFLIGHT' else 'research-run'
     try:
         process = supervise([sys.executable, '-m', 'polar.cli', command, str(directory / 'config.json')],
