@@ -188,7 +188,11 @@ def load_plan(config,b,roles,calendars):
 
 
 def run(service,config):
-    p,b,side,roles,loc,manifest,calendars=prepare(service,config);grant=authority(service,config,p,b)
+    p,b,side,roles,loc,manifest,calendars=prepare(service,config)
+    if config['namespace']=='RETAINED':
+        from .calendar_hosting import validate_child
+        validate_child(service,config)
+    grant=authority(service,config,p,b)
     f=family(config,p);parent='scheduled-reference-attempts/'+f;aid=str(uuid.uuid4())
     with service.store.locked():
         # All current metadata/code/root/actor pins rechecked inside admission.
