@@ -31,9 +31,11 @@ function createResearchWorkspace({root,historyWorkspace,fetcher,theme=()=> 'auto
   for(const mode of ['auto','light','dark'])appearance.append(button(mode[0].toUpperCase()+mode.slice(1),()=>{setTheme(mode);renderChart();},'research-theme-'+mode));
   const note=el('a');note.id='dtb3-note-link';note.href='/ui/notes/dtb3.html';note.className='research-result';
   note.append(el('b','How material is the zero-carry assumption?'),el('small','DTB3 · descriptive synthetic discount reference'));
-  note.onclick=()=>{try{saveDtb3Return({schema:'polar.dtb3-research-return/1',pending:true,result_id:committed?.detail?.result_id||null,
+  function rememberDtb3(pending){try{return saveDtb3Return({schema:'polar.dtb3-research-return/1',pending,result_id:committed?.detail?.result_id||null,
     offset:committed?.catalog.offset||0,theme:theme(),main_scroll:main.scrollTop,catalog_scroll:aside.scrollTop,root_scroll:root.scrollTop,
-    disclosures:[...root.querySelectorAll('details')].map(d=>d.open),url:location.href},sessionStorage,location.href);}catch{}};
+    disclosures:[...root.querySelectorAll('details')].map(d=>d.open),url:location.href},sessionStorage,location.href);}catch{return false;}}
+  note.onclick=()=>{rememberDtb3(true);};
+  window.addEventListener('pagehide',()=>{try{const saved=readDtb3Return(sessionStorage,location.href);if(active&&saved&&!saved.pending&&dtb3SameViewURL(saved.url,location.href))rememberDtb3(false);}catch{}});
   aside.append(head,el('p','Analytical notes','research-muted'),note,catalogStatus,reload,pickerLabel,list,pagination,appearance);
   const main=el('div',undefined,'research-main'),intro=el('header',undefined,'research-intro'),plot=el('section',undefined,'research-plot');plot.setAttribute('aria-label','Supplied outcome comparison by strategy and baseline');
   const legend=el('div',undefined,'research-legends'),canvas=el('div');canvas.id='research-chart';const metricLabel=el('label','Supplied comparison metric','research-metric-label'),metricPicker=el('select');metricPicker.id='research-metric';metricLabel.htmlFor=metricPicker.id;metricLabel.append(metricPicker);metricPicker.onchange=()=>{metricChoice=metricPicker.value;renderChart();};
