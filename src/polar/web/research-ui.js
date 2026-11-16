@@ -29,7 +29,9 @@ function createResearchWorkspace({root,historyWorkspace,fetcher,theme=()=> 'auto
   const pagination=el('div',undefined,'research-pagination'),prev=button('Previous',()=>load(Math.max(0,(committed?.catalog.offset||0)-10)), 'research-prev'),next=button('Next',()=>load(committed?.catalog.next_offset),'research-next'),pageLabel=el('small');pagination.append(prev,pageLabel,next);
   const appearance=el('div',undefined,'research-appearance');appearance.append(el('small','Theme'));
   for(const mode of ['auto','light','dark'])appearance.append(button(mode[0].toUpperCase()+mode.slice(1),()=>{setTheme(mode);renderChart();},'research-theme-'+mode));
-  aside.append(head,catalogStatus,reload,pickerLabel,list,pagination,appearance);
+  const note=button('',()=>location.assign('/ui/notes/dtb3.html'),'dtb3-note-link');note.className='research-result';
+  note.append(el('b','How material is the zero-carry assumption?'),el('small','Analytical note · descriptive discount reference · no strategy return'));
+  aside.append(head,el('p','Analytical note','research-muted'),note,catalogStatus,reload,pickerLabel,list,pagination,appearance);
   const main=el('div',undefined,'research-main'),intro=el('header',undefined,'research-intro'),plot=el('section',undefined,'research-plot');plot.setAttribute('aria-label','Supplied outcome comparison by strategy and baseline');
   const legend=el('div',undefined,'research-legends'),canvas=el('div');canvas.id='research-chart';const metricLabel=el('label','Supplied comparison metric','research-metric-label'),metricPicker=el('select');metricPicker.id='research-metric';metricLabel.htmlFor=metricPicker.id;metricLabel.append(metricPicker);metricPicker.onchange=()=>{metricChoice=metricPicker.value;renderChart();};
   const chartNote=el('p','','research-chart-note'),pointLabel=el('label','Inspect supplied UTC sample','research-point-label'),pointInput=el('input');pointInput.id='research-point';pointInput.type='range';pointInput.min='0';pointInput.step='1';pointInput.setAttribute('aria-describedby','research-point-summary');pointLabel.htmlFor=pointInput.id;
