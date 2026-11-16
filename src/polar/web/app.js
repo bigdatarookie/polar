@@ -746,7 +746,7 @@ function initResearchWorkspace(){
 function restoreDtb3Workspace(params){
   if(!researchWorkspace)return;
   if(params.get('workspace')!=='research'&&params.get('view')!=='research'){if(researchWorkspace.isActive())return researchWorkspace.open(false);return;}
-  const context=readDtb3Return(sessionStorage,location.href);
+  let context=null;try{context=readDtb3Return(sessionStorage,location.href);}catch{}
   if(context&&(params.get('dtb3_return')==='1'||context.pending&&dtb3SameViewURL(context.url,location.href)))return researchWorkspace.restoreDtb3(context);
   return researchWorkspace.open(true);
 }
