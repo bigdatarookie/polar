@@ -729,7 +729,7 @@ function initUI() {
   document.addEventListener('click',event=>{if(event.target.closest('#chart')&&!handledTradeClicks.has(event)&&!draggedTradeClicks.has(event))clearTradeSelection();});
   document.addEventListener('keydown',e=>{if(e.key==='Escape'&&state.infoId){e.preventDefault();closeInfo(true);}});
   $('#rail-inner').addEventListener('keydown',e=>{if(innerWidth>=701||!$('#rail-inner').classList.contains('mobile-open'))return;if(e.key==='Escape'){$('#rail-inner').classList.remove('mobile-open');$('#tools-button').focus({preventScroll:true});}if(e.key==='Tab'){const items=[...$('#rail-inner').querySelectorAll('button,input,select')].filter(el=>!el.disabled&&el.getClientRects().length),i=items.indexOf(document.activeElement);if(e.shiftKey&&i===0){e.preventDefault();items.at(-1)?.focus();}else if(!e.shiftKey&&i===items.length-1){e.preventDefault();items[0]?.focus();}}});
-  const fit=()=>requestAnimationFrame(()=>{if(document.hidden)return;chart.resize();renderChart();positionInfo();});window.addEventListener('pageshow',fit);window.addEventListener('focus',fit);window.addEventListener('resize',positionInfo);document.addEventListener('visibilitychange',()=>{if(document.hidden)saveWorkspace();else fit();});window.addEventListener('pagehide',saveWorkspace);window.addEventListener('popstate',()=>{const p=new URL(location.href).searchParams;state.dataMode=p.get('mode')==='retained-test'?'retained-test':'real';if(state.dataMode==='real')loadHistorySelection({datasetId:p.get('dataset'),revision:p.get('revision'),instrumentId:p.get('instrument')});else loadSelection(...urlSelection());});
+  const fit=()=>requestAnimationFrame(()=>{if(document.hidden)return;chart.resize();renderChart();positionInfo();});window.addEventListener('pageshow',fit);window.addEventListener('focus',fit);window.addEventListener('resize',positionInfo);document.addEventListener('visibilitychange',()=>{if(document.hidden)saveWorkspace();else fit();});window.addEventListener('pagehide',saveWorkspace);window.addEventListener('pageshow',event=>{if(event.persisted)restoreDtb3Workspace(new URL(location.href).searchParams);});window.addEventListener('popstate',()=>{const p=new URL(location.href).searchParams;restoreDtb3Workspace(p);state.dataMode=p.get('mode')==='retained-test'?'retained-test':'real';if(state.dataMode==='real')loadHistorySelection({datasetId:p.get('dataset'),revision:p.get('revision'),instrumentId:p.get('instrument')});else loadSelection(...urlSelection());});
   matchMedia('(prefers-color-scheme: light)').addEventListener('change',()=>{if(state.theme==='auto')renderAll();});
   document.fonts?.ready?.then(()=>{chart.resize();renderChart();drawMeasurement();});
 }
@@ -738,10 +738,17 @@ function initResearchWorkspace(){
   const foot=element('span');foot.id='research-footer';$('footer').prepend(foot);
   researchWorkspace=createResearchWorkspace({root,historyWorkspace:$('#workspace'),fetcher:fetch,onCompare:saved=>{mainResearch.chosen=saved;researchWorkspace.open(false);selectMainResearch(saved.result_id,true,true);requestAnimationFrame(()=>$('#chart-stage').focus({preventScroll:true}));},
     theme:()=>state.theme,setTheme,
-    onToggle:active=>{document.body.dataset.workspace=active?'research':'price';foot.hidden=!active;if(!active)requestAnimationFrame(()=>{chart.resize();renderChart();drawMeasurement();syncToolbar();if(mainResearchReturnFocus)document.getElementById(mainResearchReturnFocus)?.focus({preventScroll:true});});},
+    onToggle:active=>{document.body.dataset.workspace=active?'research':'price';foot.hidden=!active;const viewURL=new URL(location.href);if(active)viewURL.searchParams.set('workspace','research');else viewURL.searchParams.delete('workspace');viewURL.searchParams.delete('view');history.replaceState(history.state,'',viewURL);if(!active)requestAnimationFrame(()=>{chart.resize();renderChart();drawMeasurement();syncToolbar();if(mainResearchReturnFocus)document.getElementById(mainResearchReturnFocus)?.focus({preventScroll:true});});},
     onContext:text=>{foot.textContent=text;foot.title=text;}});
   $('.topbar').insertBefore(researchWorkspace.navigation,$('.top-actions'));
   mainResearchClient=createResearchClient(fetch);loadMainResearch(0);initAutomaticResearch();
+}
+function restoreDtb3Workspace(params){
+  if(!researchWorkspace)return;
+  if(params.get('workspace')!=='research'&&params.get('view')!=='research'){if(researchWorkspace.isActive())return researchWorkspace.open(false);return;}
+  let context=null;try{context=readDtb3Return(sessionStorage,location.href);}catch{}
+  if(context&&(params.get('dtb3_return')==='1'||dtb3SameViewURL(context.url,location.href)))return researchWorkspace.restoreDtb3(context);
+  return researchWorkspace.open(true);
 }
 function boot() {
   let restored=null;
@@ -750,6 +757,7 @@ function boot() {
   if(state.dataMode==='real'&&!restored?.controls)state.rangeId='3M';
   const startupParams=new URL(location.href).searchParams;if(['1W','1M','3M','6M','12M','All'].includes(startupParams.get('range')))state.rangeId=startupParams.get('range');
   document.documentElement.dataset.theme=resolvedTheme();initUI();if(typeof createResearchWorkspace==='function')initResearchWorkspace();const initial=urlSelection(),explicitURL=initial.some(Boolean);
+  restoreDtb3Workspace(startupParams);
   if(state.dataMode==='retained-test')loadSelection(explicitURL?initial[0]:restored?.dataset_id,explicitURL?initial[1]:restored?.run_id,{restore:explicitURL?null:restored});else{const p=new URL(location.href).searchParams;if(p.get('run')){renderAll();tell('Retained run link preserved. Open explicit retained test mode to use its synthetic report.');}else {const sameStored=restored?.history_revision===p.get('revision')&&restored?.instrument_id===p.get('instrument'),w=historyDate(p.get('start'))&&historyDate(p.get('end'))?{start:p.get('start'),end_exclusive:p.get('end')}:sameStored?restored?.history_window:null;loadHistorySelection({datasetId:p.get('dataset'),revision:p.get('revision'),instrumentId:p.get('instrument'),window:historyDate(w?.start)&&historyDate(w?.end_exclusive)&&w.start<w.end_exclusive?w:null});}}
 }
 if(typeof module==='undefined')boot();
