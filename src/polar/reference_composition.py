@@ -9,10 +9,84 @@ from .selected_reference_input import RIGHTS
 
 PROFILE = 'COMPOSED-ALL-ADJUSTED-REFERENCE-INPUT-V1'
 SELECTED_PROFILE = 'SELECTED-COMPOSED-ALL-ADJUSTED-REFERENCE-INPUT-V1'
+COMPONENT_PROFILE = 'NATIVE-COMPONENT-REFERENCE-INPUT-V1'
+
+
+def component_metadata(config):
+    """Bind explicit native subsets and existing qualifications before quote reads.
+
+    This is a source materializer, not a new authorization service. The owning
+    caller must already be entitled to validate each complete parent input.
+    Qualification pins preserve source decisions; they do not issue a grant.
+    """
+    from .reference_input import project_schedule
+    require(type(config) is dict and set(config) == {'schema', 'profile_id', 'namespace',
+            'inputs', 'purpose', 'schedule', 'date_range'} and
+            config['schema'] == 'polar.reference-input-conversion-config/9' and
+            config['profile_id'] == COMPONENT_PROFILE and config['namespace'] in ('INVENTED', 'RETAINED'),
+            'REFERENCE_COMPONENT_CONFIG')
+    inputs = config['inputs']
+    require(type(inputs) is list and 1 <= len(inputs) <= 16 and all(type(x) is dict and
+            set(x) == {'input_ref', 'symbols'} and type(x['symbols']) is list and x['symbols'] and
+            all(type(s) is str for s in x['symbols']) and x['symbols'] == sorted(set(x['symbols']))
+            for x in inputs), 'REFERENCE_COMPONENT_SELECTION')
+    pins = [x['input_ref'] for x in inputs]
+    manifests = [decode(pinned_bytes(p)) for p in pins]
+    require(len({p['sha256'] for p in pins}) == len(pins), 'REFERENCE_COMPONENT_DUPLICATE_INPUT')
+    purpose = decode(pinned_bytes(config['purpose']))
+    fields = {'schema', 'inputs', 'symbols', 'schedule', 'date_range', 'consumer_protocol',
+              'source_acceptance', 'rights_source_refs', 'rights', 'source_qualifications'}
+    require(type(purpose) is dict and set(purpose) == fields and
+            purpose['schema'] == 'polar.reference-input-composition-purpose/3' and
+            all(purpose[k] == config[k] for k in ('inputs', 'schedule', 'date_range')),
+            'REFERENCE_COMPONENT_PURPOSE')
+    rights = 'INVENTED_PUBLIC_TEST' if config['namespace'] == 'INVENTED' else RIGHTS
+    require(purpose['rights'] == rights, 'REFERENCE_COMPONENT_RIGHTS')
+    for key in ('consumer_protocol', 'source_acceptance'):
+        require(type(decode(pinned_bytes(purpose[key]))) is dict, 'REFERENCE_COMPONENT_PURPOSE_REF')
+    refs = purpose['rights_source_refs']
+    require(type(refs) is list and 1 <= len(refs) <= 16, 'REFERENCE_COMPONENT_RIGHTS_REFS')
+    for p in refs:
+        pinned_bytes(p)
+    qualifications = purpose['source_qualifications']
+    require(type(qualifications) is list and len(qualifications) == len(inputs),
+            'REFERENCE_COMPONENT_QUALIFICATIONS')
+    desired = project_schedule(decode(pinned_bytes(config['schedule'])), config['date_range'])
+    symbols = []
+    for item, manifest, qualification in zip(inputs, manifests, qualifications):
+        require(type(qualification) is dict and set(qualification) == {'input_ref', 'symbols', 'qualification'} and
+                all(qualification[k] == item[k] for k in ('input_ref', 'symbols')),
+                'REFERENCE_COMPONENT_QUALIFICATION_BINDING')
+        # Decisions have source-specific schemas and may predate the native
+        # manifest. The explicit purpose binds their immutable evidence to the
+        # selected component; this adapter neither invents nor reissues them.
+        decision = decode(pinned_bytes(qualification['qualification']))
+        require(type(decision) is dict and decision, 'REFERENCE_COMPONENT_QUALIFICATION_REF')
+        require(manifest.get('schema') == 'polar.synthetic-reference-source-input/2' and
+                manifest.get('quote_basis') == 'VENDOR_ALL_ADJUSTED_REFERENCE_CLOSE' and
+                manifest.get('unit_type') == 'SYNTHETIC_REFERENCE_UNIT_NOT_RAW_SHARE' and
+                manifest.get('double_action_policy') == 'NO_ADDITIONAL_SPLIT_DIVIDEND_CREDIT_IN_REFERENCE_UNIT_MODEL' and
+                manifest.get('rights') == rights, 'REFERENCE_COMPONENT_BASIS_RIGHTS')
+        invented = manifest.get('provenance') == {'kind': 'DETERMINISTIC_INVENTED_FIXTURE',
+            'producer': 'polar-public-tests', 'source_payloads': 'NONE'}
+        require(invented == (config['namespace'] == 'INVENTED') and
+                str(manifest.get('parent_dataset_revision', '')).startswith('INVENTED-') == invented,
+                'REFERENCE_COMPONENT_NAMESPACE')
+        require(set(item['symbols']) <= set(manifest['symbols']) and
+                not set(item['symbols']) & set(symbols), 'REFERENCE_COMPONENT_SYMBOL_SET')
+        symbols.extend(item['symbols'])
+        parent = project_schedule(decode(pinned_bytes(manifest['schedule'])), config['date_range'])
+        # Compare complete session rows, not just matching labels or clocks.
+        require(canonical(parent['rows']) == canonical(desired['rows']), 'REFERENCE_COMPONENT_CALENDAR')
+    symbols.sort()
+    require(symbols == purpose['symbols'] and len(symbols) <= 64, 'REFERENCE_COMPONENT_SYMBOL_SET')
+    return manifests, purpose, canonical(desired), symbols, pins
 
 
 def composition_metadata(config):
     """Validate purpose, namespaces and complete calendar before opening numeric rows."""
+    if config.get('schema') == 'polar.reference-input-conversion-config/9':
+        return component_metadata(config)
     selected=config.get('schema')=='polar.reference-input-conversion-config/5'
     require(set(config)=={'schema','profile_id','namespace','inputs','purpose','schedule','date_range'} and
             config['schema']==('polar.reference-input-conversion-config/5' if selected else 'polar.reference-input-conversion-config/3') and config['profile_id']==(SELECTED_PROFILE if selected else PROFILE) and
@@ -87,16 +161,20 @@ def composition_metadata(config):
 
 def prepare_composition(config,root,limit):
     manifests,purpose,schedule_raw,symbols,collections=composition_metadata(config)
-    selected=config['schema']=='polar.reference-input-conversion-config/5'
+    generic=config['schema']=='polar.reference-input-conversion-config/9'
+    selected=generic or config['schema']=='polar.reference-input-conversion-config/5'
     pins=[x['input_ref'] for x in config['inputs']] if selected else config['inputs']
-    quotes={};members={};records=[];coverage=[];jobs={};parents={};components=[];captures={}
-    days=None;total=0
+    quotes={};members={};records=[];coverage=[];jobs={};parents={};components=[];captures={};single_captures={}
+    days=[r['date'] for r in decode(schedule_raw)['rows']] if generic else None
+    total=0
     for index,(pin,manifest) in enumerate(zip(pins,manifests)):
         current=config['inputs'][index]['symbols'] if selected else manifest['symbols']
         market=load_reference(pin)  # Same accepted validation, no original raw/normalized re-extraction.
-        require(days is None or days==market['dates'],'REFERENCE_COMPOSITION_CALENDAR')
-        days=market['dates'];relations=market['source_relations']
-        for target,source in ((jobs,relations['jobs']),(parents,relations['parent_relations']),(captures,relations.get('captures',{}))):
+        require(set(days)<=set(market['dates']) if generic else days is None or days==market['dates'],'REFERENCE_COMPOSITION_CALENDAR')
+        if not generic:days=market['dates']
+        relations=market['source_relations']
+        for target,source in ((jobs,relations['jobs']),(parents,relations['parent_relations']),(captures,relations.get('captures',{})),
+                              (single_captures,relations.get('single_symbol_captures',{}))):
             for key,value in source.items():
                 require(key not in target or target[key]==value,'REFERENCE_COMPOSITION_RELATION_COLLISION')
                 target[key]=value
@@ -106,7 +184,7 @@ def prepare_composition(config,root,limit):
         coverage.extend(relations['source_coverage_records'])
         for line in pinned_bytes(manifest['quotes']).splitlines(keepends=True):
             value=decode(line)
-            if value['symbol'] not in current:continue
+            if value['symbol'] not in current or generic and value['date'] not in days:continue
             key=(value['date'],value['symbol'])
             require(key not in quotes,'REFERENCE_COMPOSITION_DUPLICATE_QUOTE')
             quotes[key]=line;total+=len(line)
@@ -115,17 +193,21 @@ def prepare_composition(config,root,limit):
         origin='source_input' if selected else 'source_capture' if meta.get('converter')=='polar.reference-input-converter/4' else 'source_collection'
         components.append({'input_ref':pin,origin:collections[len(components)],
             'symbols':current,'source_relations':manifest['source_relations']})
+        if generic:components[-1]['source_qualification']=purpose['source_qualifications'][index]['qualification']
     require(set(quotes)=={(d,s) for d in days for s in symbols},'REFERENCE_COMPOSITION_GRID')
     raw=b''.join(quotes[d,s] for d in days for s in symbols)
     relations={'schema':'polar.reference-source-relations/1','records':sorted(records,key=lambda r:r['literal_alias']),
         'eligibility_ledger':{'schema':'polar.selected-source-purpose-membership/1','selected_aliases_fixed_order':symbols},
         'jobs':jobs,'parent_relations':parents,'source_coverage_records':coverage,
-        'source_components':components,'source_purpose':config['purpose'],**({'captures':captures} if captures else {})}
-    semantic={'converter':'polar.reference-input-composer/2' if selected else 'polar.reference-input-composer/1','config':config,'quotes_sha256':sha(raw),
+        'source_components':components,'source_purpose':config['purpose'],**({'captures':captures} if captures else {}),
+        **({'single_symbol_captures':single_captures} if single_captures else {}),
+        **({'source_qualifications':purpose['source_qualifications']} if generic else {})}
+    converter='polar.reference-input-composer/3' if generic else 'polar.reference-input-composer/2' if selected else 'polar.reference-input-composer/1'
+    semantic={'converter':converter,'config':config,'quotes_sha256':sha(raw),
         'schedule_sha256':sha(schedule_raw),'relations_sha256':sha(canonical(relations))}
     revision='reference-input-'+sha(canonical(semantic));destination=Path(root)/'reference-inputs'/revision
     output_pin=lambda name,data:{'path':str(destination/name),'sha256':sha(data),'bytes':len(data)}
-    provenance={'converter':'polar.reference-input-composer/2' if selected else 'polar.reference-input-composer/1','profile':SELECTED_PROFILE if selected else PROFILE,'parent_schedule':config['schedule'],
+    provenance={'converter':converter,'profile':COMPONENT_PROFILE if generic else SELECTED_PROFILE if selected else PROFILE,'parent_schedule':config['schedule'],
         'source_components':components,'semantic':semantic,'vintage_equivalence':'NOT_ESTABLISHED',
         'economic_distinct_count':'NOT_ESTABLISHED','model_execution':'UNSUPPORTED_BY_THIS_CONVERTER'}
     manifest={'schema':'polar.synthetic-reference-source-input/2','quote_basis':'VENDOR_ALL_ADJUSTED_REFERENCE_CLOSE',
