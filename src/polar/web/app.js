@@ -319,7 +319,7 @@ function setDataMode(mode){
   else loadHistorySelection(realModeReturn||{rangeId:'3M'});
 }
 async function loadExecutions(offset=0){
-  const current=++executionFlow,focusId=document.activeElement?.id,saved=selectedMainResearch();executionClient.cancel();if(!saved){executions={resultId:null,page:null,loading:false,error:null};selectedExecutionId=null;keepScroll(()=>{renderRail();renderChart();});return;}
+  const current=++executionFlow,focusId=document.activeElement?.id,saved=selectedMainResearch();executionClient.cancel();if(!saved||!researchHasPortfolio(saved)){executions={resultId:null,page:null,loading:false,error:null};selectedExecutionId=null;keepScroll(()=>{renderRail();renderChart();});return;}
   const id=saved.result_id;executions={resultId:id,page:null,loading:EXECUTIONS_RUNTIME_READY,error:EXECUTIONS_RUNTIME_READY?null:'SAVED_EXECUTION_READER_NOT_QUALIFIED'};keepScroll(renderRail);if(!EXECUTIONS_RUNTIME_READY)return;
   try{const result=await researchLoadAllExecutions(executionClient,saved,()=>current===executionFlow&&mainResearchSelection===id);if(!result)return;executions={resultId:id,page:result.page,allItems:result.allItems,offset:0,loading:false,error:null};}catch(error){if(current!==executionFlow||mainResearchSelection!==id)return;executions={resultId:id,page:null,loading:false,error:/^[A-Z0-9_]+$/.test(error.message)?error.message:'SAVED_EXECUTIONS_UNAVAILABLE'};}
   keepScroll(()=>{renderRail();renderChart();});if(['executions-next','executions-previous'].includes(focusId)){const target=document.getElementById(focusId);(target&&!target.disabled?target:document.getElementById(focusId==='executions-next'?'executions-previous':'executions-next'))?.focus({preventScroll:true});}
@@ -396,6 +396,7 @@ async function selectExecution(event,{origin='row'}={}){
 }
 function renderSavedExecutions(body){
   const saved=selectedMainResearch();if(!saved){panelNote(body,'Select a saved strategy to inspect its actual saved order tape.');return;}
+  if(researchIsDescription(saved.record)){panelNote(body,'Orders: NOT APPLICABLE · this prospective descriptive result contains no portfolio or execution tape.');return;}
   if(executions.resultId!==saved.result_id||executions.loading){panelNote(body,'Loading saved executions · no fills inferred.');return;}
   if(executions.error){panelNote(body,'Saved executions unavailable · '+executions.error);const retry=element('button','Retry saved executions');retry.id='retry-executions';retry.onclick=()=>loadExecutions();body.append(retry);return;}
   const page=executions.page;if(!page||page.status==='UNAVAILABLE'){panelNote(body,'Saved execution tape unavailable · '+(page?.reason||'NOT_LOADED'));return;}
@@ -488,7 +489,7 @@ async function loadMainResearch(offset=mainResearch.offset){
 }
 function selectedMainResearch(){return mainResearch.page?.details?.find(d=>d.result_id===mainResearchSelection)||(mainResearch.chosen?.result_id===mainResearchSelection?mainResearch.chosen:null);}
 function getMainComparison(){
-  const saved=selectedMainResearch();if(!historyDisplayed()||!saved)return null;
+  const saved=selectedMainResearch();if(!historyDisplayed()||!saved||!researchHasPortfolio(saved))return null;
   if(comparisonCache?.bars!==view.bars||comparisonCache?.saved!==saved){const anchorKey=[saved.result_id,saved.content_sha256,historyContext?.revision?.dataset_revision,historyContext?.instrument?.instrument_id].join("|");const model=researchComparison(saved,view.bars,comparisonAnchor?.key===anchorKey?comparisonAnchor:null);if(model.usable)comparisonAnchor={key:anchorKey,baselineDate:model.baselineDate,priceBase:model.priceBase,strategyBase:model.strategyBase,benchmarkBase:model.benchmarkBase};model.historySummary=researchHistoryCompatibility(saved,historyContext);comparisonCache={bars:view.bars,saved,model};}
   return comparisonCache.model;
 }
@@ -505,11 +506,11 @@ async function selectMainResearch(id,fit=true,preserveSameResult=false){
   mainResearch.chosen=mainResearch.page?.details?.find(d=>d.result_id===id)||mainResearch.chosen;mainResearchSelection=id;comparisonCache=null;comparisonAnchor=null;state.measurement=null;state.cursorSource='assetClose';cancelGesture();
   if(fit&&historyContext?.loadedWindow&&selectedMainResearch()?.record?.grid?.length){const grid=selectedMainResearch().record.grid,window=historyWindow(historyContext,'Custom',{}, {start:grid[0].slice(0,10),end_exclusive:historyDayAfter(grid.at(-1).slice(0,10))});if(!historyWindowContains(historyContext.loadedWindow,window)){await loadHistorySelection({...currentHistoryRequest(),seriesOnly:true,selectWindow:true,rangeId:'Custom',window});if(id!==mainResearchSelection)return;}}
   const model=getMainComparison();if(fit&&model?.usable){viewportVersion++;state.lo=model.first;state.hi=model.last;state.rangeId='Custom';state.cursor=state.inspect=state.lo;}
-  selectedExecutionId=null;executionQuery='';executionDayChoice='';loadExecutions();keepScroll(renderAll);saveWorkspace();tell(model?.usable?'Saved strategy and benchmark compared on Index100. Portfolio is not attributed to this asset.':model?.reason||'Select stored history to compare.');
+  selectedExecutionId=null;executionQuery='';executionDayChoice='';loadExecutions();keepScroll(renderAll);saveWorkspace();tell(model?.usable?'Saved strategy and benchmark compared on Index100. Portfolio is not attributed to this asset.':model?.reason||(researchIsDescription(selectedMainResearch()?.record)?'Descriptive result selected · portfolio metrics, NAV and orders are not applicable.':'Select stored history to compare.'));
 }
 function comparisonReadout(i){const model=getMainComparison();if(!model?.usable)return '';return '\nSaved portfolio sample '+(model.times[i]||'not supplied on this calendar date')+' · strategy '+(model.strategyRaw[i]??'Unavailable')+' USD · benchmark '+(model.benchmarkRaw[i]??'Unavailable')+' USD · Index100 baseline '+model.baselineDate+'; no fills inferred.';}
 function renderPortfolioOverlayControls(body){
-  const saved=selectedMainResearch();if(!historyDisplayed()||!saved)return;const host=element('section',undefined,'indicator-card portfolio-overlays');body.append(host);
+  const saved=selectedMainResearch();if(!historyDisplayed()||!saved||!researchHasPortfolio(saved))return;const host=element('section',undefined,'indicator-card portfolio-overlays');body.append(host);
   const model=getMainComparison(),r=saved.record;
   const fit=element('button','Fit research dates');fit.id='fit-research';fit.disabled=!model?.usable;fit.onclick=()=>selectMainResearch(saved.result_id,true);
   const clear=element('button','Price only');clear.id='clear-comparison';clear.onclick=()=>selectMainResearch(null,false);
@@ -561,8 +562,8 @@ function renderMainResearch(list){
   const displayRows=(complete?researchSortRows(page.details,mainMetricSort.key,mainMetricSort.direction):discovered).slice(mainResearch.offset,mainResearch.offset+10),pinned=page?.details.find(d=>d.result_id===mainRefreshPinnedId);if(pinned&&!displayRows.includes(pinned))displayRows.push(pinned);
   for(const saved of displayRows){
     const r=saved.record||{question:saved.question,series:[],basis:saved.basis},row=element('article',undefined,'main-strategy-row');row.dataset.resultId=saved.result_id;row.setAttribute('role','listitem');row.dataset.selected=String(saved.result_id===mainResearchSelection);
-    const choose=element('button',undefined,'main-strategy-select');choose.dataset.compareResult=saved.result_id;choose.id='main-compare-'+saved.result_id;choose.setAttribute('aria-pressed',String(saved.result_id===mainResearchSelection));choose.setAttribute('aria-label','Compare '+r.question.label);choose.title=r.question.label;choose.append(element('b',researchReadable(r.series.find(leg=>leg.role==='STRATEGY')?.label||r.question.label)),element('small',researchPhase(r)));choose.onclick=()=>selectMainResearch(saved.result_id);
-    const verdict=element('span',researchReadable(saved.assessment.financial),'main-strategy-verdict');
+    const choose=element('button',undefined,'main-strategy-select');choose.dataset.compareResult=saved.result_id;choose.id='main-compare-'+saved.result_id;choose.setAttribute('aria-pressed',String(saved.result_id===mainResearchSelection));choose.setAttribute('aria-label',(researchIsDescription(r)?'Select ':'Compare ')+r.question.label);choose.title=r.question.label;choose.append(element('b',researchReadable(r.series?.find(leg=>leg.role==='STRATEGY')?.label||r.question.label)),element('small',researchPhase(r)));choose.onclick=()=>selectMainResearch(saved.result_id);
+    const verdict=element('span',researchFinancialLabel(saved.assessment),'main-strategy-verdict');
     const open=element('button','ⓘ','main-strategy-info');open.dataset.openResearch=saved.result_id;open.id='main-research-open-'+saved.result_id;open.setAttribute('aria-label','Read research: '+r.question.label);open.onclick=()=>{mainResearchReturnFocus=open.id;researchWorkspace?.openResult(saved.result_id,page.offsets[saved.result_id]??0);};choose.append(verdict);row.append(element('span',saved.result_id===mainResearchSelection?'Active':'—','main-strategy-state'),choose);for(const key of ['sharpe','drawdown','annualized']){const metric=saved.pending?{display:'Loading',label:key,available:false,reason:'Supplied record pending'}:researchRowMetric(saved,key),cell=element('span',metric.display,'main-metric');cell.dataset.metric=key;cell.title=metric.label+' · '+(metric.available?metric.value+' '+metric.unit:metric.reason);if(!metric.available)cell.classList.add('unavailable');row.append(cell);}row.append(open);list.append(row);
   }
   $('#runs-page').textContent=page?.catalog.total?'Results '+(mainResearch.offset+1)+'–'+Math.min(mainResearch.offset+10,page.catalog.total)+' of '+page.catalog.total+(mainMetricSort.key?' · '+({sharpe:'Sharpe',drawdown:'Drawdown',annualized:'Annualized'}[mainMetricSort.key])+' '+(mainMetricSort.direction==='asc'?'↑ ascending':'↓ descending')+' · global':' · catalog order'):'No saved results';$('#runs-prev').disabled=!page||mainResearch.offset===0;$('#runs-next').disabled=!page||mainResearch.offset+10>=page.catalog.total;

@@ -152,3 +152,143 @@ test('full tape loading includes recent second-page fill independent of card pag
  await assert.rejects(()=>researchLoadAllExecutions({load:async(_,offset)=>({...envelope(offset),total:offset?102:101})},saved),/EXECUTION_TAPE_CHANGED/);
  await assert.rejects(()=>researchLoadAllExecutions({load:async(_,offset)=>({...envelope(offset),items:offset?[events[0]]:events.slice(0,100)})},saved),/EXECUTION_TAPE_CHANGED/);
 });
+
+// These applicability probes do not define a new wire schema or scientific fixture.
+test('nonportfolio content never creates financial metrics or requests executions',async()=>{
+ const {researchHasPortfolio,researchRowMetric,researchHistoryCompatibility,createResearchExecutionClient}=require('../src/polar/web/research.js');
+ assert.equal(researchHasPortfolio(fixture().detail),true);
+ let requests=0;
+ const client=createResearchExecutionClient(()=>{requests++;throw Error('Unexpected request');});
+ for(const record of [{}, {grid:[],series:[]}, {grid:['2024-01-01T00:00:00Z'],series:[]}]){
+  const saved={record};
+  assert.equal(researchHasPortfolio(saved),false);
+  const metric=researchRowMetric(saved,'annualized');
+  assert.equal(metric.available,false);assert.equal(metric.value,null);assert.equal(metric.display,'Not applicable');
+  assert.equal(researchComparison(saved,[]).usable,false);
+  assert.equal(researchHistoryCompatibility(saved,null).status,'NOT_APPLICABLE');
+  await assert.rejects(()=>client.load(saved),/EXECUTION_NOT_APPLICABLE/);
+ }
+ assert.equal(requests,0);
+});
+
+// Safe exact invented wire supplied by Platform; no real result payload.
+const descriptionRecord={
+  "schema_version": "polar.research-description/1",
+  "question": {
+    "id": "invented-description",
+    "label": "Invented reader control",
+    "summary": "Synthetic compatibility fixture only"
+  },
+  "bindings": {
+    "protocol_id": "invented",
+    "protocol_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "data_revision": "invented",
+    "data_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "code_revision": null,
+    "evaluator_revision": null,
+    "runtime_id": null,
+    "producer_id": "invented-author",
+    "candidate_id": null,
+    "experiment_id": "invented-run",
+    "config_sha256": null
+  },
+  "basis": {
+    "kind": "PROSPECTIVE_DESCRIPTIVE",
+    "investor_metrics": "NOT_APPLICABLE",
+    "portfolio_series": "NOT_APPLICABLE",
+    "orders": "NOT_APPLICABLE"
+  },
+  "observations": [
+    {
+      "id": "invented-first-label",
+      "label": "Invented label check",
+      "status": "PASS",
+      "description": "Synthetic fact; no actual scientific acceptance"
+    },
+    {
+      "id": "invented-pilot",
+      "label": "Invented pilot scope",
+      "status": "INCOMPLETE",
+      "description": "Future observations not run"
+    }
+  ],
+  "limitations": [
+    {
+      "code": "INVENTED",
+      "text": "Synthetic fixture only",
+      "scope": "Entire result"
+    }
+  ],
+  "provenance": [
+    {
+      "role": "assessment_artifact",
+      "id": "invented-assessment",
+      "sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+    }
+  ],
+  "evidence_level": "INVENTED_CONTROL",
+  "financial_claim": "No financial claim",
+  "criteria": [],
+  "point_interpretation": "Descriptive status only; no investor portfolio or orders"
+};
+function descriptionFixture(){
+ const record=structuredClone(descriptionRecord),content=require('node:crypto').createHash('sha256').update(JSON.stringify(record)).digest('hex'),result_id='research-'+content;
+ const assessment=fixture().detail.assessment;
+ const item={result_id,content_sha256:content,result_schema_version:record.schema_version,question:record.question,bindings:record.bindings,basis:record.basis,assessment};
+ return {item,detail:{schema_version:'polar.research-detail/1',result_id,content_sha256:content,record,assessment}};
+}
+test('Platform descriptive wire is readable without fabricated portfolio fields or changed identity',async()=>{
+ const f=descriptionFixture(),detail=validateResearchDetail(f.detail,f.item);
+ assert.equal(detail.result_id,f.item.result_id);assert.equal(detail.record.schema_version,'polar.research-description/1');
+ assert.equal(detail.record.bindings.code_revision,null);assert.equal(detail.assessment.technical,'NOT_REVIEWED');
+ assert(!('series' in detail.record));assert(!('metrics' in detail.record));assert(!('grid' in detail.record));
+ const urls=[],client=createResearchClient(async url=>{urls.push(url);return {ok:true,json:async()=>url.includes('?')?{schema_version:'polar.research-catalog/1',items:[f.item],offset:0,limit:10,total:1,next_offset:null}:f.detail};});
+ const page=await client.load(0,f.item.result_id,{includeDetails:true});
+ assert.equal(page.detail.result_id,f.item.result_id);assert.equal(page.catalog.items[0].result_schema_version,'polar.research-description/1');
+ assert(urls.every(url=>!url.includes('executions')));
+});
+test('descriptive identity, shape, applicability and observation corruption fail closed',()=>{
+ for(const mutate of [d=>d.content_sha256='b'.repeat(64),d=>d.record.schema_version='unknown',d=>d.record.series=[],d=>d.record.basis.orders='OK',d=>d.record.observations[0].status='SUPPORTED',d=>d.record.observations.push({...d.record.observations[0]}),d=>delete d.record.bindings.code_revision,d=>d.record.bindings.code_revision='claimed-git-label',d=>d.record.bindings.config_sha256='not-a-hash',d=>d.record.provenance[0].sha256='not-a-hash']){
+  const f=descriptionFixture();mutate(f.detail);assert.throws(()=>validateResearchDetail(f.detail,f.item),/RESEARCH_/);
+ }
+});
+module.exports.descriptionFixture=descriptionFixture;
+
+test('null original run binding stays unknown; external PASS never becomes native acceptance',()=>{
+ const f=descriptionFixture();f.detail.record.bindings.experiment_id=null;
+ const a=f.detail.assessment;a.technical='PASS';a.native_review={technical:'NOT_REVIEWED',product:'NOT_REVIEWED',financial:'NOT_REVIEWED'};
+ const detail=validateResearchDetail(f.detail,f.item);
+ assert.equal(detail.record.bindings.experiment_id,null);
+ const {researchFinancialLabel,researchAssessmentText,researchReviewProvenanceLabel}=require('../src/polar/web/research.js');
+ assert.match(researchFinancialLabel({financial:'SUPPORTED_WITH_LIMITS'}),/Recorded financial: SUPPORTED WITH LIMITS · Native provenance UNKNOWN/);
+ assert.match(researchAssessmentText(a),/Recorded assessments: Technical PASS/);
+ assert.match(researchAssessmentText(a),/Server-verified native review: Technical NOT_REVIEWED/);
+ assert.match(researchReviewProvenanceLabel({reviewer_id:'claimed-validator'}),/^UNKNOWN/);
+ a.native_review.technical='PASS';assert.throws(()=>validateResearchDetail(f.detail,f.item),/RESEARCH_NATIVE_ASSESSMENT_UNBOUND/);
+});
+function nativeDescriptionFixture(){
+ const f=descriptionFixture(),a=f.detail.assessment;
+ const proof={schema_version:'polar.native-review-provenance/1',decision_ref:'qitem-invented-decision#12',validator_session:'validator@invented-rig',claimed_generation:'invented-generation',claim_transition:10,terminal_transition:12,identity_provenance:'transport:v1',author_sessions:['author@invented-rig'],result_id:f.item.result_id,content_sha256:f.item.content_sha256,bindings:structuredClone(f.detail.record.bindings),decision_sha256:'d'.repeat(64),assessment_reference:{role:'invented_assessment',id:'invented',sha256:'c'.repeat(64)}};
+ a.reviews=[{schema_version:'polar.research-review/1',result_id:f.item.result_id,content_sha256:f.item.content_sha256,reviewer_id:'native-invented',scope:'TECHNICAL',verdict:'PASS',recorded_at:'2024-01-01T00:00:00Z',evidence_status:'NOT_APPLICABLE',reason:null,scope_description:'Invented wire control only',reference:{role:'verified_native_decision',id:'qitem-invented-decision',sha256:'e'.repeat(64)},provenance_status:'VERIFIED_NATIVE_DECISION',native_provenance:proof}];
+ a.technical='PASS';a.native_review={technical:'PASS',product:'NOT_REVIEWED',financial:'NOT_REVIEWED'};return f;
+}
+test('server native projection is structurally bound to exact content, bindings and decision',()=>{
+ const {researchReviewProvenanceLabel}=require('../src/polar/web/research.js');
+ const f=nativeDescriptionFixture();validateResearchDetail(f.detail,f.item);
+ assert.equal(researchReviewProvenanceLabel(f.detail.assessment.reviews[0]),'Server-verified native decision');
+ for(const change of [r=>delete r.native_provenance,r=>r.native_provenance.result_id='research-'+'b'.repeat(64),r=>r.native_provenance.bindings.data_revision='wrong',r=>r.native_provenance.identity_provenance='claimed:v1',r=>r.native_provenance.author_sessions.push(r.native_provenance.validator_session),r=>r.reference.role='claimed_native',r=>r.native_provenance.decision_ref='qitem-other#12']){
+  const g=nativeDescriptionFixture();change(g.detail.assessment.reviews[0]);assert.throws(()=>validateResearchDetail(g.detail,g.item),/RESEARCH_NATIVE_PROOF_INVALID/);
+ }
+});
+
+test('descriptive nested records reject unrecognized fields before rendering',()=>{
+ for(const key of ['question','bindings','basis','observations','limitations','provenance','criteria']){
+  const f=descriptionFixture();
+  f.detail.record.criteria=[{id:'invented-criterion',description:'Fixture only',status:'UNAVAILABLE',reason:null}];
+  const value=Array.isArray(f.detail.record[key])?f.detail.record[key][0]:f.detail.record[key];
+  value.unrecognized_field='must never reach the view';
+  assert.throws(()=>validateResearchDetail(f.detail,f.item),/RESEARCH_DESCRIPTION_FIELDS_INVALID/,key);
+ }
+ const f=descriptionFixture();f.detail.record.bindings.unexpected='<unrecognized safe test text>';
+ assert.throws(()=>validateResearchDetail(f.detail,f.item),/RESEARCH_DESCRIPTION_FIELDS_INVALID/);
+});
