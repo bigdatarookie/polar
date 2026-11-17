@@ -29,6 +29,72 @@ def scope(config):
     return {k: v for k, v in config.items() if k != 'source_admission_ref'}
 
 
+def generation_read(actor):
+    require(actor == 'quant-a@polar-rig', 'NATIVE_SELECTED_ACTOR')
+    return ('ps', '--nodes', '--rig', 'polar-rig', '--session', actor, '--fields',
+            'rigName,logicalId,canonicalSessionName,sessionStatus,agentActivity')
+
+
+def live_generation(queue, actor):
+    """Use the daemon's current generation-qualified owner projection.
+
+    The shipped projection resolves a fresh native owner binding, or compares a
+    hook generation to the current occupant tenure at read time. Resolved-but-
+    stale mismatch, unresolved ownership and legacy fallback never qualify.
+    No activity-state inference, claim mutation or caller generation is used.
+    """
+    snapshot = queue.read(*generation_read(actor))
+    rows = snapshot.get('entries') if isinstance(snapshot, dict) else snapshot
+    require(isinstance(rows, list) and len(rows) == 1, 'NATIVE_SELECTED_CURRENT_GENERATION')
+    row = rows[0]; activity = row.get('agentActivity', {})
+    require(row.get('rigName') == 'polar-rig' and row.get('logicalId') == 'quant.a' and
+            row.get('canonicalSessionName') == actor and row.get('sessionStatus') == 'running' and
+            activity.get('generationProvenance') == 'resolved' and
+            activity.get('evidenceSource') in ('native_owner', 'runtime_hook') and
+            activity.get('stale') is not True and activity.get('fallback') is not True and
+            isinstance(activity.get('generation'), str) and bool(activity['generation']),
+            'NATIVE_SELECTED_CURRENT_GENERATION')
+    return activity['generation']
+
+
+def consumer_custody(consumer_task, *, queue=None):
+    """Metadata-only current consumer proof; it grants no source admission."""
+    require(isinstance(consumer_task, str) and
+            re.fullmatch(r'qitem-[A-Za-z0-9_.:-]+', consumer_task), 'NATIVE_SELECTED_CURRENT_TASK')
+    queue = queue or current_queue()
+    identity = queue.read('whoami').get('identity', {})
+    actor = identity.get('sessionName')
+    require(identity.get('logicalId') == 'quant.a' and identity.get('rigName') == 'polar-rig' and
+            bool(identity.get('nodeId')), 'NATIVE_SELECTED_ACTOR')
+    task = queue.read('queue', 'show', consumer_task, '--full')
+    seat = queue.read('seat', 'status', actor)
+    require(task.get('qitemId') == consumer_task and task.get('state') == 'in-progress' and
+            task.get('destinationSession') == actor and task.get('claimedByGeneration') and
+            seat.get('current_occupant') == actor and seat.get('logical_id') == 'quant.a' and
+            seat.get('rig_name') == 'polar-rig', 'NATIVE_SELECTED_CURRENT_TASK')
+    generation = live_generation(queue, actor)
+    require(task['claimedByGeneration'] == generation, 'NATIVE_SELECTED_CURRENT_GENERATION')
+    journal = queue.read('queue', 'transitions', consumer_task, '--full')
+    claims = [x for x in journal if x.get('state') == 'in-progress' and x.get('transitionNote') == 'claimed']
+    require(bool(claims), 'NATIVE_SELECTED_CLAIM')
+    claim = max(claims, key=lambda x: x['transitionId'])
+    require(claim.get('actorSession') == actor and claim.get('identityProvenance') == 'transport:v1',
+            'NATIVE_SELECTED_CLAIM')
+    return actor, generation, task
+
+
+def context_probe(consumer_task, *, queue=None):
+    queue = queue or current_queue()
+    actor, generation, task = consumer_custody(consumer_task, queue=queue)
+    current = queue.read('queue', 'show', consumer_task, '--full')
+    require(all(current.get(k) == task.get(k) for k in
+                ('state', 'destinationSession', 'claimedByGeneration', 'claimedAt')) and
+            live_generation(queue, actor) == generation, 'NATIVE_SELECTED_CUSTODY_CHANGED')
+    return {'status': 'CURRENT_NATIVE_CONSUMER_CUSTODY_VERIFIED', 'actor': actor,
+            'consumer_task': consumer_task, 'generation': generation,
+            'source_admission': 'NOT_ISSUED_BY_PROBE', 'protected_value_reads': 0}
+
+
 def authorize(config, root, *, queue=None):
     fields = {'schema', 'profile_id', 'namespace', 'semantic_candidate', 'code_revision', 'code',
               'runtime_image_id', 'consumer_task', 'source_admission_ref', 'artifact_root_identity',
@@ -52,30 +118,7 @@ def authorize(config, root, *, queue=None):
                 'NATIVE_SELECTED_RUNTIME')
     # This happens before even a caller-selected metadata pin is opened.
     queue = queue or current_queue()
-    identity = queue.read('whoami').get('identity', {})
-    actor = identity.get('sessionName')
-    require(identity.get('logicalId') == 'quant.a' and identity.get('rigName') == 'polar-rig' and
-            bool(identity.get('nodeId')), 'NATIVE_SELECTED_ACTOR')
-    task = queue.read('queue', 'show', config['consumer_task'], '--full')
-    seat = queue.read('seat', 'status', actor)
-    require(task.get('qitemId') == config['consumer_task'] and task.get('state') == 'in-progress' and
-            task.get('destinationSession') == actor and task.get('claimedByGeneration') and
-            seat.get('current_occupant') == actor and seat.get('logical_id') == 'quant.a' and
-            seat.get('rig_name') == 'polar-rig', 'NATIVE_SELECTED_CURRENT_TASK')
-    # whoami/seat status do not expose occupant generation. Refresh only this
-    # already-owned, active finite claim through the native transport; the
-    # daemon derives its generation. This is task custody, not an execution grant.
-    task = queue.read('queue', 'claim', config['consumer_task'])
-    require(task.get('qitemId') == config['consumer_task'] and task.get('state') == 'in-progress' and
-            task.get('destinationSession') == actor and task.get('claimedByGeneration'),
-            'NATIVE_SELECTED_CURRENT_GENERATION')
-    generation = task['claimedByGeneration']
-    journal = queue.read('queue', 'transitions', config['consumer_task'], '--full')
-    claims = [x for x in journal if x.get('state') == 'in-progress' and x.get('transitionNote') == 'claimed']
-    require(bool(claims), 'NATIVE_SELECTED_CLAIM')
-    claim = max(claims, key=lambda x: x['transitionId'])
-    require(claim.get('actorSession') == actor and claim.get('identityProvenance') == 'transport:v1',
-            'NATIVE_SELECTED_CLAIM')
+    actor, generation, task = consumer_custody(config['consumer_task'], queue=queue)
     ref = config['source_admission_ref']
     require(type(ref) is str and re.fullmatch(r'qitem-[A-Za-z0-9_.:-]+#[1-9][0-9]*', ref),
             'NATIVE_SELECTED_SOURCE_ADMISSION_REQUIRED')
@@ -88,7 +131,10 @@ def authorize(config, root, *, queue=None):
             row.get('closingTransition', {}).get('transitionId') == transition and len(closing) == 1 and
             closing[0].get('state') == 'done' and closing[0].get('actorSession') == actor and
             closing[0].get('identityProvenance') == 'transport:v1', 'NATIVE_SELECTED_SOURCE_ADMISSION')
-    decision = decode(row['resolution'])
+    try:
+        decision = decode(row['resolution'])
+    except (ValueError, TypeError, KeyError):
+        require(False, 'NATIVE_SELECTED_SOURCE_ADMISSION_BINDING')
     require(decision == {'schema': 'polar.native-selected-source-admission/1',
             'status': 'ADMITTED_WITH_LIMITS', 'consumer_task': config['consumer_task'],
             'claimed_generation': generation, 'scope_sha256': sha(canonical(scope(config))),
@@ -100,6 +146,7 @@ def authorize(config, root, *, queue=None):
         require(all(current.get(k) == original.get(k) for k in
                     ('state', 'destinationSession', 'claimedByGeneration', 'claimedAt',
                      'closingTransition', 'resolution')), 'NATIVE_SELECTED_CUSTODY_CHANGED')
+    require(live_generation(queue, actor) == generation, 'NATIVE_SELECTED_CUSTODY_CHANGED')
     return {'actor': actor, 'generation': generation, 'source_admission_ref': ref,
             'scope_sha256': sha(canonical(scope(config)))}
 

@@ -14,7 +14,9 @@ def test_closed_native_read_allowlist():
     cfg = {'consumer_task': TASK, 'source_admission_ref': ADMISSION+'#3'}
     assert tool.permitted(['queue', 'show', TASK, '--full'], cfg)
     assert tool.permitted(['queue', 'transitions', ADMISSION, '--full'], cfg)
-    assert tool.permitted(['queue', 'claim', TASK], cfg)
+    assert not tool.permitted(['queue', 'claim', TASK], cfg)
+    from polar.native_selected_input import generation_read
+    assert tool.permitted(list(generation_read('quant-a@polar-rig')), cfg)
     for args in [['queue', 'show', 'qitem-foreign', '--full'], ['queue', 'claim', 'qitem-foreign'],
                  ['seat', 'status', 'quant-validator@polar-rig'], ['whoami', '--source', 'forged']]:
         assert not tool.permitted(args, cfg)
@@ -71,6 +73,18 @@ def test_actual_stdio_consumer_process_prepares_and_reads_only_invented_selected
     out = tool.bridge('a'*12, 'research-input-prepare', cfg, queue=queue)
     assert out['status'] == 'PREPARED_SOURCE_ONLY'
     assert tool.bridge('a'*12, 'research-input-preflight', out['input_ref'], queue=queue)['symbols'] == 2
+    assert tool.bridge('a'*12, 'native-context-probe', {'consumer_task': TASK}, queue=queue)['source_admission'] == 'NOT_ISSUED_BY_PROBE'
     cfg['source_admission_ref'] = None
     with pytest.raises(ResearchError, match='SOURCE_ADMISSION_REQUIRED'):
         tool.bridge('a'*12, 'research-input-prepare', cfg, queue=queue)
+
+
+def test_metadata_probe_runs_before_source_admission_without_store_or_source_pins(tmp_path, monkeypatch):
+    from polar.config import Settings
+    _, _, queue, _, _ = fixture(tmp_path, monkeypatch)
+    monkeypatch.setattr(tool, 'ToolPipe', lambda: queue)
+    monkeypatch.setattr(Settings, 'load_artifacts', classmethod(lambda cls: pytest.fail('store opened by metadata probe')))
+    result = tool.consume('native-context-probe', {'consumer_task': TASK}, tool.source_identity())
+    assert result['status'] == 'CURRENT_NATIVE_CONSUMER_CUSTODY_VERIFIED'
+    assert result['source_admission'] == 'NOT_ISSUED_BY_PROBE'
+    assert all(call[:2] != ('queue', 'claim') for call in queue.calls)

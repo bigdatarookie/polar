@@ -15,13 +15,17 @@ from .research_results import ResearchError
 from .research_native_review import NativeQueue, inherited_queue
 from .research_native_tool import ToolPipe, source_identity, pipe_bridge, MAX_LINE
 
-OPERATIONS = ('research-input-prepare', 'research-input-preflight', 'research-preflight', 'research-run')
+OPERATIONS = ('native-context-probe', 'research-input-prepare', 'research-input-preflight', 'research-preflight', 'research-run')
 
 
 def selected_config(operation, value):
     from .research_reference import decode, pinned_bytes
     from .native_selected_input import SCHEMA, CONVERTER
     from .scheduled_drawdown import SCHEMA as PROFILE_SCHEMA
+    if operation == 'native-context-probe':
+        if not isinstance(value, dict) or set(value) != {'consumer_task'} or not isinstance(value['consumer_task'], str) or not re.fullmatch(r'qitem-[A-Za-z0-9_.:-]+', value['consumer_task']):
+            raise ResearchError('NATIVE_SELECTED_CURRENT_TASK', 409)
+        return value
     if operation == 'research-input-prepare':
         config = value
     else:
@@ -48,12 +52,15 @@ def selected_config(operation, value):
 
 
 def permitted(args, config):
-    qid = config['source_admission_ref'].rsplit('#', 1)[0]
-    return args in (['whoami'], ['seat', 'status', 'quant-a@polar-rig'],
+    from .native_selected_input import generation_read
+    allowed = [['whoami'], ['seat', 'status', 'quant-a@polar-rig'],
+        list(generation_read('quant-a@polar-rig')),
         ['queue', 'show', config['consumer_task'], '--full'],
-        ['queue', 'claim', config['consumer_task']],
-        ['queue', 'transitions', config['consumer_task'], '--full'],
-        ['queue', 'show', qid, '--full'], ['queue', 'transitions', qid, '--full'])
+        ['queue', 'transitions', config['consumer_task'], '--full']]
+    if config.get('source_admission_ref'):
+        qid = config['source_admission_ref'].rsplit('#', 1)[0]
+        allowed += [['queue', 'show', qid, '--full'], ['queue', 'transitions', qid, '--full']]
+    return args in allowed
 
 
 def consume(operation, value, expected_source):
@@ -63,8 +70,11 @@ def consume(operation, value, expected_source):
     from .service import Service
     from .native_selected_input import authorize
     config = selected_config(operation, value)
-    settings = Settings.load_artifacts()
     queue = ToolPipe()
+    if operation == 'native-context-probe':
+        from .native_selected_input import context_probe
+        return context_probe(config['consumer_task'], queue=queue)
+    settings = Settings.load_artifacts()
     authorize(config, settings.artifacts, queue=queue)
     # All nested reads, including ordinary load_reference and custody rereads,
     # use this same live host adapter. No caller field can supply this context.
