@@ -5,15 +5,55 @@ const RESEARCH_ID=/^research-([a-f0-9]{64})$/;
 function researchRequire(ok,code='RESEARCH_RESPONSE_INVALID'){if(!ok)throw new Error(code);}
 function researchValue(v){return !!v&&['OK','UNAVAILABLE','INVALID','NOT_APPLICABLE','NOT_RUN'].includes(v.status)&&(v.status==='OK'?typeof v.value==='string'&&RESEARCH_DECIMAL.test(v.value)&&v.reason===null:v.value===null&&typeof v.reason==='string'&&v.reason.length>0);}
 function researchIdentity(item){researchRequire(RESEARCH_ID.test(item?.result_id)&&item.result_id.slice(9)===item.content_sha256,'RESEARCH_IDENTITY_MISMATCH');}
-function researchAssessment(a,resultId,hash){
-  researchRequire(a&&['NOT_REVIEWED','PASS','FAIL','HOLD'].includes(a.technical)&&['NOT_REVIEWED','PASS','FAIL','HOLD'].includes(a.product)&&['NOT_REVIEWED','SUPPORTED_WITH_LIMITS','NOT_SUPPORTED','INDETERMINATE'].includes(a.financial)&&Array.isArray(a.reviews),'RESEARCH_ASSESSMENT_INVALID');
+function researchReviewProvenanceLabel(review){
+  return review.provenance_status==='VERIFIED_NATIVE_DECISION'?'Server-verified native decision':'UNKNOWN · recorded external assessment; claimed reviewer identity does not establish native trust';
+}
+function researchFinancialLabel(a){return 'Recorded financial: '+researchReadable(a.financial)+(a.native_review?' · Native financial: '+researchReadable(a.native_review.financial):' · Native provenance UNKNOWN');}
+function researchAssessmentText(a){
+  const recorded='Recorded assessments: Technical '+a.technical+' · Product '+a.product+' · Financial '+a.financial+' · Evidence '+a.financial_evidence.status+(a.financial_evidence.reason?' / '+a.financial_evidence.reason:'');
+  const n=a.native_review;
+  return recorded+(n?' | Server-verified native review: Technical '+n.technical+' · Product '+n.product+' · Financial '+n.financial:' | Native review provenance: UNKNOWN (legacy reader response)');
+}
+function researchAssessment(a,resultId,hash,bindings){
+  const dimensions={technical:['NOT_REVIEWED','PASS','FAIL','HOLD'],product:['NOT_REVIEWED','PASS','FAIL','HOLD'],financial:['NOT_REVIEWED','SUPPORTED_WITH_LIMITS','NOT_SUPPORTED','INDETERMINATE']};
+  researchRequire(a&&Object.entries(dimensions).every(([key,values])=>values.includes(a[key]))&&Array.isArray(a.reviews),'RESEARCH_ASSESSMENT_INVALID');
   researchRequire(a.financial_evidence&&['NOT_RUN','INVALID','INSUFFICIENT_EVIDENCE','ASSESSED_WITH_LIMITS'].includes(a.financial_evidence.status)&&(a.financial_evidence.reason===null||typeof a.financial_evidence.reason==='string'),'RESEARCH_ASSESSMENT_INVALID');
-  for(const review of a.reviews)researchRequire(review.schema_version==='polar.research-review/1'&&review.result_id===resultId&&review.content_sha256===hash,'RESEARCH_REVIEW_IDENTITY_MISMATCH');
+  const same=(x,y)=>x===y||!!x&&!!y&&typeof x==='object'&&typeof y==='object'&&Object.keys(x).length===Object.keys(y).length&&Object.keys(x).every(k=>Object.hasOwn(y,k)&&same(x[k],y[k]));
+  for(const review of a.reviews){
+    researchRequire(review.schema_version==='polar.research-review/1'&&review.result_id===resultId&&review.content_sha256===hash,'RESEARCH_REVIEW_IDENTITY_MISMATCH');
+    researchRequire(review.provenance_status===undefined||['LEGACY_EXTERNAL_UNKNOWN','VERIFIED_NATIVE_DECISION'].includes(review.provenance_status),'RESEARCH_REVIEW_PROVENANCE_INVALID');
+    if(review.provenance_status==='VERIFIED_NATIVE_DECISION'){
+      const p=review.native_provenance;
+      researchRequire(p?.schema_version==='polar.native-review-provenance/1'&&p.result_id===resultId&&p.content_sha256===hash&&p.identity_provenance==='transport:v1'&&typeof p.decision_ref==='string'&&/^qitem-[A-Za-z0-9_-]+#[0-9]+$/.test(p.decision_ref)&&typeof p.validator_session==='string'&&typeof p.claimed_generation==='string'&&Number.isSafeInteger(p.claim_transition)&&Number.isSafeInteger(p.terminal_transition)&&p.terminal_transition>p.claim_transition&&Array.isArray(p.author_sessions)&&p.author_sessions.length>0&&!p.author_sessions.includes(p.validator_session)&&/^[a-f0-9]{64}$/.test(p.decision_sha256)&&same(p.bindings,bindings)&&review.reference?.role==='verified_native_decision'&&p.decision_ref.split('#')[0]===review.reference.id&&/^[a-f0-9]{64}$/.test(review.reference.sha256),'RESEARCH_NATIVE_PROOF_INVALID');
+    }
+  }
+  if(a.native_review!==undefined){
+    researchRequire(a.native_review&&Object.entries(dimensions).every(([key,values])=>values.includes(a.native_review[key])),'RESEARCH_NATIVE_ASSESSMENT_INVALID');
+    for(const key of Object.keys(dimensions))if(a.native_review[key]!=='NOT_REVIEWED')researchRequire(a.reviews.some(r=>r.provenance_status==='VERIFIED_NATIVE_DECISION'&&r.scope===key.toUpperCase()&&r.verdict===a.native_review[key]),'RESEARCH_NATIVE_ASSESSMENT_UNBOUND');
+  }
+}
+const RESEARCH_DESCRIPTION_BINDINGS=['protocol_id','protocol_sha256','data_revision','data_sha256','code_revision','evaluator_revision','runtime_id','producer_id','candidate_id','experiment_id','config_sha256'];
+function researchIsDescription(record){return record?.schema_version==='polar.research-description/1';}
+function validateResearchDescription(r){
+  const keys=['schema_version','question','bindings','basis','observations','limitations','provenance','evidence_level','financial_claim','criteria','point_interpretation'];
+  const text=v=>typeof v==='string'&&v.length>0,hash=v=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
+  const exact=(value,fields)=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length===fields.length&&fields.every(k=>Object.hasOwn(value,k));
+  researchRequire(exact(r,keys),'RESEARCH_DESCRIPTION_FIELDS_INVALID');
+  researchRequire(exact(r.question,['id','label','summary'])&&exact(r.bindings,RESEARCH_DESCRIPTION_BINDINGS)&&exact(r.basis,['kind','investor_metrics','portfolio_series','orders']),'RESEARCH_DESCRIPTION_FIELDS_INVALID');
+  for(const [key,fields]of [['observations',['id','label','status','description']],['limitations',['code','text','scope']],['provenance',['role','id','sha256']],['criteria',['id','description','status','reason']]])researchRequire(Array.isArray(r[key])&&r[key].every(value=>exact(value,fields)),'RESEARCH_DESCRIPTION_FIELDS_INVALID');
+  researchRequire(text(r.question?.id)&&text(r.question?.label)&&text(r.question?.summary),'RESEARCH_DESCRIPTION_QUESTION_INVALID');
+  researchRequire(r.basis?.kind==='PROSPECTIVE_DESCRIPTIVE'&&['investor_metrics','portfolio_series','orders'].every(k=>r.basis[k]==='NOT_APPLICABLE')&&Object.keys(r.basis).length===4,'RESEARCH_DESCRIPTION_BASIS_INVALID');
+  const b=r.bindings;
+  researchRequire(b&&['protocol_id','data_revision','producer_id'].every(k=>text(b[k]))&&['protocol_sha256','data_sha256'].every(k=>hash(b[k]))&&['code_revision','evaluator_revision'].every(k=>Object.hasOwn(b,k)&&(b[k]===null||/^[a-f0-9]{40}$/.test(b[k])))&&Object.hasOwn(b,'runtime_id')&&(b.runtime_id===null||/^sha256:[a-f0-9]{64}$/.test(b.runtime_id))&&Object.hasOwn(b,'candidate_id')&&(b.candidate_id===null||text(b.candidate_id))&&Object.hasOwn(b,'experiment_id')&&(b.experiment_id===null||text(b.experiment_id))&&Object.hasOwn(b,'config_sha256')&&(b.config_sha256===null||hash(b.config_sha256)),'RESEARCH_DESCRIPTION_BINDINGS_INVALID');
+  researchRequire(Array.isArray(r.observations)&&r.observations.length>=1&&r.observations.length<=20&&new Set(r.observations.map(o=>o.id)).size===r.observations.length&&r.observations.every(o=>text(o.id)&&text(o.label)&&text(o.description)&&['PASS','FAIL','INCOMPLETE','NOT_RUN','UNAVAILABLE'].includes(o.status)),'RESEARCH_DESCRIPTION_OBSERVATIONS_INVALID');
+  researchRequire(Array.isArray(r.limitations)&&r.limitations.length>0&&r.limitations.every(l=>text(l.code)&&text(l.scope)&&text(l.text))&&Array.isArray(r.provenance)&&r.provenance.length>0&&r.provenance.every(p=>text(p.role)&&text(p.id)&&hash(p.sha256)),'RESEARCH_DESCRIPTION_PROVENANCE_INVALID');
+  researchRequire(['INVENTED_CONTROL','RETAINED_DESCRIPTIVE'].includes(r.evidence_level)&&text(r.financial_claim)&&text(r.point_interpretation)&&Array.isArray(r.criteria)&&r.criteria.every(c=>text(c.id)&&text(c.description)&&['MET','NOT_MET','UNAVAILABLE'].includes(c.status)&&(c.reason===null||text(c.reason))),'RESEARCH_DESCRIPTION_METADATA_INVALID');
+  return r;
 }
 function validateResearchDetail(body,expected){
   researchRequire(body?.schema_version==='polar.research-detail/1');researchIdentity(body);
   researchRequire(body.result_id===expected.result_id&&body.content_sha256===expected.content_sha256,'RESEARCH_SELECTION_MISMATCH');
-  const r=body.record;researchRequire(r?.schema_version==='polar.research-result/1'&&typeof r.question?.label==='string'&&typeof r.question.summary==='string');
+  const r=body.record;if(researchIsDescription(r)){validateResearchDescription(r);researchAssessment(body.assessment,body.result_id,body.content_sha256,r.bindings);return body;}researchRequire(r?.schema_version==='polar.research-result/1'&&typeof r.question?.label==='string'&&typeof r.question.summary==='string');
   researchRequire(Array.isArray(r.grid)&&r.grid.length>0&&r.grid.length<=10000&&r.grid.every((d,i)=>typeof d==='string'&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(d)&&Number.isFinite(Date.parse(d))&&(!i||d>r.grid[i-1])),'RESEARCH_GRID_INVALID');
   researchRequire(Array.isArray(r.series)&&r.series.length>=2&&r.series.length<=5&&new Set(r.series.map(s=>s.id)).size===r.series.length,'RESEARCH_SERIES_INVALID');
   researchRequire(r.series.filter(s=>s.role==='STRATEGY').length===1&&r.series.some(s=>s.id===r.primary_benchmark_id&&s.role==='BENCHMARK'),'RESEARCH_ROLES_INVALID');
@@ -28,11 +68,11 @@ function validateResearchDetail(body,expected){
   }
   researchRequire(Array.isArray(r.comparisons)&&r.comparisons.every(c=>ids.includes(c.left_id)&&ids.includes(c.right_id)&&r.metrics.some(m=>m.id===c.metric_id)&&researchValue(c.result)),'RESEARCH_COMPARISON_INVALID');
   researchRequire(Array.isArray(r.criteria)&&r.criteria.every(c=>['MET','NOT_MET','UNAVAILABLE'].includes(c.status))&&Array.isArray(r.limitations)&&r.limitations.length>0&&Array.isArray(r.provenance)&&r.provenance.length>0&&r.bindings&&r.basis,'RESEARCH_METADATA_INVALID');
-  researchAssessment(body.assessment,body.result_id,body.content_sha256);return body;
+  researchAssessment(body.assessment,body.result_id,body.content_sha256,r.bindings);return body;
 }
 function validateResearchCatalog(body,offset){
   researchRequire(body?.schema_version==='polar.research-catalog/1'&&Array.isArray(body.items)&&body.items.length<=10&&body.offset===offset&&body.limit===10&&Number.isInteger(body.total)&&body.total>=body.items.length&&(!body.items.length||body.total>=offset+body.items.length)&&(body.next_offset===null||body.next_offset===offset+body.items.length&&body.next_offset>offset&&body.next_offset<=4096),'RESEARCH_CATALOG_INVALID');
-  const seen=new Set();for(const item of body.items){researchIdentity(item);researchRequire(!seen.has(item.result_id)&&typeof item.question?.label==='string'&&typeof item.question?.summary==='string'&&item.bindings&&item.basis,'RESEARCH_CATALOG_INVALID');seen.add(item.result_id);researchAssessment(item.assessment,item.result_id,item.content_sha256);}return body;
+  const seen=new Set();for(const item of body.items){researchIdentity(item);researchRequire(!seen.has(item.result_id)&&typeof item.question?.label==='string'&&typeof item.question?.summary==='string'&&item.bindings&&item.basis,'RESEARCH_CATALOG_INVALID');researchRequire(item.result_schema_version===undefined||['polar.research-result/1','polar.research-description/1'].includes(item.result_schema_version),'RESEARCH_RESULT_SCHEMA_INVALID');seen.add(item.result_id);researchAssessment(item.assessment,item.result_id,item.content_sha256,item.bindings);}return body;
 }
 function createResearchClient(fetcher){
   let serial=0,controller;
@@ -107,7 +147,14 @@ function researchSnapshotPage(snapshot,offset,selection){
   const items=(snapshot.items||snapshot.catalog.items).slice(offset,offset+10),detail=snapshot.details.find(d=>d.result_id===selection)||null;
   return {catalog:{...snapshot.catalog,offset,items,next_offset:offset+items.length<snapshot.catalog.total?offset+items.length:null},detail};
 }
+// Applicability only; typed result validation and review trust remain server-contract concerns.
+function researchHasPortfolio(detail){
+  const r=detail?.record;
+  return !researchIsDescription(r)&&Array.isArray(r?.grid)&&r.grid.length>0&&Array.isArray(r.series)&&
+    r.series.some(s=>s.role==='STRATEGY')&&r.series.some(s=>s.role==='BENCHMARK'&&s.id===r.primary_benchmark_id);
+}
 function researchHistoryCompatibility(detail,context){
+  if(!researchHasPortfolio(detail))return {symbols:[],period:[],reasons:['This result supplies no portfolio NAV.'],status:'NOT_APPLICABLE',label:'Portfolio comparison not applicable'};
   const r=detail.record,revision=context?.revision,instrument=context?.instrument;
   const symbols=[...new Set(r.series.flatMap(s=>s.ledger.flatMap(p=>Object.keys(p.positions))))].sort();
   const period=[r.grid[0].slice(0,10),r.grid.at(-1).slice(0,10)],reasons=[];let attributed=false;
@@ -192,10 +239,11 @@ function executionDateGroups(events){
   const groups=new Map();for(const event of events){if(!groups.has(event.session_date))groups.set(event.session_date,[]);groups.get(event.session_date).push(event);}
   return [...groups].sort(([a],[b])=>a.localeCompare(b)).map(([date,items])=>({date,events:items.slice().sort((a,b)=>BigInt(a.timestamp_ns)<BigInt(b.timestamp_ns)?-1:BigInt(a.timestamp_ns)>BigInt(b.timestamp_ns)?1:a.order_id.localeCompare(b.order_id))}));
 }
-function createResearchExecutionClient(fetcher){let ticket=0,controller;return {cancel(){ticket++;controller?.abort();},async load(saved,offset=0){const current=++ticket;controller?.abort();controller=new AbortController();const series=saved.record.series.find(s=>s.role==='STRATEGY');const response=await fetcher('/v1/research/results/'+encodeURIComponent(saved.result_id)+'/executions?series_id='+encodeURIComponent(series.id)+'&limit=100&offset='+offset,{signal:controller.signal});if(current!==ticket)return null;if(!response.ok)throw Error('EXECUTIONS_HTTP_'+response.status);const body=await response.json();if(current!==ticket)return null;return validateResearchExecutions(body,saved,offset);}};}
+function createResearchExecutionClient(fetcher){let ticket=0,controller;return {cancel(){ticket++;controller?.abort();},async load(saved,offset=0){researchRequire(researchHasPortfolio(saved),'EXECUTION_NOT_APPLICABLE');const current=++ticket;controller?.abort();controller=new AbortController();const series=saved.record.series.find(s=>s.role==='STRATEGY');const response=await fetcher('/v1/research/results/'+encodeURIComponent(saved.result_id)+'/executions?series_id='+encodeURIComponent(series.id)+'&limit=100&offset='+offset,{signal:controller.signal});if(current!==ticket)return null;if(!response.ok)throw Error('EXECUTIONS_HTTP_'+response.status);const body=await response.json();if(current!==ticket)return null;return validateResearchExecutions(body,saved,offset);}};}
 // Supplied full-period strategy metrics: display conversion only, never recompute finance.
 const RESEARCH_ROW_METRICS={sharpe:['sharpe_252_rf0','net_sharpe','sharpe'],drawdown:['max_drawdown'],annualized:['adjusted_reference_cagr_after_costs','price_cagr_after_costs','net_cagr_act36525','annualized_return','cagr']};
 function researchRowMetric(detail,key){
+  if(!researchHasPortfolio(detail))return {available:false,value:null,display:'Not applicable',label:key,reason:'This result supplies no portfolio metric',unit:null};
   const leg=detail.record.series.find(s=>s.role==='STRATEGY');
   const metric=RESEARCH_ROW_METRICS[key]?.map(id=>detail.record.metrics.find(m=>m.id===id)).find(Boolean);
   const point=metric?.values[leg?.id],unit=key==='sharpe'?'ratio':'fraction';
@@ -227,6 +275,7 @@ function researchNormalize(value,base){
   return Number.isFinite(out)&&(out!==0||n===0)?out:null;
 }
 function researchComparison(detail,bars,anchor=null){
+  if(!researchHasPortfolio(detail))return {usable:false,reason:'This result supplies no portfolio NAV; comparison is not applicable.'};
   const r=detail.record,strategy=r.series.find(s=>s.role==='STRATEGY'),benchmark=r.series.find(s=>s.id===r.primary_benchmark_id),byDate=new Map();
   for(let i=0;i<r.grid.length;i++){const date=r.grid[i].slice(0,10);if(byDate.has(date))return {usable:false,reason:'Multiple supplied samples share a calendar date. No intraday aggregation or clock equivalence is inferred.'};byDate.set(date,i);}
   const indices=bars.map(b=>byDate.get(b.time.slice(0,10))),strategyRaw=indices.map(i=>i===undefined||strategy.values[i].status!=='OK'?null:strategy.values[i].value),benchmarkRaw=indices.map(i=>i===undefined||benchmark.values[i].status!=='OK'?null:benchmark.values[i].value);
@@ -237,5 +286,5 @@ function researchComparison(detail,bars,anchor=null){
   return {usable:true,first,last,baselineDate:anchor?.baselineDate||bars[first].time.slice(0,10),priceBase,strategyBase,benchmarkBase,strategy,benchmark,strategyRaw,benchmarkRaw,times:indices.map(i=>i===undefined?null:r.grid[i]),strategyIndex:strategyRaw.map(v=>researchNormalize(v,strategyBase)),benchmarkIndex:benchmarkRaw.map(v=>researchNormalize(v,benchmarkBase)),record:r,resultId:detail.result_id};
 }
 function researchReadable(value){return String(value||'Not supplied').replaceAll('_',' ').replace(/\s+/g,' ').trim();}
-function researchPhase(record){return record.question.label.match(/\b(?:FINAL|VALIDATION|TRAIN|TEST|DEVELOPMENT)\b/)?.[0]||'Saved interval';}
-if(typeof module!=='undefined')module.exports={researchLoadProgressive,validateResearchRevision,createResearchRevisionWatcher,withResearchDOMState,researchSnapshotSignature,researchSnapshotPage,createResearchClient,validateResearchDetail,validateResearchCatalog,researchValue,researchPlotValue,researchDecimalDisplay,executionDateGroups,researchLoadAllExecutions,executionScaledToken,validateResearchExecutions,createResearchExecutionClient,researchLoadAll,researchRowMetric,researchDecimalCompare,researchSortRows,researchHistoryCompatibility,researchNormalize,researchComparison,researchReadable,researchPhase};
+function researchPhase(record){if(researchIsDescription(record))return 'Prospective descriptive';return record.question.label.match(/\b(?:FINAL|VALIDATION|TRAIN|TEST|DEVELOPMENT)\b/)?.[0]||'Saved interval';}
+if(typeof module!=='undefined')module.exports={RESEARCH_DESCRIPTION_BINDINGS,researchFinancialLabel,researchAssessmentText,researchReviewProvenanceLabel,researchIsDescription,validateResearchDescription,researchHasPortfolio,researchLoadProgressive,validateResearchRevision,createResearchRevisionWatcher,withResearchDOMState,researchSnapshotSignature,researchSnapshotPage,createResearchClient,validateResearchDetail,validateResearchCatalog,researchValue,researchPlotValue,researchDecimalDisplay,executionDateGroups,researchLoadAllExecutions,executionScaledToken,validateResearchExecutions,createResearchExecutionClient,researchLoadAll,researchRowMetric,researchDecimalCompare,researchSortRows,researchHistoryCompatibility,researchNormalize,researchComparison,researchReadable,researchPhase};
