@@ -17,7 +17,7 @@ class Delivery(Closed):
     payload: dict
 
 
-def validate_delivery(value):
+def validate_delivery(value, *, native_queue=None):
     try:
         body = Delivery.model_validate(value).model_dump(mode="json")
         if body["kind"] == "RESULT":
@@ -26,6 +26,14 @@ def validate_delivery(value):
                 raise ResearchError("RESEARCH_DELIVERY_CONTENT_BINDING", 409)
             rid = "research-"+body["content_sha256"]
             limit = MAX_RESULT
+        elif set(body["payload"]) == {"decision_ref"}:
+            from .research_native_review import resolve
+            review, _ = resolve(body["payload"]["decision_ref"], native_queue)
+            rid = review["result_id"]
+            if review["content_sha256"] != body["content_sha256"]:
+                raise ResearchError("RESEARCH_DELIVERY_CONTENT_BINDING", 409)
+            payload = body["payload"]
+            limit = 16384
         else:
             payload = ResearchReview.model_validate(body["payload"]).model_dump(mode="json")
             public_text(payload)
@@ -50,8 +58,14 @@ def delivery_status(row):
             **{k: row[k] for k in fields}}
 
 
-def submit(registry, value):
-    body, rid = validate_delivery(value)
+def submit(registry, value, *, native_queue=None):
+    if isinstance(value, dict) and set(value) == {"decision_ref"}:
+        from .research_native_review import resolve
+        review, _ = resolve(value["decision_ref"], native_queue)
+        value = {"schema_version": "polar.research-delivery/1", "kind": "ASSESSMENT",
+                 "display_scope": "OWNER_LOCAL", "content_sha256": review["content_sha256"],
+                 "payload": value}
+    body, rid = validate_delivery(value, native_queue=native_queue)
     h = digest(body)
     return delivery_status(registry.submit_research_delivery("delivery-"+h, body["kind"], rid, h, body))
 
@@ -63,7 +77,7 @@ def deliver_once(registry, results):
     # A process loss before finish leaves only a lease to reclaim. Publication is
     # atomic/idempotent, so retry delivers the same bytes without spending a run.
     try:
-        body, rid = validate_delivery(row["body"])
+        body, rid = validate_delivery(row["body"], native_queue=results.native_queue)
         if (rid != row["result_id"] or digest(body) != row["payload_hash"] or
                 row["id"] != "delivery-"+digest(body) or row["kind"] != body["kind"]):
             raise ResearchError("RESEARCH_DELIVERY_CONTENT_BINDING", 409)
@@ -77,6 +91,10 @@ def deliver_once(registry, results):
                    "observed_content_sha256": detail["content_sha256"]}
         state, code = "DELIVERED", None
     except ResearchError as exc:
+        if exc.code == "RESEARCH_NATIVE_TOOL_UNAVAILABLE":
+            # Dependency outage is not a negative scientific decision. Retain
+            # the existing lease for recovery by the actual tool-bound worker.
+            raise
         receipt = None
         if exc.code == "RESEARCH_NOT_FOUND" and row["kind"] == "ASSESSMENT":
             state, code = "WAITING_FOR_RESULT", "RESEARCH_NOT_FOUND"

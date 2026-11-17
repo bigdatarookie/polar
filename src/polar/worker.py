@@ -138,7 +138,9 @@ def work_research_delivery_once(settings):
         remaining = settings.storage_bytes-db_bytes-16384
         if remaining <= 0:
             raise RuntimeError("RESEARCH_DELIVERY_STORAGE_UNAVAILABLE")
-        results = ResearchResults(settings.artifacts, remaining)
+        results = ResearchResults(settings.artifacts, remaining,
+                                  descriptive_writer_enabled=settings.descriptive_writer_enabled,
+                                  native_review_writer_enabled=settings.native_review_writer_enabled)
         try:
             return deliver_once(registry, results)
         except HistoryError:

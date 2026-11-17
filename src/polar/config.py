@@ -14,6 +14,9 @@ class Settings:
 
     history_calendar_dir: Path | None = None
 
+    descriptive_writer_enabled: bool = False
+    native_review_writer_enabled: bool = False
+
     @classmethod
     def load_artifacts(cls):
         """File-only research operations never need or open a DB credential."""
@@ -22,7 +25,9 @@ class Settings:
                 not 1 <= int(allocation) <= 64 * 1024**3):
             raise ValueError("INVALID_STORAGE_ALLOCATION")
         return cls("unused-file-only", Path(os.environ.get("POLAR_ARTIFACT_ROOT", "/data/artifacts")),
-                   storage_bytes=int(allocation))
+                   storage_bytes=int(allocation),
+                   descriptive_writer_enabled=os.environ.get("POLAR_DESCRIPTIVE_WRITER_ENABLED") == "1",
+                   native_review_writer_enabled=os.environ.get("POLAR_NATIVE_REVIEW_WRITER_ENABLED") == "1")
 
     @classmethod
     def load(cls):
@@ -40,5 +45,7 @@ class Settings:
                 not 1 <= int(allocation) <= 64 * 1024**3):
             raise ValueError("INVALID_STORAGE_ALLOCATION")
         return cls(dsn, Path(os.environ.get("POLAR_ARTIFACT_ROOT", "/data/artifacts")), storage_bytes=int(allocation),
+                   descriptive_writer_enabled=os.environ.get("POLAR_DESCRIPTIVE_WRITER_ENABLED") == "1",
+                   native_review_writer_enabled=os.environ.get("POLAR_NATIVE_REVIEW_WRITER_ENABLED") == "1",
                    history_calendar_dir=Path(os.environ["POLAR_HISTORY_CALENDAR_DIR"]) if "POLAR_HISTORY_CALENDAR_DIR" in os.environ else None,
                    history_cursor_key_file=Path(os.environ.get("POLAR_HISTORY_CURSOR_KEY_FILE", "/run/secrets/history_cursor_key")))

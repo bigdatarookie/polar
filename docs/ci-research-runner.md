@@ -31,3 +31,14 @@ Successful outputs publish immutable simulation/evaluation/bindings and an acycl
 research-recompute verifies stored manifest/member hashes and reproduces evaluation from stored simulation. It never reloads raw source, calls a strategy/native engine, creates orders or writes the store. It is stored recomputation, not a second simulation or a repaired trade tape. Both successful and failed original evidence remain. B's one-original policy is not replaced with A's qualified-correction allowance.
 
 Public ledger units: ledger.cash and ledger.exposure are exact decimal USD amounts (exposure is the sum of marked asset values), as are cumulative_flat_fees and cumulative_bps_fees. They must not be formatted as percentages. Only the named mean_close_equity_fraction/mean_close_exposure and invested-close fractions are dimensionless ratios. B's displayed return/CAGR explicitly say modeled price-ledger after costs; they are not total-return labels.
+
+Retained operations through the research CLI now generate `code_revision` from
+the clean Git checkout containing the loaded source. Preflight and run reject a
+different head, tracked modifications or untracked source modules before invoking
+the existing engine. Invoke the existing profile-specific CLI inside the exact
+isolated candidate checkout and accepted runtime; the serving worker is not an
+exact-candidate runner. Existing engine runtime/image/dependency and source hash
+checks still apply. Saved-only recomputation and read paths do not rerun research.
+CI targets the actual PR head/event SHA; workflow dispatch requires the real PR,
+without the historical PR49 fallback. Successful status requires exact-head PASS
+receipts from applicable checks, including the primary command's receipt.

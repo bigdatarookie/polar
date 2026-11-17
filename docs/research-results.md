@@ -29,3 +29,57 @@ limitation truncation or implicit financial verdict is performed. Scheduled
 profile10 can use31; other existing scheduled profiles retain their30 admission
 bound. Actual publication/serving or retained scientific use is separate from
 source/schema qualification.
+
+## Descriptive readers and native decisions
+
+`polar.research-description/1` is an additional strict record family in the same
+content-addressed result store, catalog, detail and delivery interfaces. It has
+owner-sanitized observations and explicit `NOT_APPLICABLE` portfolio applicability,
+without manufactured NAV, ledgers, investor metrics or orders. Historical Git,
+engine, candidate and experiment bindings may be null. Actual file hashes remain
+in provenance. A content-derived data revision identifies the exact composite
+inputs; it is not a registered dataset alias. The JSON schema is
+`src/polar/research_description_schema.json`.
+
+Readers accept both families. Publication of descriptions defaults disabled;
+`POLAR_DESCRIPTIVE_WRITER_ENABLED=1` enables it only after the deployment owner has
+qualified and loaded API, delivery worker and accepted web dualreaders. The
+worker consumes this same switch. Native proof publication separately defaults disabled; enable
+`POLAR_NATIVE_REVIEW_WRITER_ENABLED=1` only after the same reader/replay qualification.
+The disabled-writer dualreader composition is
+the rollback floor after either descriptive or native-proof publication. Preserve
+subsequent results, review directories, claims and outbox; do not restore a DB
+backup over those operations. Original result/1 canonical bytes and IDs are stable.
+
+The external `research-review` entry preserves existing assessments and labels
+unknown provenance `LEGACY_EXTERNAL_UNKNOWN`. Its scope summaries remain external
+facts; `assessment.native_review` contains only verified native decisions and
+otherwise stays `NOT_REVIEWED`. A claimed reviewer or role cannot populate it.
+A new request containing only `decision_ref: qitem-ID#terminalTransitionID`
+resolves through the actual inherited `rig` adapter, never caller identity fields.
+
+The assigned current Polar Validator's native terminal resolution must be JSON
+`polar.native-research-decision/1`, binding exact result ID/content, complete
+bindings, actual author/coauthor sessions, actual claimed generation, and six
+review fields: scope, verdict, scope_description, reference, evidence_status,
+reason. The tool verifies native role/custody, actual transport claim and close,
+current generation and re-read custody, and excludes authors/coauthors. The
+Validator attests authorship and exact subject from its actual independent
+assessment; historic prose alone is insufficient. Reviewer alias/time are derived
+from native metadata. Missing typed scope remains unreviewed, without a science
+rerun. Scientific verdict and code acceptance are separate.
+
+Proof is committed by hash in a new immutable review reference and stored beside
+its review.json in the existing review directory. External calls cannot mint this
+reserved reference. Identical external replay preserves already verified proof.
+The original worker cannot replay these directories, even though it can read
+review.json; retain the qualified replay-capable floor. Native adapter dependency
+loss preserves delivery leases rather than recording a scientific rejection.
+Native delivery must run through an actual tool-bound consumer; a container with
+no inherited rig adapter is not evidence of native review consumption.
+
+Only owner-authorized metadata may enter the ordinary result wire. Protected
+licensed/derived numerical fields require the current owner and same private
+purpose to be verified per request by the server. They stay withheld while that
+predicate is unavailable. Loopback, UID and file mode are not owner authentication.
+Metadata-only display does not complete the full protected-numerical user journey.
