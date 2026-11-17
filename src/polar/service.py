@@ -74,7 +74,7 @@ class Service:
     def research_input_prepare(self, config):
         from .reference_input import prepare_input
         try:
-            return prepare_input(config, self.artifacts.root, self.artifacts.limit)
+            return prepare_input(config, self.artifacts.root, self.artifacts.limit, native_queue=self.native_queue)
         except (KeyError, TypeError, IndexError, AttributeError):
             raise ValueError('REFERENCE_CONVERSION_INVALID') from None
 

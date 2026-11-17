@@ -67,6 +67,9 @@ def prepare(service, config, *, load_prices=True):
         manifest=decode(pinned_bytes(descriptor['reference_input_ref']))
     else:
         manifest = decode(read_ref(config['input_ref']))
+    if profile['schema'].endswith('/14') and config['namespace'] == 'RETAINED':
+        from .native_selected_input import scheduled_authorization
+        scheduled_authorization(config, manifest, service.store.root)
     calendar = decode(calendar_raw)
     from .reference_input import schedule_binding_matches
     require(manifest['schema'] in ('polar.synthetic-reference-source-input/1','polar.synthetic-reference-source-input/2') and
@@ -90,18 +93,23 @@ def prepare(service, config, *, load_prices=True):
     if profile['schema'].endswith('/6'):
         lo,hi=profile['policy']['calibration'];labels=[d for d in days if lo<=d<=hi]
         require(len(labels)==1259 and labels[0]==lo and labels[-1]==hi and all(hi<g['initial'] for g in calendar['phases'].values()),'SCHEDULED_TEMPORAL_CALIBRATION_GRID')
-    require((profile['schema'] == 'polar.scheduled-reference-profile/3') ==
+    require((profile['schema'] in ('polar.scheduled-reference-profile/3','polar.scheduled-reference-profile/14')) ==
             (calendar.get('schema') == 'polar.daily-gate-policy-calendar/1'), 'SCHEDULED_CALENDAR_POLICY')
     require((profile['schema'] in ('polar.scheduled-reference-profile/5','polar.scheduled-reference-profile/8','polar.scheduled-reference-profile/9','polar.scheduled-reference-profile/10','polar.scheduled-reference-profile/12','polar.scheduled-reference-profile/13')) ==
             (calendar.get('schema')=='polar.prospective-fixed-allocation-calendar/1'),'SCHEDULED_CALENDAR_POLICY')
     grids = calendar_value(calendar, schedule)
     list(operation_phases(profile, grids))
+    if profile['schema'].endswith('/14') and config['namespace'] == 'RETAINED':
+        require(set(grids) == {'VALIDATION', 'FINAL'} and
+                [(grids[p]['initial'], grids[p]['terminal']) for p in ('VALIDATION', 'FINAL')] ==
+                [('2021-01-04', '2022-12-30'), ('2023-01-03', '2026-11-06')],
+                'DRAWDOWN_FROZEN_EXPOSED_PARTITIONS')
     if curve:
         from .scheduled_curve import date_joins
         date_joins(curve_context,profile,schedule,grids)
-    history = 2 if curve else 0 if profile['schema'].endswith(('/5','/8','/9','/10','/12','/13')) else profile['policy']['window']-1 if profile['schema'] == 'polar.scheduled-reference-profile/3' else profile['policy']['lookback']
+    history = 2 if curve else 0 if profile['schema'].endswith(('/5','/8','/9','/10','/12','/13')) else profile['policy']['window']-1 if profile['schema'] == 'polar.scheduled-reference-profile/3' else 0 if profile['schema'].endswith('/14') else profile['policy']['lookback']
     require(all(days.index(g['initial']) >= history for g in grids.values()), 'SCHEDULED_WARMUP')
-    tz = ZoneInfo.from_file(io.BytesIO(tz_raw), key='UTC' if profile['schema'].endswith(('/5','/7','/8','/9','/10','/11','/12','/13')) else 'America/New_York')
+    tz = ZoneInfo.from_file(io.BytesIO(tz_raw), key='UTC' if profile['schema'].endswith(('/5','/7','/8','/9','/10','/11','/12','/13','/14')) else 'America/New_York')
     if profile['schema'].endswith('/7'):
         require(all(tz.utcoffset(datetime.fromisoformat(d))==timedelta(0) for g in grids.values() for d in g['nav_dates']),
                 'SCHEDULED_RELATIVE_UTC_METADATA')
@@ -135,7 +143,13 @@ def account_count(profile, grids):
 
 
 def operation_phases(profile, grids):
-    if profile['schema'].endswith(('/2','/4','/6','/7','/8','/9','/11','/12','/13')):
+    if profile['schema'].endswith('/14'):
+        require(set(grids) <= {'VALIDATION', 'FINAL'} and 'FINAL' in grids, 'DRAWDOWN_PHASES')
+        for phase in grids:
+            for scenario in profile['cost_scenarios']:
+                yield (phase if scenario['id'] == 'BASE' else phase+'_COST_STRESS'), phase, scenario
+        return
+    if profile['schema'].endswith(('/2','/4','/6','/7','/8','/9','/11','/12','/13','/14')):
         require(set(grids) == {'FINAL'}, 'SCHEDULED_UNCERTAINTY_FINAL_ONLY')
         for scenario in profile['cost_scenarios']:
             yield ('FINAL' if scenario['id'] == 'BASE' else 'FINAL_COST_STRESS'), 'FINAL', scenario
@@ -383,7 +397,7 @@ def run(service, config):
         finish = {'status': 'SUCCESS', 'attempt_id': aid, 'semantic_id': sid, 'results': publications,
                   'fit_calls': 0, 'predict_calls': 0, 'model_calls': 0, 'native_accounts': completed,
                   'financial_acceptance': 'NOT_REVIEWED', 'finished_ns': time.time_ns()}
-        if profile['schema'].endswith(('/8','/9','/11','/12','/13')):
+        if profile['schema'].endswith(('/8','/9','/11','/12','/13','/14')):
             finish.update(score_calls=0,rank_calls=0,estimator_calls=0,optimizer_calls=0,bootstrap_samples=0)
         if profile['schema'].endswith('/13'):
             finish['feature_calls']=0
@@ -465,14 +479,22 @@ def recompute(service, semantic_id):
     expected_members = MEMBERS | ({'uncertainty.json'} if profile['schema'].endswith(('/2','/4','/6','/7')) else set())
     require(set(files) == expected_members, 'SCHEDULED_PROFILE_MEMBER_SET')
     require(files['bindings.json']['code'] == code_binding(), 'SCHEDULED_REPRODUCTION_CODE_BINDING')
-    if profile['schema'].endswith(('/8','/9','/11','/12','/13')):
-        expected={'FINAL':profile['cost_scenarios'][0], 'FINAL_COST_STRESS':profile['cost_scenarios'][1]}
+    if profile['schema'].endswith(('/8','/9','/11','/12','/13','/14')):
+        expected = ({name: scenario for name, _, scenario in operation_phases(profile, files['calendar.json']['phases'])}
+                    if profile['schema'].endswith('/14') else
+                    {'FINAL':profile['cost_scenarios'][0], 'FINAL_COST_STRESS':profile['cost_scenarios'][1]})
         require(set(files['phases.json'])==set(expected),'SCHEDULED_FIXED_COST_PHASES')
         for phase,scenario in expected.items():
             data=files['phases.json'][phase]
-            require(data.get('reference_phase')=='FINAL' and data.get('cost_scenario')==scenario and
+            require(data.get('reference_phase')==(phase.removesuffix('_COST_STRESS') if profile['schema'].endswith('/14') else 'FINAL') and data.get('cost_scenario')==scenario and
                     data['plan'].get('cost_profile')==data['simulation'].get('cost_profile')==scenario['cost_profile'],
                     'SCHEDULED_FIXED_COST_BINDING')
+    if profile['schema'].endswith('/14'):
+        for phase in files['calendar.json']['phases']:
+            base = files['phases.json'][phase]['plan']
+            stress = files['phases.json'][phase+'_COST_STRESS']['plan']
+            require({k:v for k,v in base.items() if k!='cost_profile'} ==
+                    {k:v for k,v in stress.items() if k!='cost_profile'}, 'DRAWDOWN_STRESS_SHARED_PLAN')
     if profile['schema'].endswith(('/4','/6','/7','/8','/9','/11','/12','/13')):
         base=files['phases.json']['FINAL']['plan'];stress=files['phases.json']['FINAL_COST_STRESS']['plan']
         require({k:v for k,v in base.items() if k!='cost_profile'}=={k:v for k,v in stress.items() if k!='cost_profile'},'SCHEDULED_GMV_STRESS_SHARED_PLAN')
@@ -521,7 +543,7 @@ def recompute(service, semantic_id):
         require(canonical(actual) == canonical(files['uncertainty.json']), 'SCHEDULED_UNCERTAINTY_RECOMPUTE')
     result={'status': 'REPRODUCED', 'semantic_id': semantic_id, 'fit_calls': 0, 'model_calls': 0,
             'predict_calls': 0, 'native_calls': 0, 'store_writes': 0}
-    if profile['schema'].endswith(('/8','/9','/11','/12','/13')):
+    if profile['schema'].endswith(('/8','/9','/11','/12','/13','/14')):
         result.update(score_calls=0,rank_calls=0,estimator_calls=0,optimizer_calls=0,bootstrap_samples=0)
     if profile['schema'].endswith('/13'):
         result['feature_calls']=0

@@ -22,7 +22,7 @@ requires = ["hatchling==1.29.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/polar"]
+packages = ["src/polar", "research_candidates"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/polar/web/assets/icons/dist/fonts/tabler-icons.woff2" = "polar/web/assets/icons/dist/fonts/tabler-icons.woff2"

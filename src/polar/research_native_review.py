@@ -5,6 +5,8 @@ terminal resolution must bind the exact canonical projection and name every
 native author/coauthor. Historical prose is never parsed into a trusted verdict.
 """
 import json
+from contextlib import contextmanager
+from contextvars import ContextVar
 import re
 import subprocess
 from datetime import datetime, timezone
@@ -50,6 +52,23 @@ class NativeQueue:
             return json.loads(result.stdout)
         except (OSError, ValueError, subprocess.SubprocessError):
             raise ResearchError('RESEARCH_NATIVE_TOOL_UNAVAILABLE', 503) from None
+
+
+_native_context = ContextVar('polar_inherited_native_tool', default=None)
+
+
+def current_queue():
+    return _native_context.get() or NativeQueue()
+
+
+@contextmanager
+def inherited_queue(queue):
+    """Internal stdio tool context; never obtained from a request or environment."""
+    token = _native_context.set(queue)
+    try:
+        yield
+    finally:
+        _native_context.reset(token)
 
 
 def resolve(decision_ref, queue=None):

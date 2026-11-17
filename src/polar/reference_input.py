@@ -94,8 +94,11 @@ def schedule_binding_matches(manifest,calendar_schedule):
     return canonical(expected)==canonical(actual)
 
 
-def prepare_input(config, root, limit):
+def prepare_input(config, root, limit, *, native_queue=None):
     """Called only by the owning source consumer after applicable qualification."""
+    if type(config) is dict and config.get('schema')=='polar.reference-input-conversion-config/7':
+        from .native_selected_input import prepare_selected
+        return prepare_selected(config, root, limit, queue=native_queue)
     if type(config) is dict and config.get('schema')=='polar.reference-input-conversion-config/6':
         from .reference_composition import prepare_source_view
         return prepare_source_view(config,root,limit)

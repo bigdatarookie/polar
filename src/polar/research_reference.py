@@ -89,6 +89,8 @@ def load_reference(manifest_pin):
     require(type(manifest) is dict and manifest.get('schema') in
             ('polar.synthetic-reference-source-input/1', 'polar.synthetic-reference-source-input/2'),
             'REFERENCE_MANIFEST_SCHEMA')
+    from .native_selected_input import prepared_authorization
+    prepared_authorization(manifest)
     version2 = manifest['schema'].endswith('/2')
     expected_basis = 'VENDOR_ALL_ADJUSTED_REFERENCE_CLOSE' if version2 else BASIS
     require(manifest.get('quote_basis') == expected_basis and manifest.get('unit_type') == UNIT and
