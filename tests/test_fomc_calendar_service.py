@@ -52,7 +52,9 @@ def fixture(tmp_path, monkeypatch):
     for key in ('method', 'qualification'):
         refs[key] = put(tmp_path/('fomc-'+key+'.json'), {'schema': 'polar.fomc-'+key+'/1',
             'namespace': 'INVENTED', 'question_id': QUESTION, 'policy_sha256': POLICY_SHA, 'contract_sha256': CONTRACT_SHA,
-            'status': 'ACCEPTED_WITH_LIMITS' if key == 'method' else 'PASS'})
+            'status': 'ACCEPTED_WITH_LIMITS' if key == 'method' else 'PASS',
+            **({'code': code_binding(), 'code_revision': 'a'*40, 'runtime_image_id': 'sha256:'+'b'*64,
+                'source_free': True, 'selection': ['tests/test_fomc_calendar_service.py']} if key == 'qualification' else {})})
     refs['resources'] = put(tmp_path/'fomc-resources.json', {'schema': 'polar.fomc-resources/1', 'namespace': 'INVENTED',
         'limits': {'native_wall_seconds': 180, 'stored_wall_seconds': 30, 'cleanup_seconds': 10,
                    'remaining_family_wall_seconds': 400, 'storage_upper_bound_bytes': 100*1024**2}})
@@ -173,6 +175,7 @@ def test_fomc_current_native_scope_and_stale_generation(tmp_path, monkeypatch):
     service, cfg, _, _ = fixture(tmp_path, monkeypatch)
     cfg.update(namespace='RETAINED', consumer_task=TASK, source_admission_ref=ADMISSION+'#3')
     monkeypatch.setattr(candidate, 'loaded_revision', lambda: 'a'*40)
+    monkeypatch.setattr(fomc_source, 'actual_runtime', lambda config: None)
     queue = Queue(cfg)
     resolution = json.loads(queue.row['resolution']); resolution['schema'] = 'polar.fomc-source-admission/1'
     queue.row['resolution'] = json.dumps(resolution)
@@ -196,3 +199,110 @@ def test_fomc_saved_instruction_tamper_is_rejected_without_policy(tmp_path, monk
     next(s for s in bad if s['leg'] == 'STATIC_50')['q_ns'] = plan.nav_closes[0]
     with pytest.raises(Exception, match='FOMC_STEP_FIELDS'):
         validate_plan(replace(plan, instructions=tuple(bad)))
+
+
+def test_labels_do_not_create_a_retry_family(tmp_path, monkeypatch):
+    service, cfg, _, _ = fixture(tmp_path, monkeypatch)
+    from polar.fomc_calendar_service import family
+    assert family(cfg) == family({**cfg, 'candidate_id': 'INVENTED-ALIAS', 'experiment_id': 'NEW-LABEL'})
+
+
+def test_closed_source_scope_precedes_materializer_access(tmp_path, monkeypatch):
+    service, cfg, _, _ = fixture(tmp_path, monkeypatch)
+    from polar.fomc_source import SOURCE_SCHEMA, SOURCE_PROFILE, prepare_source_input
+    source = {k: cfg[k] for k in ('namespace', 'question_id', 'candidate_id', 'experiment_id', 'code', 'code_revision',
+                                  'runtime_image_id', 'artifact_root_identity', 'consumer_task', 'source_admission_ref',
+                                  'contract_ref', 'protocol_ref', 'method_ref')}
+    source.update(schema=SOURCE_SCHEMA, profile_id=SOURCE_PROFILE,
+                  spec_ref={'path': '/never/read', 'sha256': 'a'*64, 'bytes': 1}, namespace='RETAINED')
+    import polar.fomc_source as module
+    def forbidden(*a, **k): raise AssertionError('NO_SPEC_OR_SOURCE_BEFORE_NATIVE_SCOPE')
+    monkeypatch.setattr(__import__('polar.gym_contract', fromlist=['read_ref']), 'read_ref', forbidden)
+    with pytest.raises(Exception, match='FOMC_NATIVE_SOURCE_SCOPE|CANDIDATE_CHECKOUT_UNVERIFIED|FOMC_SOURCE_ACTUAL_RUNTIME'):
+        prepare_source_input(source, service.store.root, service.store.limit)
+
+
+def test_material_start_intervals_include_cash_and_strict_threshold():
+    from polar.fomc_calendar import material_fraction
+    nav = [{'nav_cents': 100, 'position_cents': {'VTI': v}} for v in (0, 75, 74, 100)]
+    assert material_fraction(nav) == Fraction(2, 3)
+    assert material_fraction([{**r, 'nav_cents': 0} if i == 1 else r for i, r in enumerate(nav)]) is None
+
+
+def test_fee_budget_clamps_negative_extra_and_uses_civil_dates():
+    from polar.fomc_calendar import extra_fee_budget
+    s = [{'date': '2024-03-08', 'flat_cents': 0, 'bps_cents': 0},
+         {'date': '2024-03-12', 'flat_cents': 100, 'bps_cents': 0}]
+    b = [s[0], {**s[1], 'flat_cents': 200}]
+    assert extra_fee_budget(s, b) == (0, Fraction(10_000_000, 200)*Fraction(4*4, 1461))
+
+
+def test_date_geometry_coalesces_touching_risk_end_not_label_end():
+    dates = [(datetime(2024, 1, 1)+timedelta(days=i)).date().isoformat() for i in range(15)]
+    schedule = [{'date': d, 'reference_close_utc': d+'T21:00:00Z'} for d in dates]
+    rows = [{'event_id': 'INVENTED-'+str(i), 'statement_date': d, 'clock_status': 'MODEL_CLOCK',
+             'regular_exception_cancel_reschedule_classification': 'REGULAR_SCHEDULED_POLICY_STATEMENT_ROW',
+             'clock_basis': 'MODEL_CLOCK_FROM_OFFICIAL_STANDING_SCHEDULE_CONVENTION',
+             'statement_url': 'https://example.invalid', 'scheduled_clock': '14:00',
+             'scheduled_zone': 'America/New_York'} for i, d in enumerate(['2024-01-04', '2024-01-07'])]
+    value = geometry(rows, schedule, {'FINAL': [dates[0], dates[-1]]}, ZoneInfo('America/New_York'))
+    a, b = value['records']
+    assert a['return_ns'] == b['entry_ns'] and a['label_ns'] < b['entry_ns']
+    assert len(value['clusters']['FINAL']) == 1
+    cluster = value['clusters']['FINAL'][0]
+    assert cluster['members'] == ['INVENTED-0', 'INVENTED-1']
+    assert cluster['label_ns'] == b['label_ns'] and cluster['return_ns'] == b['return_ns']
+
+
+def test_actual_file_cli_factory_and_value_absent_preflight(tmp_path, monkeypatch):
+    import os, subprocess, sys
+    from polar.candidate_binding import loaded_revision
+    service, cfg, quotes, _ = fixture(tmp_path, monkeypatch)
+    runtime = os.environ.get('POLAR_CI_RUNTIME_IMAGE_ID') or 'sha256:'+'b'*64
+    qa = json.loads(Path(cfg['qualification_ref']['path']).read_bytes())
+    qa.update(code_revision=loaded_revision(), runtime_image_id=runtime)
+    cfg['qualification_ref'] = put(tmp_path/'current-qa.json', qa)
+    seed = {k: v for k, v in cfg.items() if k not in ('code', 'code_revision', 'runtime_image_id', 'artifact_root_identity')}
+    seed['schema'] = 'polar.fomc-calendar-seed/1'
+    pin = put(tmp_path/'current-seed.json', seed)
+    env = {**os.environ, 'POLAR_ARTIFACT_ROOT': str(service.store.root), 'POLAR_RUNTIME_IMAGE_ID': runtime}
+    made = subprocess.run([sys.executable, '-m', 'polar.cli', 'research-config', pin['path']],
+                           env=env, text=True, capture_output=True, timeout=30)
+    assert made.returncode == 0, made.stderr
+    current = json.loads(made.stdout)
+    assert current['code_revision'] == loaded_revision()
+    Path(quotes['path']).unlink()
+    configpin = put(tmp_path/'current-config.json', current)
+    ready = subprocess.run([sys.executable, '-m', 'polar.cli', 'research-preflight', configpin['path']],
+                            env=env, text=True, capture_output=True, timeout=30)
+    assert ready.returncode == 0, ready.stderr
+    assert json.loads(ready.stdout)['source_values_read'] == 0
+    assert not (service.store.root/'scheduled-reference-attempts').exists()
+
+
+def test_actual_closed_selected_route_and_read_time_spec_binding(tmp_path, monkeypatch):
+    from test_native_selected_input import fixture as source_fixture
+    from polar.fomc_source import SOURCE_SCHEMA, SOURCE_PROFILE
+    from polar.reference_input import prepare_input
+    from polar.research_reference import load_reference
+    service, cfg, _, _ = fixture(tmp_path/'operation', monkeypatch)
+    folder = tmp_path/'source'; folder.mkdir()
+    _, old, _, parent, _ = source_fixture(folder, monkeypatch)
+    purpose = old['purpose_ref']
+    spec = {'schema': 'polar.selected-component-materialization/1', 'namespace': 'INVENTED',
+            'leaf_inputs': [{'input_ref': old['bil_input_ref'], 'symbol': 'BIL'}],
+            'normalized_inputs': [{'input_ref': old['vti_parent_ref'], 'binding_ref': old['vti_binding_ref'], 'symbol': 'VTI'}],
+            'schedule': parent['schedule'], 'date_range': {'start': '2024-02-01', 'end': '2024-02-02', 'count': 2},
+            'purpose_ref': purpose, 'qualification_refs': [purpose]}
+    source = {k: cfg[k] for k in ('namespace', 'question_id', 'candidate_id', 'experiment_id', 'code', 'code_revision',
+                                  'runtime_image_id', 'artifact_root_identity', 'consumer_task', 'source_admission_ref',
+                                  'contract_ref', 'protocol_ref', 'method_ref')}
+    source.update(schema=SOURCE_SCHEMA, profile_id=SOURCE_PROFILE, spec_ref=put(tmp_path/'spec.json', spec))
+    result = prepare_input(source, service.store.root, service.store.limit)
+    assert load_reference(result['input_ref'])['symbols'] == ['BIL', 'VTI']
+    # A changed spec under copied proof is rejected before its quotes are opened.
+    manifest = json.loads(Path(result['input_ref']['path']).read_bytes())
+    manifest['conversion_metadata']['spec']['date_range']['count'] = 999
+    manifest['quotes']['path'] = '/never/open/prices'
+    bad = put(tmp_path/'tampered-manifest.json', manifest)
+    with pytest.raises(Exception, match='FOMC_PREPARED_SPEC_BINDING'): load_reference(bad)

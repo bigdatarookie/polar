@@ -260,13 +260,37 @@ def verify_account(account, geometry_value, phase, role_rows=None):
     return {'status': 'VERIFIED_FOMC_SAVED_ACCOUNT', 'source_reads': 0, 'native_calls': 0}
 
 
-def evaluate_phase(accounts, calendar, phase, role_rows=None):
+def material_fraction(nav):
+    if len(nav) < 2 or any(r['nav_cents'] <= 0 for r in nav):
+        return None
+    return F(sum(4*r['position_cents']['VTI'] < 3*r['nav_cents'] for r in nav[:-1]), len(nav)-1)
+
+
+def extra_fee_budget(strategy_nav, benchmark_nav):
+    fee = lambda nav: nav[-1]['flat_cents']+nav[-1]['bps_cents']
+    extra = max(0, fee(strategy_nav)-fee(benchmark_nav))
+    days = (date.fromisoformat(strategy_nav[-1]['date'])-date.fromisoformat(strategy_nav[0]['date'])).days
+    return extra, F(INITIAL_CENTS, 200)*F(days*4, 1461)
+
+
+def evaluate_phase(accounts, calendar, phase, role_rows=None, account_scope=None):
     require(phase in ('VALIDATION', 'FINAL'), 'FOMC_PHASE')
     pairs = {(a['leg'], a['cost_id']): a for a in accounts}
     require(len(accounts) == len(pairs) == len(LEGS)*len(COSTS) and
             set(pairs) == {(leg, cost) for leg in LEGS for cost, _ in COSTS}, 'FOMC_ACCOUNT_CENSUS')
     for account in accounts:
         verify_account(account, calendar, phase, role_rows)
+        if role_rows is not None:
+            from .event_native import key
+            input_id = role_rows[0]['source_id'].rsplit('/', 2)[0]
+            require(account_scope is not None and account['context'].input_id == input_id and
+                    account['context'].calendar_id == sha(canonical(calendar)) and
+                    account['context'].protocol_id == QUESTION and
+                    account['context'].leg_id == account['leg'] and account['context'].cost_id == account['cost_id'] and
+                    account['context'].account_id == key([account_scope, account['leg'], account['cost_id'],
+                        input_id, sha(canonical(calendar)), QUESTION]), 'FOMC_SAVED_EXTERNAL_CONTEXT')
+            require(all(r['source_id'] == input_id+'/'+r['symbol']+'/'+r['date'] for r in role_rows),
+                    'FOMC_SAVED_SOURCE_LOCATORS')
     for leg in LEGS:
         require(pairs[leg, 'BASE']['fomc_steps'] == pairs[leg, 'FRESH_2X']['fomc_steps'] and
                 pairs[leg, 'BASE']['sma'] == pairs[leg, 'FRESH_2X']['sma'], 'FOMC_COST_SHARED_PHASE_PLAN')
@@ -282,9 +306,8 @@ def evaluate_phase(accounts, calendar, phase, role_rows=None):
                        'r2_ns': g['return_ns']} for g in calendar['clusters'][phase]]
         risk_cycles = [interval(account, u) for u in risk_units]
         nav = account['nav']; valid = all(r['nav_cents'] > 0 for r in nav)
-        material = [4*r['position_cents']['VTI'] < 3*r['nav_cents'] for r in nav[:-1]] if valid else None
         details['/'.join(pair)] = {'clusters': cluster_rows, 'tail': tail, 'statistics': safe_statistics(nav),
-            'actual_material_fraction': F(sum(material), len(material)) if material is not None and material else None,
+            'actual_material_fraction': material_fraction(nav),
             'ordinary_ratios_valid': valid, 'all_phase_intervals': len(nav)-1,
             'risk_cycles_including_return_costs': risk_cycles,
             'return_lag_ns': {g['id']: g['return_ns']-g['label_ns'] for g in calendar['clusters'][phase]},
@@ -302,10 +325,7 @@ def evaluate_phase(accounts, calendar, phase, role_rows=None):
         protection = clause('PROTECTION', None if ss is None or bs is None or bs == 0 else 5*ss <= 4*bs,
                             reason='UNAVAILABLE_BENCHMARK_ES_ZERO' if bs == 0 else
                             'UNAVAILABLE_EVENT_LOSS' if ss is None or bs is None else None)
-        fee = lambda a: a['nav'][-1]['flat_cents']+a['nav'][-1]['bps_cents']
-        extra = max(0, fee(strategy)-fee(benchmark))
-        days = (date.fromisoformat(strategy['nav'][-1]['date'])-date.fromisoformat(strategy['nav'][0]['date'])).days
-        allowance = F(INITIAL_CENTS, 200)*F(days*4, 1461)
+        extra, allowance = extra_fee_budget(strategy['nav'], benchmark['nav'])
         material = s['actual_material_fraction']
         clauses = [protection, clause('WEALTH', 20*st >= 19*bt), clause('GROWTH', st > INITIAL_CENTS),
                    clause('DRAWDOWN', drawdown_exact(strategy['nav']) <= drawdown_exact(benchmark['nav'])),

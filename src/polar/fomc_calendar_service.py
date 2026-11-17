@@ -50,8 +50,8 @@ def binding(config):
 
 
 def family(config):
-    return sha(canonical({'question': QUESTION, 'candidate_id': config['candidate_id'],
-                          'experiment_id': config['experiment_id'], 'namespace': config['namespace']}))
+    return sha(canonical({'question': QUESTION, 'policy_sha256': POLICY_SHA,
+                          'contract_sha256': CONTRACT_SHA, 'namespace': config['namespace']}))
 
 
 def prepare(service, config):
@@ -84,6 +84,9 @@ def prepare(service, config):
             manifest['unit_type'] == 'SYNTHETIC_REFERENCE_UNIT_NOT_RAW_SHARE' and
             manifest['double_action_policy'] == 'NO_ADDITIONAL_SPLIT_DIVIDEND_CREDIT_IN_REFERENCE_UNIT_MODEL', 'FOMC_INPUT_BASIS')
     invented = config['namespace'] == 'INVENTED'
+    if not invented:
+        from .fomc_source import validate_prepared_input
+        validate_prepared_input(config, manifest, service.store.root)
     require(manifest['rights'] == ('INVENTED_PUBLIC_TEST' if invented else
             'SOLE_OWNER_PRIVATE_NONCOMMERCIAL_NO_PUBLIC_DATA_OR_DATA_CONTAINING_RESULT_REDISTRIBUTION'), 'FOMC_INPUT_RIGHTS')
     require((manifest.get('provenance') == {'kind': 'DETERMINISTIC_INVENTED_FIXTURE',
@@ -130,6 +133,10 @@ def prepare(service, config):
                 value.get('policy_sha256') == POLICY_SHA and value.get('contract_sha256') == CONTRACT_SHA and
                 value.get('status') == ('ACCEPTED_WITH_LIMITS' if key == 'method' else 'PASS') and
                 value.get('namespace') == config['namespace'], 'FOMC_'+key.upper()+'_BINDING')
+    qualification = decode(raw['qualification'])
+    require(all(qualification.get(k) == config[k] for k in ('code', 'code_revision', 'runtime_image_id')) and
+            qualification.get('source_free') is True and type(qualification.get('selection')) is list and
+            'tests/test_fomc_calendar_service.py' in qualification['selection'], 'FOMC_EXACT_TECHNICAL_QUALIFICATION')
     clock = decode(raw['clock'])
     require(type(clock) is dict and set(clock) == {'schema', 'namespace', 'basis', 'roles_sha256',
             'assumption_ref', 'source_fit_ref'} and clock['schema'] == 'polar.fomc-quote-clock/1' and
@@ -179,7 +186,7 @@ def preflight(service, config):
 def produce(request, diagnostics=None):
     from .event_native import simulate_event_component
     component = simulate_event_component(request.plan, diagnostics, preserve_accounts=True)
-    evaluation = evaluate_phase(component['accounts'], request.calendar, request.phase, request.role_rows)
+    evaluation = evaluate_phase(component['accounts'], request.calendar, request.phase, request.role_rows, request.plan.account_scope)
     return {'accounts': component['accounts'], 'evaluation': evaluation}
 
 
@@ -193,6 +200,12 @@ def run(service, config):
     from .candidate_binding import loaded_revision
     if config['namespace'] == 'RETAINED':
         require(config['code_revision'] == loaded_revision(), 'FOMC_CURRENT_CANDIDATE')
+    require(any(metadata['calendar']['clusters'].values()), 'FOMC_NO_COMPLETE_CLUSTERS_NOT_RUN')
+    from types import SimpleNamespace
+    from .gym_store import GymStore
+    # Same shared logical quota/staging guards, additionally bounded to this attempt.
+    service = SimpleNamespace(store=GymStore(service.store.root, min(service.store.limit,
+        service.store.used()+metadata['limits']['storage_upper_bound_bytes'])))
     family_id = family(config); aid = str(uuid.uuid4()); parent = 'scheduled-reference-attempts/'+family_id
     intent = {'schema': 'polar.fomc-offline-author-binding/1', 'question_id': QUESTION,
               'candidate_sha': config['code_revision'], 'runtime_image_id': config['runtime_image_id'],
@@ -207,17 +220,18 @@ def run(service, config):
             'attempt_id': aid, 'started_ns': time.time_ns()}), 'config.json': canonical(config)})
     phase_graphs = {}; phase_evaluations = {}; events = []
     def diagnostic(event):
+        if event.get('phase') == 'ACCOUNT_SAVED_WITNESS':
+            ref = publish_witnesses(service.store, event['account'])
+            event = {'phase': event['phase'], 'leg': event['leg'], 'cost_id': event['cost_id'], 'witness_ref': encode(ref)}
+        elif event.get('phase') == 'ACCOUNT_PARTIAL':
+            raw = canonical(encode(event['evidence']))
+            with service.store.locked():
+                service.store._publish(parent+'/'+aid, 'partial-'+sha(raw), {'evidence.json': raw}, file_limit=MAX_BYTES)
+            event = {'phase': 'ACCOUNT_PARTIAL', 'evidence_sha256': sha(raw)}
         raw = canonical(encode(event))
         with service.store.locked():
             service.store._publish(parent+'/'+aid, 'diagnostic-'+str(len(events)), {'record.json': raw}, file_limit=MAX_BYTES)
         events.append(event.get('phase'))
-        if event.get('phase') == 'ACCOUNT_SAVED_WITNESS':
-            ref = publish_witnesses(service.store, event['account'])
-            return {'phase': event['phase'], 'leg': event['leg'], 'cost_id': event['cost_id'], 'witness_ref': encode(ref)}
-        if event.get('phase') == 'ACCOUNT_PARTIAL':
-            raw = canonical(encode(event['evidence']))
-            with service.store.locked(): service.store._publish(parent+'/'+aid, 'partial-'+sha(raw), {'evidence.json': raw}, file_limit=MAX_BYTES)
-            return {'phase': 'ACCOUNT_PARTIAL', 'evidence_sha256': sha(raw)}
         return event
     try:
         market = load_reference(config['input_ref'])  # First value read after FIRST_START.
@@ -263,7 +277,7 @@ def recompute(service, sid):
             item = verify_stored_witnesses(service.store.root, ref['id'], ref['context'])
             require(item['immutable_payload_sha256'] == ref['payload_sha256'], 'FOMC_SAVED_WITNESS_HASH')
             accounts.append(item['account'])
-        evaluation = evaluate_phase(accounts, graph['calendar'], phase, graph['roles']['phases'][phase])
+        evaluation = evaluate_phase(accounts, graph['calendar'], phase, graph['roles']['phases'][phase], family(config)+'/'+phase)
         require(canonical(encode(evaluation)) == canonical(graph['evaluations'][phase]), 'FOMC_SAVED_EVALUATION')
     return {'status': 'REPRODUCED', 'semantic_id': sid, 'source_reads': 0, 'native_calls': 0,
             'policy_calls': 0, 'writes': 0, 'financial_acceptance': 'NOT_REVIEWED'}

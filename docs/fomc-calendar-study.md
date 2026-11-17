@@ -88,3 +88,29 @@ existing witness publisher. Success-only recompute verifies the same saved
 instructions, exact arithmetic, source-role/clock/phase/cost bindings and evaluator
 without source, policy or native replay or write. No public result schema,
 product writer, UI, database, auth or deployment is added.
+
+Closed source config10 fields are schema, profile_id, namespace, question_id,
+candidate_id, experiment_id, code, code_revision, runtime_image_id,
+artifact_root_identity, consumer_task, source_admission_ref, spec_ref,
+contract_ref, protocol_ref and method_ref. Its source scope uses
+polar.fomc_source.scope (existing native canonical JSON convention). Data's
+polar.selected-component-materialization/1 spec pins singleton leaf inputs,
+normalized selected binding inputs, schedule/date range, purpose and qualification
+refs. The owner checks actual source custody before calling the helper, and
+compiled-input reads revalidate that exact spec, root, source/config/package,
+current native generation and original admission before quote bytes. RETAINED
+Service also checks the compiled source against its own new execution scope before
+FIRST_START. Current context probe and the fixed native_selected_tool transport
+support config10, its input preflight and the new study preflight/run; there is no
+caller-command loader. New FOMC transport allows the bounded extra reads needed
+for both source and operation custody rereads; legacy consumers retain their
+original read bound. Actual physical/clock readiness remains unavailable.
+
+The exact technical qualification binds code, code_revision, runtime_image_id,
+source_free=true and an explicit test_fomc_calendar_service.py selection. Its
+status remains a technical assertion, separate from native source/physical and
+financial readiness. Attempt family derives from fixed question, frozen policy
+and contract plus namespace; changing a label, result, data pin or experiment name
+cannot mint a retry. Every writer in the new operation also uses the existing
+store's before-staging guards with an operation-specific logical storage limit.
+That limit does not certify physical hosting or global allocation fit.

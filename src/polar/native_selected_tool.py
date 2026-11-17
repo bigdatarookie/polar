@@ -33,6 +33,12 @@ def selected_config(operation, value):
         return value
     if operation == 'research-input-prepare' and value.get('schema') == 'polar.reference-input-conversion-config/10':
         return value
+    if operation == 'research-input-preflight':
+        manifest = decode(pinned_bytes(value))
+        meta = manifest.get('conversion_metadata', manifest.get('provenance', {}))
+        source = meta.get('source_native_binding', {}).get('config', {})
+        if meta.get('converter') == 'polar.selected-component-materializer/1' and source.get('schema') == 'polar.reference-input-conversion-config/10':
+            return source
     if operation == 'research-input-prepare':
         config = value
     else:
@@ -97,7 +103,8 @@ def bridge(container, operation, value, *, queue=None):
     command = ['docker', 'exec', '-i', container, 'python', '-u', '-m', 'polar.native_selected_tool',
                '--stdio-consumer', '--operation', operation, '--source-sha256', source_identity()]
     return pipe_bridge(command, lambda args: permitted(args, config), queue or NativeQueue(),
-                       initial={'value': value}, timeout=600)
+                       initial={'value': value}, timeout=600, max_reads=128 if config.get('schema') in
+                       ('polar.fomc-calendar-config/1', 'polar.reference-input-conversion-config/10') else 32)
 
 
 def main():
