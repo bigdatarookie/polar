@@ -280,3 +280,15 @@ test('server native projection is structurally bound to exact content, bindings 
   const g=nativeDescriptionFixture();change(g.detail.assessment.reviews[0]);assert.throws(()=>validateResearchDetail(g.detail,g.item),/RESEARCH_NATIVE_PROOF_INVALID/);
  }
 });
+
+test('descriptive nested records reject unrecognized fields before rendering',()=>{
+ for(const key of ['question','bindings','basis','observations','limitations','provenance','criteria']){
+  const f=descriptionFixture();
+  f.detail.record.criteria=[{id:'invented-criterion',description:'Fixture only',status:'UNAVAILABLE',reason:null}];
+  const value=Array.isArray(f.detail.record[key])?f.detail.record[key][0]:f.detail.record[key];
+  value.unrecognized_field='must never reach the view';
+  assert.throws(()=>validateResearchDetail(f.detail,f.item),/RESEARCH_DESCRIPTION_FIELDS_INVALID/,key);
+ }
+ const f=descriptionFixture();f.detail.record.bindings.unexpected='<unrecognized safe test text>';
+ assert.throws(()=>validateResearchDetail(f.detail,f.item),/RESEARCH_DESCRIPTION_FIELDS_INVALID/);
+});

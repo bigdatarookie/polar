@@ -32,11 +32,15 @@ function researchAssessment(a,resultId,hash,bindings){
     for(const key of Object.keys(dimensions))if(a.native_review[key]!=='NOT_REVIEWED')researchRequire(a.reviews.some(r=>r.provenance_status==='VERIFIED_NATIVE_DECISION'&&r.scope===key.toUpperCase()&&r.verdict===a.native_review[key]),'RESEARCH_NATIVE_ASSESSMENT_UNBOUND');
   }
 }
+const RESEARCH_DESCRIPTION_BINDINGS=['protocol_id','protocol_sha256','data_revision','data_sha256','code_revision','evaluator_revision','runtime_id','producer_id','candidate_id','experiment_id','config_sha256'];
 function researchIsDescription(record){return record?.schema_version==='polar.research-description/1';}
 function validateResearchDescription(r){
   const keys=['schema_version','question','bindings','basis','observations','limitations','provenance','evidence_level','financial_claim','criteria','point_interpretation'];
   const text=v=>typeof v==='string'&&v.length>0,hash=v=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
-  researchRequire(Object.keys(r).length===keys.length&&keys.every(k=>Object.hasOwn(r,k)),'RESEARCH_DESCRIPTION_FIELDS_INVALID');
+  const exact=(value,fields)=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length===fields.length&&fields.every(k=>Object.hasOwn(value,k));
+  researchRequire(exact(r,keys),'RESEARCH_DESCRIPTION_FIELDS_INVALID');
+  researchRequire(exact(r.question,['id','label','summary'])&&exact(r.bindings,RESEARCH_DESCRIPTION_BINDINGS)&&exact(r.basis,['kind','investor_metrics','portfolio_series','orders']),'RESEARCH_DESCRIPTION_FIELDS_INVALID');
+  for(const [key,fields]of [['observations',['id','label','status','description']],['limitations',['code','text','scope']],['provenance',['role','id','sha256']],['criteria',['id','description','status','reason']]])researchRequire(Array.isArray(r[key])&&r[key].every(value=>exact(value,fields)),'RESEARCH_DESCRIPTION_FIELDS_INVALID');
   researchRequire(text(r.question?.id)&&text(r.question?.label)&&text(r.question?.summary),'RESEARCH_DESCRIPTION_QUESTION_INVALID');
   researchRequire(r.basis?.kind==='PROSPECTIVE_DESCRIPTIVE'&&['investor_metrics','portfolio_series','orders'].every(k=>r.basis[k]==='NOT_APPLICABLE')&&Object.keys(r.basis).length===4,'RESEARCH_DESCRIPTION_BASIS_INVALID');
   const b=r.bindings;
@@ -283,4 +287,4 @@ function researchComparison(detail,bars,anchor=null){
 }
 function researchReadable(value){return String(value||'Not supplied').replaceAll('_',' ').replace(/\s+/g,' ').trim();}
 function researchPhase(record){if(researchIsDescription(record))return 'Prospective descriptive';return record.question.label.match(/\b(?:FINAL|VALIDATION|TRAIN|TEST|DEVELOPMENT)\b/)?.[0]||'Saved interval';}
-if(typeof module!=='undefined')module.exports={researchFinancialLabel,researchAssessmentText,researchReviewProvenanceLabel,researchIsDescription,validateResearchDescription,researchHasPortfolio,researchLoadProgressive,validateResearchRevision,createResearchRevisionWatcher,withResearchDOMState,researchSnapshotSignature,researchSnapshotPage,createResearchClient,validateResearchDetail,validateResearchCatalog,researchValue,researchPlotValue,researchDecimalDisplay,executionDateGroups,researchLoadAllExecutions,executionScaledToken,validateResearchExecutions,createResearchExecutionClient,researchLoadAll,researchRowMetric,researchDecimalCompare,researchSortRows,researchHistoryCompatibility,researchNormalize,researchComparison,researchReadable,researchPhase};
+if(typeof module!=='undefined')module.exports={RESEARCH_DESCRIPTION_BINDINGS,researchFinancialLabel,researchAssessmentText,researchReviewProvenanceLabel,researchIsDescription,validateResearchDescription,researchHasPortfolio,researchLoadProgressive,validateResearchRevision,createResearchRevisionWatcher,withResearchDOMState,researchSnapshotSignature,researchSnapshotPage,createResearchClient,validateResearchDetail,validateResearchCatalog,researchValue,researchPlotValue,researchDecimalDisplay,executionDateGroups,researchLoadAllExecutions,executionScaledToken,validateResearchExecutions,createResearchExecutionClient,researchLoadAll,researchRowMetric,researchDecimalCompare,researchSortRows,researchHistoryCompatibility,researchNormalize,researchComparison,researchReadable,researchPhase};
