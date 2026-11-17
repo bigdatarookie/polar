@@ -87,9 +87,16 @@ def bridge(container, operation, decision_ref, *, queue=None):
     command = ['docker', 'exec', '-i', container, 'python', '-u', '-m',
                'polar.research_native_tool', '--stdio-consumer', '--operation', operation,
                '--decision-ref', decision_ref, '--source-sha256', source_identity()]
+    return pipe_bridge(command, lambda args: permitted(args, decision_ref), queue)
+
+
+def pipe_bridge(command, allow_read, queue, *, initial=None, timeout=60):
+    """Private bounded stdio transport shared by the closed native consumers."""
     process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                stderr=subprocess.DEVNULL)
-    deadline = time.monotonic()+60
+    if initial is not None:
+        process.stdin.write(canonical(initial)+b'\n'); process.stdin.flush()
+    deadline = time.monotonic()+timeout
     pending = bytearray(); reads = 0
     selector = selectors.DefaultSelector(); selector.register(process.stdout, selectors.EVENT_READ)
     try:
@@ -107,7 +114,7 @@ def bridge(container, operation, decision_ref, *, queue=None):
                 message = json.loads(line)
                 if set(message) == {'native_read'}:
                     args = message['native_read']; reads += 1
-                    if reads > 32 or not permitted(args, decision_ref):
+                    if reads > 32 or not allow_read(args):
                         raise ResearchError('RESEARCH_NATIVE_TOOL_PROTOCOL', 409)
                     value = queue.read(*args)
                     process.stdin.write(canonical({'value': value})+b'\n'); process.stdin.flush()
@@ -118,7 +125,7 @@ def bridge(container, operation, decision_ref, *, queue=None):
                     return message['result']
                 elif set(message) == {'error_code'}:
                     code = message['error_code']
-                    if not isinstance(code, str) or not re.fullmatch(r'RESEARCH_[A-Z_]+', code):
+                    if not isinstance(code, str) or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', code):
                         code = 'RESEARCH_NATIVE_CONSUMER_FAILED'
                     raise ResearchError(code, 409)
                 else:

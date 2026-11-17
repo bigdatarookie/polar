@@ -14,7 +14,8 @@ from .gym_evaluation import evaluate
 def code_binding():
     root=Path(__file__).parent
     names=sorted(str(p.relative_to(root)) for p in root.rglob('*') if p.is_file() and p.suffix in ('.py','.json','.sql'))
-    return {n:sha((root/n).read_bytes()) for n in names}
+    from .scheduled_drawdown import policy_binding
+    return {**{n:sha((root/n).read_bytes()) for n in names}, **policy_binding()}
 
 def native_worker(connection,converted):
     try:

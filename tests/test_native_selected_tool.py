@@ -1,0 +1,56 @@
+"""Closed CLI context bridge; no live native task/source or financial execution."""
+import json
+import subprocess
+import sys
+
+import pytest
+from polar import native_selected_tool as tool
+from polar import research_native_tool as transport
+from polar.research_results import ResearchError
+from test_native_selected_input import fixture, TASK, ADMISSION
+
+
+def test_closed_native_read_allowlist():
+    cfg = {'consumer_task': TASK, 'source_admission_ref': ADMISSION+'#3'}
+    assert tool.permitted(['queue', 'show', TASK, '--full'], cfg)
+    assert tool.permitted(['queue', 'transitions', ADMISSION, '--full'], cfg)
+    for args in [['queue', 'show', 'qitem-foreign', '--full'], ['queue', 'claim', TASK],
+                 ['seat', 'status', 'quant-validator@polar-rig'], ['whoami', '--source', 'forged']]:
+        assert not tool.permitted(args, cfg)
+
+
+def test_input_bridge_delivers_config_and_each_live_tool_read(tmp_path, monkeypatch):
+    _, cfg, queue, _, _ = fixture(tmp_path, monkeypatch)
+    real_start = subprocess.Popen
+    script = '''import json,sys
+initial=json.loads(sys.stdin.readline())
+assert initial['value']['consumer_task']=='qitem-invented-author'
+print(json.dumps({'native_read':['whoami']}),flush=True)
+reply=json.loads(sys.stdin.readline())
+print(json.dumps({'result':{'actor':reply['value']['identity']['sessionName'],'values':'NOT_RETURNED'}}),flush=True)
+'''
+    def start(command, **kwargs):
+        assert command[:8] == ['docker', 'exec', '-i', 'a'*12, 'python', '-u', '-m', 'polar.native_selected_tool']
+        return real_start([sys.executable, '-u', '-c', script], **kwargs)
+    monkeypatch.setattr(transport.subprocess, 'Popen', start)
+    assert tool.bridge('a'*12, 'research-input-prepare', cfg, queue=queue) == {
+        'actor': 'quant-a@polar-rig', 'values': 'NOT_RETURNED'}
+
+
+def test_source_check_precedes_config_and_settings(monkeypatch):
+    monkeypatch.setattr(tool, 'source_identity', lambda: 'a'*64)
+    monkeypatch.setattr(tool, 'selected_config', lambda *a: pytest.fail('config opened before source check'))
+    with pytest.raises(ResearchError, match='SOURCE_MISMATCH'):
+        tool.consume('research-input-prepare', {}, 'b'*64)
+    with pytest.raises(ResearchError, match='TOOL_OPERATION'):
+        tool.bridge('not-a-container', 'research-run', {})
+
+
+def test_real_file_only_consumer_uses_inherited_context_and_no_database(tmp_path, monkeypatch):
+    from polar.config import Settings
+    root, cfg, queue, _, _ = fixture(tmp_path, monkeypatch)
+    monkeypatch.setattr(tool, 'ToolPipe', lambda: queue)
+    monkeypatch.setattr(Settings, 'load_artifacts', classmethod(lambda cls: Settings('unused-file-only', root)))
+    out = tool.consume('research-input-prepare', cfg, tool.source_identity())
+    assert out['status'] == 'PREPARED_SOURCE_ONLY'
+    assert tool.consume('research-input-preflight', out['input_ref'], tool.source_identity())['symbols'] == 2

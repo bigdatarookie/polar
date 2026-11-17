@@ -23,7 +23,7 @@ def loaded_revision():
         if not re.fullmatch('[a-f0-9]{40}', revision):
             raise ValueError()
         # Tracked changes and untracked Python modules can both change imports.
-        if git('status', '--porcelain', '--untracked-files=all', '--', 'src/polar', 'pyproject.toml', 'requirements.lock'):
+        if git('status', '--porcelain', '--untracked-files=all', '--', 'src/polar', 'research_candidates', 'pyproject.toml', 'requirements.lock'):
             raise ValueError()
         tracked = git('ls-files', '--error-unmatch', str(source.relative_to(root)))
         if tracked != str(source.relative_to(root)):
