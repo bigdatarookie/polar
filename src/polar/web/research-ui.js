@@ -97,7 +97,7 @@ function createResearchWorkspace({root,historyWorkspace,fetcher,theme=()=> 'auto
     pageLabel.textContent=committed?.catalog.items.length?'Results '+(committed.catalog.offset+1)+'–'+(committed.catalog.offset+committed.catalog.items.length)+' of '+committed.catalog.total:'No results';
     intro.replaceChildren();content.replaceChildren();legend.replaceChildren();
     if(!detail){intro.append(el('h1','Saved research'),el('p',error?'The result service is unavailable. Use Retry results to try again.':loading?'Loading a complete saved result. No demonstration values are substituted.':committed?'No saved research results. Persisted results will appear here when available.':'Choose a persisted research question to inspect supplied strategy and benchmark results.'));plot.hidden=true;return;}
-    plot.hidden=false;const r=detail.record;
+    const r=detail.record;if(researchIsDescription(r)){renderDescription(detail,previous);return;}plot.hidden=false;
     const phase=researchPhase(r),primary=r.series.find(s=>s.role==='STRATEGY'),benchmark=r.series.find(s=>s.id===r.primary_benchmark_id);
     const conclusion=detail.assessment.financial==='NOT_SUPPORTED'?'Point claim not supported':detail.assessment.financial==='INDETERMINATE'?'Diagnostic evidence · no final point conclusion':detail.assessment.financial==='SUPPORTED_WITH_LIMITS'?'Supported within stated limits':'Awaiting independent financial review';
     intro.append(el('p',phase+' / '+r.grid[0].slice(0,10)+' — '+r.grid.at(-1).slice(0,10),'research-eyebrow'),el('h1',r.question.label),el('p',r.question.summary),el('p',conclusion,'research-conclusion'),el('p',assessmentText(detail.assessment),'research-assessment'));
@@ -128,11 +128,25 @@ function createResearchWorkspace({root,historyWorkspace,fetcher,theme=()=> 'auto
     const basis=el('dl');for(const key of ['currency','frequency','timezone','wealth_basis','cost_basis','cash_basis','risk_free_basis'])definition(basis,key.replaceAll('_',' '),r.basis[key]);content.append(details('Basis and assumptions',basis));
     const bindings=el('dl');for(const key of ['protocol_id','protocol_sha256','data_revision','data_sha256','code_revision','evaluator_revision','runtime_id','producer_id','candidate_id','experiment_id'])definition(bindings,key.replaceAll('_',' '),r.bindings[key]);for(const source of r.provenance)definition(bindings,'Provenance · '+source.role,source.id+' · '+source.sha256);content.append(details('Protocol, data and code bindings',bindings));
     const reviews=el('div');reviews.append(el('p',assessmentText(detail.assessment)));
-    for(const review of detail.assessment.reviews){const dl=el('dl');for(const key of ['scope','verdict','evidence_status','reason','scope_description','reviewer_id','recorded_at','result_id','content_sha256'])definition(dl,key,review[key]);definition(dl,'Reference',review.reference?.role+' · '+review.reference?.id+' · '+review.reference?.sha256);reviews.append(dl);}
-    if(!detail.assessment.reviews.length)reviews.append(el('p','No independent review has been recorded for this exact result.'));content.append(details('Independent assessments · exact content',reviews));
+    for(const review of detail.assessment.reviews){const dl=el('dl');for(const key of ['scope','verdict','evidence_status','reason','scope_description','reviewer_id','recorded_at','result_id','content_sha256'])definition(dl,key,review[key]);definition(dl,'Review provenance','UNKNOWN · '+(review.provenance_status||'legacy provenance not supplied')+' · claimed reviewer identity does not establish native trust');definition(dl,'Reference',review.reference?.role+' · '+review.reference?.id+' · '+review.reference?.sha256);reviews.append(dl);}
+    if(!detail.assessment.reviews.length)reviews.append(el('p','No independent review has been recorded for this exact result.'));content.append(details('Assessments · exact content and provenance',reviews));
     content.append(exactSamples);const metricOptions=r.metrics.filter(m=>/return.*after.cost|net_total_return|sharpe|max_drawdown|annual_vol|total_cost_usd/i.test(m.id));metricPicker.replaceChildren();for(const m of metricOptions.length?metricOptions:[r.metrics[0]]){const option=el('option',m.label+' · '+m.unit);option.value=m.id;metricPicker.append(option);}if(![...metricPicker.options].some(o=>o.value===metricChoice))metricChoice=metricPicker.options[0]?.value;metricPicker.value=metricChoice;
     root.dataset.renderedResult=detail.result_id;[...root.querySelectorAll('details')].forEach((d,i)=>{d.open=previous[i]===true;});
     pointInput.max=String(r.grid.length-1);inspect=Math.min(inspect,r.grid.length-1);pointInput.value=String(inspect);renderPoint();requestAnimationFrame(renderChart);
+  }
+  function renderDescription(detail,previous){
+    const r=detail.record;plot.hidden=true;chart?.clear();chartResult=null;
+    intro.append(el('p','PROSPECTIVE DESCRIPTIVE · '+r.evidence_level,'research-eyebrow'),el('h1',r.question.label),el('p',r.question.summary),el('p',r.financial_claim,'research-conclusion'),el('p',assessmentText(detail.assessment),'research-assessment'));
+    intro.append(button('Select on main workspace',()=>onCompare(detail),'research-compare-main'));
+    const identity=el('details',undefined,'research-identity');identity.append(el('summary','Result identity · '+r.question.id),el('code',detail.result_id),el('code','Content SHA-256 '+detail.content_sha256));intro.append(identity);
+    const applicability=el('section',undefined,'research-interpretation');applicability.append(el('h2','What this result represents'),el('p','Prospective descriptive observations. Investor metrics, portfolio series and orders: NOT APPLICABLE.'),el('p',r.point_interpretation));content.append(applicability);
+    const observations=el('section',undefined,'research-findings');observations.append(el('h2','Producer observations'),el('p','These supplied statuses describe the observations; they are separate from independent assessment and financial merit.','research-muted'));
+    for(const o of r.observations){const block=el('div');block.append(el('h3',o.label),el('p',o.status+' · '+o.description));observations.append(block);}content.append(observations);
+    const limits=el('section',undefined,'research-limits');limits.append(el('h2','Limitations'));for(const l of r.limitations){const p=el('p');p.append(el('b',l.code+' · '+l.scope),el('span',l.text));limits.append(p);}content.append(limits);
+    const criteria=el('section');criteria.append(el('h2','Supplied criteria'));for(const c of r.criteria)criteria.append(el('p',c.status+' · '+c.description+(c.reason?' · '+c.reason:'')));if(!r.criteria.length)criteria.append(el('p','No criteria supplied.'));content.append(criteria);
+    const bindings=el('dl');for(const [key,value] of Object.entries(r.bindings))definition(bindings,key.replaceAll('_',' '),value===null?'UNKNOWN':value);for(const p of r.provenance)definition(bindings,'Source · '+p.role,p.id+' · '+p.sha256);content.append(details('Protocol, data, configuration and source bindings',bindings));
+    const reviews=el('div');reviews.append(el('p',assessmentText(detail.assessment)));for(const review of detail.assessment.reviews){const dl=el('dl');for(const key of ['scope','verdict','evidence_status','reason','scope_description','reviewer_id','recorded_at','result_id','content_sha256'])definition(dl,key,review[key]);definition(dl,'Review provenance','UNKNOWN · '+(review.provenance_status||'legacy provenance not supplied')+' · claimed reviewer identity does not establish native trust');definition(dl,'Reference',review.reference?.role+' · '+review.reference?.id+' · '+review.reference?.sha256);reviews.append(dl);}if(!detail.assessment.reviews.length)reviews.append(el('p','NOT_REVIEWED · no independent review recorded for this exact result.'));content.append(details('Assessments · exact content and provenance',reviews));
+    root.dataset.renderedResult=detail.result_id;[...root.querySelectorAll('details')].forEach((d,i)=>{d.open=previous[i]===true;});
   }
   function renderValuesTable(parent,title,rows,legs,metrics){
     const section=el('section');section.append(el('h2',title));
@@ -159,14 +173,14 @@ function createResearchWorkspace({root,historyWorkspace,fetcher,theme=()=> 'auto
     table.append(tbody);scroll.append(table);section.append(scroll);parent.append(section);
   }
   function renderPoint(){
-    const r=committed?.detail?.record;if(!r)return;inspect=Math.max(0,Math.min(inspect,r.grid.length-1));pointInput.value=String(inspect);pointInput.setAttribute('aria-valuetext',r.grid[inspect]+' · sample '+(inspect+1)+' of '+r.grid.length);
+    const r=committed?.detail?.record;if(!r||researchIsDescription(r))return;inspect=Math.max(0,Math.min(inspect,r.grid.length-1));pointInput.value=String(inspect);pointInput.setAttribute('aria-valuetext',r.grid[inspect]+' · sample '+(inspect+1)+' of '+r.grid.length);
     pointSummary.textContent=r.grid[inspect]+' · '+r.series.map(leg=>leg.label+' '+valueLabel(leg.values[inspect])+' '+leg.unit).join(' · ');
     pointBody.replaceChildren();for(const leg of r.series){const group=el('section');group.append(el('h3',leg.label+' · '+leg.role));const dl=el('dl');definition(dl,'UTC grid sample',r.grid[inspect]);definition(dl,'NAV · USD',leg.values[inspect].status==='OK'?leg.values[inspect].value:valueLabel(leg.values[inspect]));
       const ledger=leg.ledger[inspect];for(const key of ['cash','exposure','cumulative_flat_fees','cumulative_bps_fees'])definition(dl,key.replaceAll('_',' ')+' · '+leg.unit,ledger[key]??'Unavailable');
       definition(dl,'Positions',Object.entries(ledger.positions).map(([id,n])=>id+': '+n).join(' · ')||'None');definition(dl,'Supplied net return',valueLabel(ledger.net_return));group.append(dl);pointBody.append(group);}
   }
   function renderChart(){
-    if(!active||!committed?.detail||!canvas.clientWidth||!canvas.clientHeight)return;
+    if(!active||!committed?.detail||researchIsDescription(committed.detail.record)||!canvas.clientWidth||!canvas.clientHeight)return;
     if(!chart)chart=echarts.init(canvas,null,{renderer:'canvas'});
     root.querySelectorAll('.research-table-scroll').forEach(s=>s.updateColumnNavigation?.());
     const r=committed.detail.record,c=style(),narrow=innerWidth<701,metric=r.metrics.find(m=>m.id===metricChoice)||r.metrics[0];

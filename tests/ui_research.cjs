@@ -170,3 +170,86 @@ test('nonportfolio content never creates financial metrics or requests execution
  }
  assert.equal(requests,0);
 });
+
+// Safe exact invented wire supplied by Platform; no real result payload.
+const descriptionRecord={
+  "schema_version": "polar.research-description/1",
+  "question": {
+    "id": "invented-description",
+    "label": "Invented reader control",
+    "summary": "Synthetic compatibility fixture only"
+  },
+  "bindings": {
+    "protocol_id": "invented",
+    "protocol_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "data_revision": "invented",
+    "data_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "code_revision": null,
+    "evaluator_revision": null,
+    "runtime_id": null,
+    "producer_id": "invented-author",
+    "candidate_id": null,
+    "experiment_id": "invented-run",
+    "config_sha256": null
+  },
+  "basis": {
+    "kind": "PROSPECTIVE_DESCRIPTIVE",
+    "investor_metrics": "NOT_APPLICABLE",
+    "portfolio_series": "NOT_APPLICABLE",
+    "orders": "NOT_APPLICABLE"
+  },
+  "observations": [
+    {
+      "id": "invented-first-label",
+      "label": "Invented label check",
+      "status": "PASS",
+      "description": "Synthetic fact; no actual scientific acceptance"
+    },
+    {
+      "id": "invented-pilot",
+      "label": "Invented pilot scope",
+      "status": "INCOMPLETE",
+      "description": "Future observations not run"
+    }
+  ],
+  "limitations": [
+    {
+      "code": "INVENTED",
+      "text": "Synthetic fixture only",
+      "scope": "Entire result"
+    }
+  ],
+  "provenance": [
+    {
+      "role": "assessment_artifact",
+      "id": "invented-assessment",
+      "sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+    }
+  ],
+  "evidence_level": "INVENTED_CONTROL",
+  "financial_claim": "No financial claim",
+  "criteria": [],
+  "point_interpretation": "Descriptive status only; no investor portfolio or orders"
+};
+function descriptionFixture(){
+ const record=structuredClone(descriptionRecord),content=require('node:crypto').createHash('sha256').update(JSON.stringify(record)).digest('hex'),result_id='research-'+content;
+ const assessment=fixture().detail.assessment;
+ const item={result_id,content_sha256:content,result_schema_version:record.schema_version,question:record.question,bindings:record.bindings,basis:record.basis,assessment};
+ return {item,detail:{schema_version:'polar.research-detail/1',result_id,content_sha256:content,record,assessment}};
+}
+test('Platform descriptive wire is readable without fabricated portfolio fields or changed identity',async()=>{
+ const f=descriptionFixture(),detail=validateResearchDetail(f.detail,f.item);
+ assert.equal(detail.result_id,f.item.result_id);assert.equal(detail.record.schema_version,'polar.research-description/1');
+ assert.equal(detail.record.bindings.code_revision,null);assert.equal(detail.assessment.technical,'NOT_REVIEWED');
+ assert(!('series' in detail.record));assert(!('metrics' in detail.record));assert(!('grid' in detail.record));
+ const urls=[],client=createResearchClient(async url=>{urls.push(url);return {ok:true,json:async()=>url.includes('?')?{schema_version:'polar.research-catalog/1',items:[f.item],offset:0,limit:10,total:1,next_offset:null}:f.detail};});
+ const page=await client.load(0,f.item.result_id,{includeDetails:true});
+ assert.equal(page.detail.result_id,f.item.result_id);assert.equal(page.catalog.items[0].result_schema_version,'polar.research-description/1');
+ assert(urls.every(url=>!url.includes('executions')));
+});
+test('descriptive identity, shape, applicability and observation corruption fail closed',()=>{
+ for(const mutate of [d=>d.content_sha256='b'.repeat(64),d=>d.record.schema_version='unknown',d=>d.record.series=[],d=>d.record.basis.orders='OK',d=>d.record.observations[0].status='SUPPORTED',d=>d.record.observations.push({...d.record.observations[0]}),d=>delete d.record.bindings.code_revision,d=>d.record.bindings.code_revision='claimed-git-label',d=>d.record.bindings.config_sha256='not-a-hash',d=>d.record.provenance[0].sha256='not-a-hash']){
+  const f=descriptionFixture();mutate(f.detail);assert.throws(()=>validateResearchDetail(f.detail,f.item),/RESEARCH_/);
+ }
+});
+module.exports.descriptionFixture=descriptionFixture;
