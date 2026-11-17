@@ -152,3 +152,21 @@ test('full tape loading includes recent second-page fill independent of card pag
  await assert.rejects(()=>researchLoadAllExecutions({load:async(_,offset)=>({...envelope(offset),total:offset?102:101})},saved),/EXECUTION_TAPE_CHANGED/);
  await assert.rejects(()=>researchLoadAllExecutions({load:async(_,offset)=>({...envelope(offset),items:offset?[events[0]]:events.slice(0,100)})},saved),/EXECUTION_TAPE_CHANGED/);
 });
+
+// These applicability probes do not define a new wire schema or scientific fixture.
+test('nonportfolio content never creates financial metrics or requests executions',async()=>{
+ const {researchHasPortfolio,researchRowMetric,researchHistoryCompatibility,createResearchExecutionClient}=require('../src/polar/web/research.js');
+ assert.equal(researchHasPortfolio(fixture().detail),true);
+ let requests=0;
+ const client=createResearchExecutionClient(()=>{requests++;throw Error('Unexpected request');});
+ for(const record of [{}, {grid:[],series:[]}, {grid:['2024-01-01T00:00:00Z'],series:[]}]){
+  const saved={record};
+  assert.equal(researchHasPortfolio(saved),false);
+  const metric=researchRowMetric(saved,'annualized');
+  assert.equal(metric.available,false);assert.equal(metric.value,null);assert.equal(metric.display,'Not applicable');
+  assert.equal(researchComparison(saved,[]).usable,false);
+  assert.equal(researchHistoryCompatibility(saved,null).status,'NOT_APPLICABLE');
+  await assert.rejects(()=>client.load(saved),/EXECUTION_NOT_APPLICABLE/);
+ }
+ assert.equal(requests,0);
+});

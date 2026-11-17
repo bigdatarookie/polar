@@ -319,7 +319,7 @@ function setDataMode(mode){
   else loadHistorySelection(realModeReturn||{rangeId:'3M'});
 }
 async function loadExecutions(offset=0){
-  const current=++executionFlow,focusId=document.activeElement?.id,saved=selectedMainResearch();executionClient.cancel();if(!saved){executions={resultId:null,page:null,loading:false,error:null};selectedExecutionId=null;keepScroll(()=>{renderRail();renderChart();});return;}
+  const current=++executionFlow,focusId=document.activeElement?.id,saved=selectedMainResearch();executionClient.cancel();if(!saved||!researchHasPortfolio(saved)){executions={resultId:null,page:null,loading:false,error:null};selectedExecutionId=null;keepScroll(()=>{renderRail();renderChart();});return;}
   const id=saved.result_id;executions={resultId:id,page:null,loading:EXECUTIONS_RUNTIME_READY,error:EXECUTIONS_RUNTIME_READY?null:'SAVED_EXECUTION_READER_NOT_QUALIFIED'};keepScroll(renderRail);if(!EXECUTIONS_RUNTIME_READY)return;
   try{const result=await researchLoadAllExecutions(executionClient,saved,()=>current===executionFlow&&mainResearchSelection===id);if(!result)return;executions={resultId:id,page:result.page,allItems:result.allItems,offset:0,loading:false,error:null};}catch(error){if(current!==executionFlow||mainResearchSelection!==id)return;executions={resultId:id,page:null,loading:false,error:/^[A-Z0-9_]+$/.test(error.message)?error.message:'SAVED_EXECUTIONS_UNAVAILABLE'};}
   keepScroll(()=>{renderRail();renderChart();});if(['executions-next','executions-previous'].includes(focusId)){const target=document.getElementById(focusId);(target&&!target.disabled?target:document.getElementById(focusId==='executions-next'?'executions-previous':'executions-next'))?.focus({preventScroll:true});}
@@ -488,7 +488,7 @@ async function loadMainResearch(offset=mainResearch.offset){
 }
 function selectedMainResearch(){return mainResearch.page?.details?.find(d=>d.result_id===mainResearchSelection)||(mainResearch.chosen?.result_id===mainResearchSelection?mainResearch.chosen:null);}
 function getMainComparison(){
-  const saved=selectedMainResearch();if(!historyDisplayed()||!saved)return null;
+  const saved=selectedMainResearch();if(!historyDisplayed()||!saved||!researchHasPortfolio(saved))return null;
   if(comparisonCache?.bars!==view.bars||comparisonCache?.saved!==saved){const anchorKey=[saved.result_id,saved.content_sha256,historyContext?.revision?.dataset_revision,historyContext?.instrument?.instrument_id].join("|");const model=researchComparison(saved,view.bars,comparisonAnchor?.key===anchorKey?comparisonAnchor:null);if(model.usable)comparisonAnchor={key:anchorKey,baselineDate:model.baselineDate,priceBase:model.priceBase,strategyBase:model.strategyBase,benchmarkBase:model.benchmarkBase};model.historySummary=researchHistoryCompatibility(saved,historyContext);comparisonCache={bars:view.bars,saved,model};}
   return comparisonCache.model;
 }
@@ -509,7 +509,7 @@ async function selectMainResearch(id,fit=true,preserveSameResult=false){
 }
 function comparisonReadout(i){const model=getMainComparison();if(!model?.usable)return '';return '\nSaved portfolio sample '+(model.times[i]||'not supplied on this calendar date')+' · strategy '+(model.strategyRaw[i]??'Unavailable')+' USD · benchmark '+(model.benchmarkRaw[i]??'Unavailable')+' USD · Index100 baseline '+model.baselineDate+'; no fills inferred.';}
 function renderPortfolioOverlayControls(body){
-  const saved=selectedMainResearch();if(!historyDisplayed()||!saved)return;const host=element('section',undefined,'indicator-card portfolio-overlays');body.append(host);
+  const saved=selectedMainResearch();if(!historyDisplayed()||!saved||!researchHasPortfolio(saved))return;const host=element('section',undefined,'indicator-card portfolio-overlays');body.append(host);
   const model=getMainComparison(),r=saved.record;
   const fit=element('button','Fit research dates');fit.id='fit-research';fit.disabled=!model?.usable;fit.onclick=()=>selectMainResearch(saved.result_id,true);
   const clear=element('button','Price only');clear.id='clear-comparison';clear.onclick=()=>selectMainResearch(null,false);

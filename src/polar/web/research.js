@@ -107,7 +107,14 @@ function researchSnapshotPage(snapshot,offset,selection){
   const items=(snapshot.items||snapshot.catalog.items).slice(offset,offset+10),detail=snapshot.details.find(d=>d.result_id===selection)||null;
   return {catalog:{...snapshot.catalog,offset,items,next_offset:offset+items.length<snapshot.catalog.total?offset+items.length:null},detail};
 }
+// Applicability only; typed result validation and review trust remain server-contract concerns.
+function researchHasPortfolio(detail){
+  const r=detail?.record;
+  return Array.isArray(r?.grid)&&r.grid.length>0&&Array.isArray(r.series)&&
+    r.series.some(s=>s.role==='STRATEGY')&&r.series.some(s=>s.role==='BENCHMARK'&&s.id===r.primary_benchmark_id);
+}
 function researchHistoryCompatibility(detail,context){
+  if(!researchHasPortfolio(detail))return {symbols:[],period:[],reasons:['This result supplies no portfolio NAV.'],status:'NOT_APPLICABLE',label:'Portfolio comparison not applicable'};
   const r=detail.record,revision=context?.revision,instrument=context?.instrument;
   const symbols=[...new Set(r.series.flatMap(s=>s.ledger.flatMap(p=>Object.keys(p.positions))))].sort();
   const period=[r.grid[0].slice(0,10),r.grid.at(-1).slice(0,10)],reasons=[];let attributed=false;
@@ -192,10 +199,11 @@ function executionDateGroups(events){
   const groups=new Map();for(const event of events){if(!groups.has(event.session_date))groups.set(event.session_date,[]);groups.get(event.session_date).push(event);}
   return [...groups].sort(([a],[b])=>a.localeCompare(b)).map(([date,items])=>({date,events:items.slice().sort((a,b)=>BigInt(a.timestamp_ns)<BigInt(b.timestamp_ns)?-1:BigInt(a.timestamp_ns)>BigInt(b.timestamp_ns)?1:a.order_id.localeCompare(b.order_id))}));
 }
-function createResearchExecutionClient(fetcher){let ticket=0,controller;return {cancel(){ticket++;controller?.abort();},async load(saved,offset=0){const current=++ticket;controller?.abort();controller=new AbortController();const series=saved.record.series.find(s=>s.role==='STRATEGY');const response=await fetcher('/v1/research/results/'+encodeURIComponent(saved.result_id)+'/executions?series_id='+encodeURIComponent(series.id)+'&limit=100&offset='+offset,{signal:controller.signal});if(current!==ticket)return null;if(!response.ok)throw Error('EXECUTIONS_HTTP_'+response.status);const body=await response.json();if(current!==ticket)return null;return validateResearchExecutions(body,saved,offset);}};}
+function createResearchExecutionClient(fetcher){let ticket=0,controller;return {cancel(){ticket++;controller?.abort();},async load(saved,offset=0){researchRequire(researchHasPortfolio(saved),'EXECUTION_NOT_APPLICABLE');const current=++ticket;controller?.abort();controller=new AbortController();const series=saved.record.series.find(s=>s.role==='STRATEGY');const response=await fetcher('/v1/research/results/'+encodeURIComponent(saved.result_id)+'/executions?series_id='+encodeURIComponent(series.id)+'&limit=100&offset='+offset,{signal:controller.signal});if(current!==ticket)return null;if(!response.ok)throw Error('EXECUTIONS_HTTP_'+response.status);const body=await response.json();if(current!==ticket)return null;return validateResearchExecutions(body,saved,offset);}};}
 // Supplied full-period strategy metrics: display conversion only, never recompute finance.
 const RESEARCH_ROW_METRICS={sharpe:['sharpe_252_rf0','net_sharpe','sharpe'],drawdown:['max_drawdown'],annualized:['adjusted_reference_cagr_after_costs','price_cagr_after_costs','net_cagr_act36525','annualized_return','cagr']};
 function researchRowMetric(detail,key){
+  if(!researchHasPortfolio(detail))return {available:false,value:null,display:'Not applicable',label:key,reason:'This result supplies no portfolio metric',unit:null};
   const leg=detail.record.series.find(s=>s.role==='STRATEGY');
   const metric=RESEARCH_ROW_METRICS[key]?.map(id=>detail.record.metrics.find(m=>m.id===id)).find(Boolean);
   const point=metric?.values[leg?.id],unit=key==='sharpe'?'ratio':'fraction';
@@ -227,6 +235,7 @@ function researchNormalize(value,base){
   return Number.isFinite(out)&&(out!==0||n===0)?out:null;
 }
 function researchComparison(detail,bars,anchor=null){
+  if(!researchHasPortfolio(detail))return {usable:false,reason:'This result supplies no portfolio NAV; comparison is not applicable.'};
   const r=detail.record,strategy=r.series.find(s=>s.role==='STRATEGY'),benchmark=r.series.find(s=>s.id===r.primary_benchmark_id),byDate=new Map();
   for(let i=0;i<r.grid.length;i++){const date=r.grid[i].slice(0,10);if(byDate.has(date))return {usable:false,reason:'Multiple supplied samples share a calendar date. No intraday aggregation or clock equivalence is inferred.'};byDate.set(date,i);}
   const indices=bars.map(b=>byDate.get(b.time.slice(0,10))),strategyRaw=indices.map(i=>i===undefined||strategy.values[i].status!=='OK'?null:strategy.values[i].value),benchmarkRaw=indices.map(i=>i===undefined||benchmark.values[i].status!=='OK'?null:benchmark.values[i].value);
@@ -238,4 +247,4 @@ function researchComparison(detail,bars,anchor=null){
 }
 function researchReadable(value){return String(value||'Not supplied').replaceAll('_',' ').replace(/\s+/g,' ').trim();}
 function researchPhase(record){return record.question.label.match(/\b(?:FINAL|VALIDATION|TRAIN|TEST|DEVELOPMENT)\b/)?.[0]||'Saved interval';}
-if(typeof module!=='undefined')module.exports={researchLoadProgressive,validateResearchRevision,createResearchRevisionWatcher,withResearchDOMState,researchSnapshotSignature,researchSnapshotPage,createResearchClient,validateResearchDetail,validateResearchCatalog,researchValue,researchPlotValue,researchDecimalDisplay,executionDateGroups,researchLoadAllExecutions,executionScaledToken,validateResearchExecutions,createResearchExecutionClient,researchLoadAll,researchRowMetric,researchDecimalCompare,researchSortRows,researchHistoryCompatibility,researchNormalize,researchComparison,researchReadable,researchPhase};
+if(typeof module!=='undefined')module.exports={researchHasPortfolio,researchLoadProgressive,validateResearchRevision,createResearchRevisionWatcher,withResearchDOMState,researchSnapshotSignature,researchSnapshotPage,createResearchClient,validateResearchDetail,validateResearchCatalog,researchValue,researchPlotValue,researchDecimalDisplay,executionDateGroups,researchLoadAllExecutions,executionScaledToken,validateResearchExecutions,createResearchExecutionClient,researchLoadAll,researchRowMetric,researchDecimalCompare,researchSortRows,researchHistoryCompatibility,researchNormalize,researchComparison,researchReadable,researchPhase};
