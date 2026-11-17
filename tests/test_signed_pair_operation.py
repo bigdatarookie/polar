@@ -25,7 +25,7 @@ def put(path,value):
     return {'path':str(path),'sha256':sha(raw),'bytes':len(raw)}
 
 
-def fixture(tmp_path,*,data=None):
+def fixture(tmp_path,*,data=None,original_seconds=180):
     tmp_path.mkdir(exist_ok=True);data=pair_fixture() if data is None else data;b=binding_for(data)
     # First-party protocol and appendices are source definitions, not retained
     # payloads. Tests use copied committed test literals for metadata otherwise.
@@ -56,7 +56,7 @@ def fixture(tmp_path,*,data=None):
     qa=put(tmp_path/'qa.json',{'schema':'polar.ci-result/1','status':'PASS','candidate_sha':'a'*40,
         'selection':['tests/test_signed_pair_operation.py'],'scope':'INVENTED_NOT_ACTUAL_QA'})
     root=tmp_path/'artifacts';root.mkdir();service=PairOperationService(root,1024**3)
-    limits={'original':{'wall_seconds':180,'cpu_seconds':180},'saved':{'wall_seconds':120,'cpu_seconds':120},
+    limits={'original':{'wall_seconds':original_seconds,'cpu_seconds':original_seconds},'saved':{'wall_seconds':120,'cpu_seconds':120},
         'collector':{'wall_seconds':30,'cpu_seconds':30},'cleanup_seconds':3,'remaining_family_wall_seconds':600,
         'remaining_family_cpu_seconds':600,'rss_bytes':2*1024**3,'log_bytes':1024**2,'journal_bytes':2*1024**2,
         'counter_bytes':16*1024**2,'partial_bytes':128*1024**2,'checkpoint_interval_events':128,
@@ -189,7 +189,10 @@ def test_actual_fullshape_supervised_stream_partial_and_source_absent_read(tmp_p
     import polar.signed_pair_operation as module
     from polar.process_budget import supervise as actual_supervise
     data=fullshape_input();assert len(data.quotes)==5540
-    service,cfg,_=fixture(tmp_path,data=data)
+    # The full 5540-quote case hit its small-fixture CPU cap after completing
+    # native work but before persistence on Actions (180.08 CPU seconds).
+    # Keep the existing 600-second family envelope and all production limits.
+    service,cfg,_=fixture(tmp_path,data=data,original_seconds=360)
     # Explicit deterministic failure before SECOND native, not a retry or a
     # production test switch. The first actual967/47/15 account is supervised.
     injected=r'''
