@@ -62,6 +62,8 @@ class Bindings(Closed):
     producer_id: Identifier
     candidate_id: Identifier
     experiment_id: Identifier
+    config_sha256: Hash | None = None
+    run_id: Annotated[str, Field(pattern=r"^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$")] | None = None
 
 
 class Basis(Closed):
@@ -286,6 +288,10 @@ def validate_result(value):
         model = (ResearchDescription if isinstance(value, dict) and
                  value.get("schema_version") == "polar.research-description/1" else ResearchResult)
         public = model.model_validate(value).model_dump(mode="json")
+        if model is ResearchResult:
+            for key in ("config_sha256", "run_id"):
+                if public["bindings"][key] is None:
+                    del public["bindings"][key]
         # Backward-compatible extension: old immutable A/B bytes and IDs remain exact.
         if 'source_coverage' in public and public['source_coverage'] is None:
             del public['source_coverage']
@@ -479,6 +485,11 @@ class ResearchResults(HistoryStore):
                 detail["record"]["bindings"] != proof["bindings"] or
                 review["reviewer_id"] == detail["record"]["bindings"]["producer_id"]):
             raise ResearchError("RESEARCH_NATIVE_DECISION_BINDING")
+        if (detail["record"]["schema_version"] == "polar.research-result/1" and
+                (detail["record"]["evidence_level"] != "INVENTED_CONTROL" or "run_id" in detail["record"]["bindings"])):
+            binding = detail["record"]["bindings"]
+            if not all(binding.get(k) for k in ("config_sha256", "run_id")):
+                raise ResearchError("RESEARCH_NATIVE_EXECUTION_BINDING")
         public_text(review)
         public_text(proof)
         body = canonical(review)

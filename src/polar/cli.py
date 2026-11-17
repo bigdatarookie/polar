@@ -1,6 +1,7 @@
 """CLI and HTTP use the same Service/Registry application operations."""
 import argparse
 import json
+import re
 import sys
 import uuid
 from datetime import date, datetime
@@ -239,8 +240,11 @@ def main(argv=None):
             else:
                 result = service.research_result(args.result_id)
             print(json.dumps(result, sort_keys=True, allow_nan=False))
-        except (ResearchError, HistoryError, OSError, ValueError):
-            print(json.dumps({"status": "ERROR", "code": "RESEARCH_OPERATION_FAILED"}), file=sys.stderr)
+        except (ResearchError, HistoryError, OSError, ValueError) as exc:
+            code = exc.code if isinstance(exc, ResearchError) else str(exc)
+            if not re.fullmatch(r"[A-Z][A-Z0-9_]{0,127}", code):
+                code = "RESEARCH_OPERATION_FAILED"
+            print(json.dumps({"status": "ERROR", "code": code}), file=sys.stderr)
             raise SystemExit(1)
         return
     if args.command.startswith("obs158-"):
