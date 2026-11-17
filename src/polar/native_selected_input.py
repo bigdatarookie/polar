@@ -231,14 +231,28 @@ def prepare_selected(config, root, limit, *, queue=None):
     require(collection['schema'] == 'polar.vendor-all-adjusted-source-collection/1' and
             collection['source_plan_id'] == binding['source_plan_id'], 'NATIVE_SELECTED_COLLECTION')
     source_root = Path(binding['source_collection']['path']).parent
-    jobs = {}; parents = {}; members = {}; selected = {}; all_records = []
+    jobs = {}; parents = {}; captures = {}; members = {}; selected = {}; all_records = []
     for relations, symbol in [(relations_bil, 'BIL'), (relations_vti, 'VTI')]:
         chosen = [r for r in relations['records'] if r['literal_alias'] == symbol]
         require(len(chosen) == 1, 'NATIVE_SELECTED_RELATIONS')
         r = chosen[0]; all_records.append(r)
-        job = relations['jobs'][r['canonical_job_id']]
-        _merge(jobs, {r['canonical_job_id']: job})
-        h = job['parent_relation_sha256']; _merge(parents, {h: relations['parent_relations'][h]})
+        if 'capture_return' in r:
+            # The existing BIL leaf can originate from the captured-source
+            # converter. Preserve its graph, never invent a canonical job.
+            pin = r['capture_return']
+            require(symbol == 'BIL' and 'canonical_job_id' not in r and
+                    r.get('selected_for_purpose') is True and type(pin) is dict,
+                    'NATIVE_SELECTED_CAPTURE_RECORD')
+            capture_map = relations.get('captures')
+            require(type(capture_map) is dict, 'NATIVE_SELECTED_CAPTURE_BINDING')
+            captured = capture_map.get(pin.get('sha256'))
+            require(type(captured) is dict and captured.get('capture_return') == pin,
+                    'NATIVE_SELECTED_CAPTURE_BINDING')
+            _merge(captures, {pin['sha256']: captured})
+        else:
+            job = relations['jobs'][r['canonical_job_id']]
+            _merge(jobs, {r['canonical_job_id']: job})
+            h = job['parent_relation_sha256']; _merge(parents, {h: relations['parent_relations'][h]})
     # Leaf-only BIL grid is safe to decode; never use BIL/SHY composition.
     raw_bil = pinned_bytes(bil['quotes'])
     require(len(raw_bil.splitlines()) == len(days), 'NATIVE_SELECTED_BIL_GRID')
@@ -302,7 +316,7 @@ def prepare_selected(config, root, limit, *, queue=None):
     relations = {'schema': 'polar.reference-source-relations/1', 'records': all_records,
                  'jobs': jobs, 'parent_relations': parents, 'source_coverage_records': [],
                  'eligibility_ledger': {'selected_aliases_fixed_order': ['BIL', 'VTI']},
-                 'source_purpose': config['purpose_ref']}
+                 'source_purpose': config['purpose_ref'], **({'captures': captures} if captures else {})}
     fields = {'symbol', 'date', 'reference_quote', 'source_adjusted_close_token', 'source_ref',
               'observed_published_at', 'observed_historical_available_at'}
     for (day, symbol), line in selected.items():

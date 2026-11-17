@@ -35,3 +35,15 @@ The projected schedule filters the pinned parent rows and recomputes next-sessio
 Publication reuses `HistoryStore` locking, staging and immutable conflict checks under `reference-inputs/<semantic revision>`. Repeating identical conversion reuses that publication; conflicting stored bytes fail. Quality reports actual quote bytes/counts. Each pinned member/output is bounded at256MiB and projected quote bytes are bounded cumulatively; this file cap is not an RSS guarantee. The author measured only the invented fixture; private full-cohort output size and peak remain NOT OBSERVED until DE's owned conversion. Preserve source rights: no private/raw/derived quote payload may be pushed to Git or public CI.
 
 Qualification uses existing `scripts/ci.sh` with `tests/test_reference_input.py`, existing A service and B PPO service tests. Expected controls cover split partitions, precise lexemes, newline hashes, original row pointers, excluded relations, null clocks, date/month boundaries, missing/corrupt operands, immutable collisions and no-DB CLI. Existing method, financial protocols, service profile pins, candidate budgets and negative results are not changed.
+
+The closed QuantA selected-input converter (`/7`) accepts the existing BIL-only
+captured-source leaf alongside VTI's selected normalized job spans. It preserves
+BIL's capture-return relation, original capture/body/token pointers and quote
+bytes in `captures`; it preserves VTI's actual job and parent relations in
+`jobs` and `parent_relations`. It does not invent an importer job for BIL or
+reopen a raw capture to reconstruct its graph. Ambiguous capture/job records,
+missing or mismatched capture bindings and invalid source pointers fail before
+publication. Current native custody and exact source admission still apply;
+changing the build or consumer task requires the corresponding current binding.
+No excluded parent quotes, new source acquisition or scientific execution is
+introduced by this graph compatibility change.
