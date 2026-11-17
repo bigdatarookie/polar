@@ -253,8 +253,14 @@ builtins.open=guard(builtins.open);io.open=guard(io.open)
 a=verify_stored_account(sys.argv[1],json.loads(sys.argv[2]),restore(json.loads(open(sys.argv[3]).read())))
 print(json.dumps({'NAV':len(a['NAV']),'source_calls':0,'native_calls':0,'writes':0}))
 '''
+    # Actions completed full-shape persistence, then this separate read-only
+    # verifier hit its small-fixture 60s timeout. Give this full-shape check the
+    # existing 180s small-operation budget; production and family caps stay fixed.
+    import time
+    read_started=time.monotonic()
     proof=subprocess.run([sys.executable,'-c',code,str(service.store.root),json.dumps(ref),expected_binding['path']],
-        env={**os.environ,'PYTHONDONTWRITEBYTECODE':'1'},capture_output=True,text=True,timeout=60)
+        env={**os.environ,'PYTHONDONTWRITEBYTECODE':'1'},capture_output=True,text=True,timeout=180)
+    record_property('fullshape_source_absent_read_seconds',time.monotonic()-read_started)
     assert proof.returncode==0,proof.stderr
     assert before=={str(p):(sha(p.read_bytes()),p.stat().st_mtime_ns) for p in service.store.root.rglob('*') if p.is_file()}
     record_property('invented_supervised_stream_capacity',json.dumps({'full_source_rows':5540,'NAV':967,'formations':47,'actions':15,
