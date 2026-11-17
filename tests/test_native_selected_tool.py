@@ -55,3 +55,22 @@ def test_real_file_only_consumer_uses_inherited_context_and_no_database(tmp_path
     out = tool.consume('research-input-prepare', cfg, tool.source_identity())
     assert out['status'] == 'PREPARED_SOURCE_ONLY'
     assert tool.consume('research-input-preflight', out['input_ref'], tool.source_identity())['symbols'] == 2
+
+
+def test_actual_stdio_consumer_process_prepares_and_reads_only_invented_selected_values(tmp_path, monkeypatch):
+    root, cfg, queue, parent, _ = fixture(tmp_path, monkeypatch)
+    real_start = subprocess.Popen
+    import os
+    monkeypatch.setenv('POLAR_ARTIFACT_ROOT', str(root))
+    def start(command, **kwargs):
+        # Substitute only Docker's outer invocation. Run the actual source
+        # module/stdio consumer in this locked runtime, not a mock responder.
+        assert command[:8] == ['docker', 'exec', '-i', 'a'*12, 'python', '-u', '-m', 'polar.native_selected_tool']
+        return real_start([sys.executable, '-u', '-m', 'polar.native_selected_tool', *command[8:]], **kwargs)
+    monkeypatch.setattr(transport.subprocess, 'Popen', start)
+    out = tool.bridge('a'*12, 'research-input-prepare', cfg, queue=queue)
+    assert out['status'] == 'PREPARED_SOURCE_ONLY'
+    assert tool.bridge('a'*12, 'research-input-preflight', out['input_ref'], queue=queue)['symbols'] == 2
+    cfg['source_admission_ref'] = None
+    with pytest.raises(ResearchError, match='SOURCE_ADMISSION_REQUIRED'):
+        tool.bridge('a'*12, 'research-input-prepare', cfg, queue=queue)

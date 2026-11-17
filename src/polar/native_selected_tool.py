@@ -38,6 +38,12 @@ def selected_config(operation, value):
         config = provenance['config']
     if config.get('schema') != SCHEMA:
         raise ResearchError('NATIVE_SELECTED_CONFIG', 422)
+    if not isinstance(config.get('source_admission_ref'), str) or not re.fullmatch(
+            r'qitem-[A-Za-z0-9_.:-]+#[1-9][0-9]*', config['source_admission_ref']):
+        raise ResearchError('NATIVE_SELECTED_SOURCE_ADMISSION_REQUIRED', 409)
+    if not isinstance(config.get('consumer_task'), str) or not re.fullmatch(
+            r'qitem-[A-Za-z0-9_.:-]+', config['consumer_task']):
+        raise ResearchError('NATIVE_SELECTED_CURRENT_TASK', 409)
     return config
 
 
