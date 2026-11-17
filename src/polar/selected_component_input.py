@@ -123,21 +123,35 @@ def prepare_selected_components(spec, root, limit, *, source_binding):
     symbols.sort()
     require(len(symbols) <= 64, 'SELECTED_COMPONENT_SYMBOL_BOUND')
     jobs = {}; parents = {}; captures = {}; single_captures = {}; members = {}; selected = {}; records = []
+    # Resolve every selected relation graph before opening the first price member.
     for component in metadata:
         symbol = component['item']['symbol']; record = component['record']; relations = component['relations']
         records.append(record)
         if 'canonical_job_id' in record:
             jid = record['canonical_job_id']; job = relations['jobs'][jid]
             _merge(jobs, {jid: job}); h = job['parent_relation_sha256']
-            _merge(parents, {h: relations['parent_relations'][h]})
+            parent = relations['parent_relations'][h]
+            require(sha(canonical(parent)) == h and job['request']['symbols'] == symbol and
+                    job['request']['adjustment'] == 'all' and parent['job_id'] == job['source_plan_job_id'] and
+                    parent['source_record_ids'] == job['source_record_ids'], 'SELECTED_COMPONENT_PARENT_BINDING')
+            _merge(parents, {h: parent})
         elif 'capture_return' in record:
             h = record['capture_return']['sha256']
-            _merge(captures, {h: relations['captures'][h]})
+            capture = relations['captures'][h]
+            require(capture['capture_return'] == record['capture_return'] and
+                    capture['request']['symbols'] == symbol and capture['request']['adjustment'] == 'all',
+                    'SELECTED_COMPONENT_CAPTURE_BINDING')
+            _merge(captures, {h: capture})
         elif 'capture_receipt' in record:
             h = record['capture_receipt']['sha256']
-            _merge(single_captures, {h: relations['single_symbol_captures'][h]})
+            capture = relations['single_symbol_captures'][h]
+            require(capture['receipt'] == record['capture_receipt'] and capture['symbol'] == symbol and
+                    capture['request']['adjustment'] == 'all', 'SELECTED_COMPONENT_CAPTURE_BINDING')
+            _merge(single_captures, {h: capture})
         else:
             require(False, 'SELECTED_COMPONENT_RECORD_KIND')
+    for component in metadata:
+        symbol = component['item']['symbol']; record = component['record']
         if component['kind'] == 'leaf':
             manifest = component['manifest']
             lines = pinned_bytes(manifest['quotes']).splitlines(keepends=True)
