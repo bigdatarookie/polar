@@ -58,7 +58,11 @@ Only VTI-selected normalized spans are JSON-decoded. All member bytes used for a
 hash can include excluded spans; no semantic validation of those excluded spans
 or full-parent contents is claimed. Raw source bodies are not reopened: original
 pointers/body hash metadata are preserved, not newly certified source extraction.
-The existing output input/2 reader rechecks native context before loading this
+Retained profile14 requires this selected converter and matching source/author
+build/protocol/private namespace in the shared scheduled preparation path before
+FIRST_START or value reads, including ordinary Service/CLI calls. The context
+wrapper is optional transport, never the admission boundary. The existing output
+input/2 reader rechecks native context before loading this
 prepared projection. Legacy profiles and their readers retain their behavior.
 
 `source_admission_ref` addresses a real terminal Quant A decision. Its resolution

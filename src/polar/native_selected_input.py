@@ -118,6 +118,31 @@ def prepared_authorization(manifest):
                 'NATIVE_SELECTED_NAMESPACE')
 
 
+def scheduled_authorization(config, manifest, root):
+    """Mandatory retained profile14 boundary for every Service/CLI entry.
+
+    The optional converter hook in the legacy reader cannot enforce a new
+    profile's source contract. Check it before FIRST_START, independent of the
+    native stdio wrapper, and bind the preparation to this actual author build.
+    """
+    provenance = manifest.get('provenance', {})
+    require(type(provenance) is dict and provenance.get('converter') == CONVERTER and
+            type(provenance.get('config')) is dict and manifest.get('symbols') == ['BIL', 'VTI'],
+            'NATIVE_SELECTED_PROFILE_INPUT_REQUIRED')
+    source = provenance['config']
+    require(source.get('namespace') == 'RETAINED' and
+            source.get('code_revision') == config['code_revision'] and
+            source.get('code') == config['code'] and
+            source.get('runtime_image_id') == config['runtime_image_id'] and
+            source.get('artifact_root_identity') == config['artifact_root_identity'] and
+            source.get('protocol_ref') == config['protocol_ref'] and
+            provenance.get('private_root') == str(root), 'NATIVE_SELECTED_AUTHOR_BINDING')
+    authorize(source, root)
+    for key in ('quotes', 'schedule', 'source_relations'):
+        require(Path(manifest[key]['path']).is_relative_to(Path(root)/'reference-inputs'),
+                'NATIVE_SELECTED_NAMESPACE')
+
+
 def _merge(target, source):
     for k, v in source.items():
         require(k not in target or target[k] == v, 'NATIVE_SELECTED_RELATION_CONFLICT')

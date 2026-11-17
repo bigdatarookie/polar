@@ -67,6 +67,9 @@ def prepare(service, config, *, load_prices=True):
         manifest=decode(pinned_bytes(descriptor['reference_input_ref']))
     else:
         manifest = decode(read_ref(config['input_ref']))
+    if profile['schema'].endswith('/14') and config['namespace'] == 'RETAINED':
+        from .native_selected_input import scheduled_authorization
+        scheduled_authorization(config, manifest, service.store.root)
     calendar = decode(calendar_raw)
     from .reference_input import schedule_binding_matches
     require(manifest['schema'] in ('polar.synthetic-reference-source-input/1','polar.synthetic-reference-source-input/2') and
