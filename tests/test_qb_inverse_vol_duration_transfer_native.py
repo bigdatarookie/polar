@@ -25,6 +25,7 @@ def candidate_fixture(tmp_path, monkeypatch):
         rows = [json.loads(line) for line in stream]
     selected = [{**row, "symbol": aliases[row["symbol"]]}
                 for row in rows if row["symbol"] in aliases]
+    selected.sort(key=lambda row: (row["symbol"], row["date"]))
     quotes = tmp_path / "invented-qb-quotes.ndjson"
     quotes.write_bytes(b"".join((json.dumps(row, sort_keys=True) + "\n").encode()
                                for row in selected))
