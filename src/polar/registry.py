@@ -137,15 +137,18 @@ class Registry:
         except psycopg.Error:
             raise RuntimeError("RESEARCH_DELIVERY_UNAVAILABLE") from None
 
-    def claim_research_delivery(self):
-        """Fence one delivery, including only its expired delivery lease/retry."""
+    def claim_research_delivery(self, delivery_id=None):
+        """Fence one delivery, optionally the exact tool-addressed outbox row."""
+        if delivery_id is not None:
+            self._research_delivery_id(delivery_id, "delivery")
         try:
             with self.connect() as db:
                 self._check_research_delivery(db)
                 row = db.execute("""SELECT * FROM research_deliveries
-                    WHERE (state IN ('QUEUED','WAITING_FOR_RESULT') AND not_before<=now())
-                       OR (state='DELIVERING' AND lease_until<=now())
-                    ORDER BY queued_at,id LIMIT 1 FOR UPDATE SKIP LOCKED""").fetchone()
+                    WHERE ((state IN ('QUEUED','WAITING_FOR_RESULT') AND not_before<=now())
+                       OR (state='DELIVERING' AND lease_until<=now()))
+                    AND (%s::text IS NULL OR id=%s)
+                    ORDER BY queued_at,id LIMIT 1 FOR UPDATE SKIP LOCKED""", (delivery_id, delivery_id)).fetchone()
                 if not row:
                     return None
                 token = uuid.uuid4()

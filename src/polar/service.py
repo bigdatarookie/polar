@@ -15,7 +15,10 @@ class DatasetIntegrityError(Exception):
 
 
 class Service:
-    def __init__(self, settings):
+    def __init__(self, settings, *, native_queue=None):
+        self.native_queue = native_queue
+        self.descriptive_writer_enabled = settings.descriptive_writer_enabled
+        self.native_review_writer_enabled = settings.native_review_writer_enabled
         self.registry = Registry(settings)
         self.artifacts = ArtifactStore(settings.artifacts,settings.storage_bytes)
         from .history_registry import HistoryRegistry
@@ -25,7 +28,9 @@ class Service:
 
     def _research(self):
         from .research_results import ResearchResults
-        return ResearchResults(self.artifacts.root, self.artifacts.limit)
+        return ResearchResults(self.artifacts.root, self.artifacts.limit,
+                               descriptive_writer_enabled=self.descriptive_writer_enabled,
+                               native_review_writer_enabled=self.native_review_writer_enabled, native_queue=self.native_queue)
 
     def _research_engine(self, config=None, semantic_id=None):
         if (isinstance(config,dict) and config.get('schema')=='polar.private-pair-operation-config/1') or (semantic_id or '').startswith('pair-stream-operation-'):
@@ -38,6 +43,8 @@ class Service:
         return ResearchService(self.artifacts.root, self.artifacts.limit)
 
     def research_preflight(self, config):
+        from .candidate_binding import verify_candidate
+        verify_candidate(config)
         if config.get('schema')=='polar.private-pair-operation-config/1':return self._research_engine(config).preflight(config)
         if config.get('schema') in ('polar.reference-research-config/1', 'polar.scheduled-reference-config/1','polar.calendar-study-config/1'):
             return self._research_engine(config).preflight(config)
@@ -50,6 +57,9 @@ class Service:
                 "operation_binding_sha256": sha(canonical(operation_binding(config, pins)))}
 
     def research_config(self, seed):
+        if seed.get("namespace") == "RETAINED":
+            from .candidate_binding import loaded_revision
+            seed = {**seed, "code_revision": loaded_revision()}
         if seed.get('schema')=='polar.calendar-study-seed/1':
             from .calendar_study_service import config_from_seed
             return config_from_seed(seed)
@@ -76,6 +86,8 @@ class Service:
             raise ValueError('REFERENCE_CONVERSION_INVALID') from None
 
     def research_run(self, config):
+        from .candidate_binding import verify_candidate
+        verify_candidate(config)
         return self._research_engine(config).run(config)
 
     def research_recompute(self, semantic_id):
@@ -92,7 +104,7 @@ class Service:
 
     def research_delivery_submit(self, body):
         from .research_delivery import submit
-        return submit(self.registry, body)
+        return submit(self.registry, body, native_queue=self.native_queue)
 
     def research_delivery_status(self, delivery_id):
         from .research_delivery import delivery_status

@@ -1,0 +1,414 @@
+{
+  "$defs": {
+    "Criterion": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "MET",
+            "NOT_MET",
+            "UNAVAILABLE"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "status",
+        "reason"
+      ],
+      "title": "Criterion",
+      "type": "object"
+    },
+    "DescriptiveBasis": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "PROSPECTIVE_DESCRIPTIVE",
+          "title": "Kind",
+          "type": "string"
+        },
+        "investor_metrics": {
+          "const": "NOT_APPLICABLE",
+          "title": "Investor Metrics",
+          "type": "string"
+        },
+        "portfolio_series": {
+          "const": "NOT_APPLICABLE",
+          "title": "Portfolio Series",
+          "type": "string"
+        },
+        "orders": {
+          "const": "NOT_APPLICABLE",
+          "title": "Orders",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "investor_metrics",
+        "portfolio_series",
+        "orders"
+      ],
+      "title": "DescriptiveBasis",
+      "type": "object"
+    },
+    "DescriptiveBindings": {
+      "additionalProperties": false,
+      "description": "Unknown historical bindings stay null; a producer label is not tool proof.",
+      "properties": {
+        "protocol_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Protocol Id",
+          "type": "string"
+        },
+        "protocol_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Protocol Sha256",
+          "type": "string"
+        },
+        "data_revision": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Data Revision",
+          "type": "string"
+        },
+        "data_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Data Sha256",
+          "type": "string"
+        },
+        "code_revision": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{40}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Code Revision"
+        },
+        "evaluator_revision": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{40}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Evaluator Revision"
+        },
+        "runtime_id": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Runtime Id"
+        },
+        "producer_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Producer Id",
+          "type": "string"
+        },
+        "candidate_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Candidate Id"
+        },
+        "experiment_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Experiment Id"
+        },
+        "config_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Config Sha256"
+        }
+      },
+      "required": [
+        "protocol_id",
+        "protocol_sha256",
+        "data_revision",
+        "data_sha256",
+        "code_revision",
+        "evaluator_revision",
+        "runtime_id",
+        "producer_id",
+        "candidate_id",
+        "experiment_id",
+        "config_sha256"
+      ],
+      "title": "DescriptiveBindings",
+      "type": "object"
+    },
+    "Limitation": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Code",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "scope": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "text",
+        "scope"
+      ],
+      "title": "Limitation",
+      "type": "object"
+    },
+    "Observation": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "INCOMPLETE",
+            "NOT_RUN",
+            "UNAVAILABLE"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "status",
+        "description"
+      ],
+      "title": "Observation",
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Role",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "id",
+        "sha256"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    },
+    "Question": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "summary": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "summary"
+      ],
+      "title": "Question",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Owner-sanitized descriptive facts, without invented portfolio quantities.",
+  "properties": {
+    "schema_version": {
+      "const": "polar.research-description/1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "question": {
+      "$ref": "#/$defs/Question"
+    },
+    "bindings": {
+      "$ref": "#/$defs/DescriptiveBindings"
+    },
+    "basis": {
+      "$ref": "#/$defs/DescriptiveBasis"
+    },
+    "observations": {
+      "items": {
+        "$ref": "#/$defs/Observation"
+      },
+      "maxItems": 20,
+      "minItems": 1,
+      "title": "Observations",
+      "type": "array"
+    },
+    "limitations": {
+      "items": {
+        "$ref": "#/$defs/Limitation"
+      },
+      "maxItems": 31,
+      "minItems": 1,
+      "title": "Limitations",
+      "type": "array"
+    },
+    "provenance": {
+      "items": {
+        "$ref": "#/$defs/Provenance"
+      },
+      "maxItems": 30,
+      "minItems": 1,
+      "title": "Provenance",
+      "type": "array"
+    },
+    "evidence_level": {
+      "enum": [
+        "INVENTED_CONTROL",
+        "RETAINED_DESCRIPTIVE"
+      ],
+      "title": "Evidence Level",
+      "type": "string"
+    },
+    "financial_claim": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Financial Claim",
+      "type": "string"
+    },
+    "criteria": {
+      "items": {
+        "$ref": "#/$defs/Criterion"
+      },
+      "maxItems": 20,
+      "title": "Criteria",
+      "type": "array"
+    },
+    "point_interpretation": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Point Interpretation",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "question",
+    "bindings",
+    "basis",
+    "observations",
+    "limitations",
+    "provenance",
+    "evidence_level",
+    "financial_claim",
+    "criteria",
+    "point_interpretation"
+  ],
+  "title": "ResearchDescription",
+  "type": "object"
+}

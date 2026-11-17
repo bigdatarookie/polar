@@ -199,6 +199,54 @@ class ResearchResult(Closed):
         return self
 
 
+class DescriptiveBindings(Closed):
+    """Unknown historical bindings stay null; a producer label is not tool proof."""
+    protocol_id: Identifier
+    protocol_sha256: Hash
+    data_revision: Identifier
+    data_sha256: Hash
+    code_revision: Revision | None
+    evaluator_revision: Revision | None
+    runtime_id: Annotated[str, Field(pattern=r"^sha256:[a-f0-9]{64}$")] | None
+    producer_id: Identifier
+    candidate_id: Identifier | None
+    experiment_id: Identifier | None
+    config_sha256: Hash | None
+
+
+class DescriptiveBasis(Closed):
+    kind: Literal["PROSPECTIVE_DESCRIPTIVE"]
+    investor_metrics: Literal["NOT_APPLICABLE"]
+    portfolio_series: Literal["NOT_APPLICABLE"]
+    orders: Literal["NOT_APPLICABLE"]
+
+
+class Observation(Identity):
+    status: Literal["PASS", "FAIL", "INCOMPLETE", "NOT_RUN", "UNAVAILABLE"]
+    description: Text
+
+
+class ResearchDescription(Closed):
+    """Owner-sanitized descriptive facts, without invented portfolio quantities."""
+    schema_version: Literal["polar.research-description/1"]
+    question: Question
+    bindings: DescriptiveBindings
+    basis: DescriptiveBasis
+    observations: Annotated[list[Observation], Field(min_length=1, max_length=20)]
+    limitations: Annotated[list[Limitation], Field(min_length=1, max_length=MAX_RESULT_LIMITATIONS)]
+    provenance: Annotated[list[Provenance], Field(min_length=1, max_length=30)]
+    evidence_level: Literal["INVENTED_CONTROL", "RETAINED_DESCRIPTIVE"]
+    financial_claim: Text
+    criteria: Annotated[list[Criterion], Field(max_length=20)]
+    point_interpretation: Text
+
+    @model_validator(mode="after")
+    def observation_identity(self):
+        if len({o.id for o in self.observations}) != len(self.observations):
+            raise ValueError("DUPLICATE_OBSERVATION")
+        return self
+
+
 class ResearchReview(Closed):
     schema_version: Literal["polar.research-review/1"]
     result_id: Annotated[str, Field(pattern=r"^research-[a-f0-9]{64}$")]
@@ -235,9 +283,11 @@ class ResearchError(Exception):
 
 def validate_result(value):
     try:
-        public = ResearchResult.model_validate(value).model_dump(mode="json")
+        model = (ResearchDescription if isinstance(value, dict) and
+                 value.get("schema_version") == "polar.research-description/1" else ResearchResult)
+        public = model.model_validate(value).model_dump(mode="json")
         # Backward-compatible extension: old immutable A/B bytes and IDs remain exact.
-        if public['source_coverage'] is None:
+        if 'source_coverage' in public and public['source_coverage'] is None:
             del public['source_coverage']
         public_text(public)
         return public
@@ -266,17 +316,28 @@ def public_text(value):
 class ResearchResults(HistoryStore):
     """Use the service's existing artifact root and atomic publication primitive."""
 
+    def __init__(self, root, limit, *, descriptive_writer_enabled=False, native_review_writer_enabled=False, native_queue=None):
+        super().__init__(root, limit)
+        self.descriptive_writer_enabled = descriptive_writer_enabled
+        self.native_queue = native_queue
+        self.native_review_writer_enabled = native_review_writer_enabled
+
     def publish(self, value):
         value = validate_result(value)
+        if value["schema_version"] == "polar.research-description/1" and not self.descriptive_writer_enabled:
+            raise ResearchError("RESEARCH_DESCRIPTIVE_WRITER_DISABLED", 409)
         raw = canonical(value)
         if len(raw) > MAX_RESULT:
             raise ResearchError("RESEARCH_RESULT_TOO_LARGE", 413)
         result_id = "research-" + sha(raw)
         with self.locked():
             self._publish("research-results", result_id, {"result.json": raw}, file_limit=MAX_RESULT)
+        assessment = self.read(result_id)["assessment"]
+        native = any(r["provenance_status"] == "VERIFIED_NATIVE_DECISION" for r in assessment["reviews"])
         return {"schema_version": "polar.research-publication/1", "result_id": result_id,
                 "content_sha256": sha(raw),
-                "review_status": "RECORDED_EXTERNAL_ASSESSMENT" if self.read(result_id)["assessment"]["reviews"] else "NOT_REVIEWED"}
+                "review_status": ("VERIFIED_NATIVE_DECISION" if native else
+                    "RECORDED_EXTERNAL_ASSESSMENT" if assessment["reviews"] else "NOT_REVIEWED")}
 
     def read(self, result_id):
         if not isinstance(result_id, str) or not re.fullmatch(r"research-[a-f0-9]{64}", result_id):
@@ -305,6 +366,8 @@ class ResearchResults(HistoryStore):
             raise ResearchError("RESEARCH_NONCANONICAL_RESULT")
         assessment = {"technical": "NOT_REVIEWED", "product": "NOT_REVIEWED",
                       "financial": "NOT_REVIEWED", "reviews": [],
+                      "native_review": {"technical": "NOT_REVIEWED", "product": "NOT_REVIEWED",
+                                        "financial": "NOT_REVIEWED"},
                       "financial_evidence": {"status": "NOT_RUN", "reason": "INDEPENDENT_REVIEW_NOT_RECORDED"}}
         parent = self.root / "research-reviews" / result_id
         if parent.is_symlink() or (self.root / "research-reviews").is_symlink():
@@ -328,10 +391,31 @@ class ResearchResults(HistoryStore):
                         review["result_id"] != result_id or review["content_sha256"] != sha(raw) or
                         review["reviewer_id"] == record["bindings"]["producer_id"]):
                     raise ResearchError("RESEARCH_REVIEW_BINDING")
-                assessment["reviews"].append({**review, "review_sha256": sha(body)})
+                provenance_status = "LEGACY_EXTERNAL_UNKNOWN"
+                proof_path = entry / "native-provenance.json"
+                proof = None
+                if proof_path.exists() or proof_path.is_symlink():
+                    proof_raw = read_file(self.root,
+                        f"research-reviews/{result_id}/{entry.name}/native-provenance.json", 16384)
+                    proof = decode(proof_raw)
+                    if (review["reference"]["role"] != "verified_native_decision" or
+                            sha(proof_raw) != review["reference"]["sha256"] or
+                            canonical(proof) != proof_raw or
+                            proof.get("schema_version") != "polar.native-review-provenance/1" or
+                            proof.get("result_id") != result_id or
+                            proof.get("content_sha256") != sha(raw) or
+                            proof.get("bindings") != record["bindings"] or
+                            proof.get("identity_provenance") != "transport:v1"):
+                        raise ResearchError("RESEARCH_NATIVE_PROOF_BINDING")
+                    provenance_status = "VERIFIED_NATIVE_DECISION"
+                assessment["reviews"].append({**review, "review_sha256": sha(body),
+                                              "provenance_status": provenance_status,
+                                              **({"native_provenance": proof} if proof is not None else {})})
             assessment["reviews"].sort(key=lambda r: (r["recorded_at"], r["review_sha256"]))
             for review in assessment["reviews"]:
                 assessment[review["scope"].lower()] = review["verdict"]
+                if review["provenance_status"] == "VERIFIED_NATIVE_DECISION":
+                    assessment["native_review"][review["scope"].lower()] = review["verdict"]
                 if review["scope"] == "FINANCIAL":
                     assessment["financial_evidence"] = {"status": review["evidence_status"], "reason": review["reason"]}
         return {"schema_version": "polar.research-detail/1", "result_id": result_id,
@@ -339,6 +423,17 @@ class ResearchResults(HistoryStore):
                 "assessment": assessment}
 
     def executions(self, result_id, series_id=None, limit=100, offset=0, *, registered_lookup=None):
+        detail = self.read(result_id)
+        if detail["record"]["schema_version"] == "polar.research-description/1":
+            if type(limit) is not int or not 1 <= limit <= 100 or type(offset) is not int or not 0 <= offset <= 100000:
+                raise ResearchError("RESEARCH_EXECUTION_PAGE", 422)
+            if series_id is not None:
+                raise ResearchError("RESEARCH_EXECUTION_SERIES", 422)
+            return {"schema_version": "polar.research-executions/1", "result_id": result_id,
+                    "content_sha256": detail["content_sha256"], "series_id": None,
+                    "basis": detail["record"]["basis"], "limit": limit, "offset": offset,
+                    "status": "NOT_APPLICABLE", "reason": "DESCRIPTIVE_RESULT_HAS_NO_ORDERS",
+                    "phase": None, "total": None, "next_offset": None, "items": []}
         from .research_executions import project
         try:
             return project(self, result_id, series_id, limit, offset, registered_lookup=registered_lookup)
@@ -348,6 +443,8 @@ class ResearchResults(HistoryStore):
             raise ResearchError("RESEARCH_EXECUTION_UNAVAILABLE", 503) from None
 
     def review(self, value):
+        if isinstance(value, dict) and set(value) == {"decision_ref"}:
+            return self.native_review(value["decision_ref"])
         try:
             review = ResearchReview.model_validate(value).model_dump(mode="json")
             public_text(review)
@@ -358,11 +455,38 @@ class ResearchResults(HistoryStore):
                 review["reviewer_id"] == detail["record"]["bindings"]["producer_id"]):
             raise ResearchError("RESEARCH_REVIEW_BINDING")
         body = canonical(review)
+        files = {"review.json": body}
+        existing = next((r for r in detail["assessment"]["reviews"] if r["review_sha256"] == sha(body)), None)
+        if review["reference"]["role"] == "verified_native_decision" and existing is None:
+            raise ResearchError("RESEARCH_NATIVE_DECISION_REQUIRED")
+        if existing is not None and "native_provenance" in existing:
+            # Preserve immutable proof on ordinary outbox replay after rollback
+            # to this dualreader floor. Never append proof to an old review dir.
+            files["native-provenance.json"] = canonical(existing["native_provenance"])
         with self.locked():
             self._publish("research-reviews/" + review["result_id"], sha(body),
-                          {"review.json": body}, file_limit=16384)
+                          files, file_limit=16384)
         return {"result_id": review["result_id"], "review_sha256": sha(body),
                 "status": "RECORDED_EXTERNAL_ASSESSMENT"}
+
+    def native_review(self, decision_ref, *, queue=None):
+        if not self.native_review_writer_enabled:
+            raise ResearchError("RESEARCH_NATIVE_REVIEW_WRITER_DISABLED", 409)
+        from .research_native_review import resolve
+        review, proof = resolve(decision_ref, queue or self.native_queue)
+        detail = self.read(review["result_id"])
+        if (detail["content_sha256"] != review["content_sha256"] or
+                detail["record"]["bindings"] != proof["bindings"] or
+                review["reviewer_id"] == detail["record"]["bindings"]["producer_id"]):
+            raise ResearchError("RESEARCH_NATIVE_DECISION_BINDING")
+        public_text(review)
+        public_text(proof)
+        body = canonical(review)
+        with self.locked():
+            self._publish("research-reviews/" + review["result_id"], sha(body),
+                          {"review.json": body, "native-provenance.json": canonical(proof)}, file_limit=16384)
+        return {"result_id": review["result_id"], "review_sha256": sha(body),
+                "status": "VERIFIED_NATIVE_DECISION"}
 
     def revision(self):
         """Cheap discovery hint over immutable publication names, not a QA verdict.
@@ -423,6 +547,7 @@ class ResearchResults(HistoryStore):
             detail = self.read(name)
             record = detail["record"]
             items.append({"result_id": name, "content_sha256": detail["content_sha256"],
+                          "result_schema_version": record["schema_version"],
                           "question": record["question"], "bindings": record["bindings"],
                           "basis": record["basis"], "evidence_level": record["evidence_level"],
                           "assessment": detail["assessment"]})

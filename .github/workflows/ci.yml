@@ -1,5 +1,5 @@
 name: Polar CI
-run-name: Polar CI · ${{ github.event_name }} · ${{ inputs.product_pr || '49' }}
+run-name: Polar CI · ${{ github.event_name }} · ${{ inputs.product_pr || github.event.pull_request.number || github.sha }}
 on:
   pull_request:
   push:
@@ -9,14 +9,13 @@ on:
       product_pr:
         description: 'Current product PR number; resolve its live head at start'
         required: true
-        default: '49'
       test_path:
         description: 'Optional tests/ path or node ID; native control still runs'
         required: false
 permissions:
   contents: read
 concurrency:
-  group: polar-ci-${{ github.workflow }}-${{ github.ref }}-${{ inputs.product_pr || '49' }}
+  group: polar-ci-${{ github.workflow }}-${{ github.ref }}-${{ inputs.product_pr || github.event.pull_request.number || github.sha }}
   cancel-in-progress: false
 jobs:
   select:
@@ -28,12 +27,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CURRENT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          PRODUCT_PR: ${{ inputs.product_pr || '49' }}
+          PRODUCT_PR: ${{ inputs.product_pr || github.event.pull_request.number }}
         run: |
-          [[ "$PRODUCT_PR" =~ ^[0-9]+$ ]]
-          HEAD=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PRODUCT_PR" --jq '.head.sha')
+          HEAD=$CURRENT_SHA
+          if [[ -n "$PRODUCT_PR" ]]; then
+            [[ "$PRODUCT_PR" =~ ^[1-9][0-9]*$ ]]
+            HEAD=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PRODUCT_PR" --jq '.head.sha')
+            # A PR event is for this event's head, even if a newer head arrived.
+            if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then HEAD=$CURRENT_SHA; fi
+          fi
           [[ "$HEAD" =~ ^[a-f0-9]{40}$ ]]
-          MATRIX=$(jq -nc --arg current "$CURRENT_SHA" --arg head "$HEAD" --arg pr "$PRODUCT_PR" '{include:[{name:"current",sha:$current},{name:("product-pr-"+$pr),sha:$head}]}')
+          MATRIX=$(jq -nc --arg head "$HEAD" --arg pr "$PRODUCT_PR" '{include:[{name:(if $pr == "" then "current" else "product-pr-"+$pr end),sha:$head}]}')
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
   test:
     needs: select
@@ -112,10 +116,12 @@ jobs:
         run: |
           STATE=failure
           if [[ "$OUTCOME" == success && "$ML_OUTCOME" == success && "$OBS_OUTCOME" == success && "$SCHEDULED_OUTCOME" == success ]]; then STATE=success; fi
-          if [[ -f ci-reports/result.json ]]; then
-            jq -e --arg sha "$CANDIDATE_SHA" '.candidate_sha == $sha' ci-reports/result.json
-            cat ci-reports/result.json >> "$GITHUB_STEP_SUMMARY"
-          fi
+          for report in ci-reports ci-reports-ml ci-reports-obs ci-reports-scheduled; do
+            if [[ "$report" == ci-reports || -d "$report" ]]; then
+              if ! jq -e --arg sha "$CANDIDATE_SHA" '.schema == "polar.ci-result/1" and .candidate_sha == $sha and .status == "PASS" and .exit == 0' "$report/result.json"; then STATE=failure; fi
+            fi
+          done
+          if [[ -f ci-reports/result.json ]]; then cat ci-reports/result.json >> "$GITHUB_STEP_SUMMARY"; fi
           gh api "repos/$GITHUB_REPOSITORY/statuses/$CANDIDATE_SHA" -f state="$STATE" -f context='Polar CI / locked environment' -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" -f description='Shared locked command result; see exact SHA and diagnostics'
       - name: Retain bounded synthetic diagnostics
         if: always()
