@@ -38,6 +38,7 @@ class Queue:
         if args == ('whoami',):return {'identity': deepcopy(self.identity)}
         if args[:2] == ('seat', 'status'):return deepcopy(self.seat)
         if args[:2] == ('queue', 'show'):return deepcopy(self.task if args[2] == TASK else self.row)
+        if args == ('queue', 'claim', TASK):return deepcopy(self.task)
         if args[:2] == ('queue', 'transitions'):return deepcopy(self.claims if args[2] == TASK else self.closing)
         raise AssertionError(args)
 
@@ -136,4 +137,17 @@ def test_wrong_member_hash_symlink_and_selected_alias_escape_fail(tmp_path, monk
     # A changed selection graph cannot inherit the old semantic admission.
     cfg['vti_binding_ref'] = put(tmp_path/'foreign-selection.json', {'schema': 'forged'})
     with pytest.raises(ValueError, match='SOURCE_ADMISSION_BINDING'):
+        prepare_input(cfg, root, 10**8, native_queue=queue)
+
+
+def test_transport_claim_generation_invalidates_previous_occupant_admission(tmp_path, monkeypatch):
+    root, cfg, queue, _, _ = fixture(tmp_path, monkeypatch)
+    original = queue.read
+    def read(*args):
+        if args == ('queue', 'claim', TASK):
+            queue.task['claimedByGeneration'] = 'new-actual-transport-generation'
+        return original(*args)
+    queue.read = read
+    monkeypatch.setattr(selected, 'pinned_bytes', lambda _: pytest.fail('read before current generation check'))
+    with pytest.raises(ValueError, match='SOURCE_ADMISSION'):
         prepare_input(cfg, root, 10**8, native_queue=queue)

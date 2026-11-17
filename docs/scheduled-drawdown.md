@@ -71,7 +71,12 @@ are a contract, not an issued admission):
 
 The native tool verifies current assigned Quant A identity, claimed task,
 transport claim/terminal actors, generation, full config binding and rereads
-custody. A body actor string, readable host path, metadata fit receipt or an old
+custody. The current CLI whoami/seat projections omit occupant generation, so
+only the already-owned active consumer claim is refreshed through the actual
+native claim operation; its daemon-derived generation must match the semantic
+source decision. A seat replacement therefore invalidates the old admission.
+This updates native task custody and grants no new execution permission.
+A body actor string, readable host path, metadata fit receipt or an old
 source decision is insufficient. Purpose/source admission remains a real consumer
 condition, never inferred from technical tests.
 
@@ -95,8 +100,8 @@ python -m polar.native_selected_tool --container HEXCID --operation research-run
 This is a context transport into the same existing file-only Service operations,
 not a new runner. The last two accept only registered profile/14. The host and
 container must load the exact same source binding. Every native read is live on
-the inherited host transport, restricted to the consumer/admission tasks and
-Quant A seat, bounded to32 reads/2MiB frames/600seconds. No identity, provider,
+the inherited host transport, restricted to reads of the consumer/admission tasks and Quant A seat, plus
+refresh of the already-owned consumer claim, bounded to32 reads/2MiB frames/600seconds. No identity, provider,
 credential or service is installed in the container. The container's actual
 image, mounted source/data/private-store paths and root identity must match the
 admission; host filesystem readability alone is not container data-plane proof.

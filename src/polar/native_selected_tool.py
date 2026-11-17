@@ -45,6 +45,7 @@ def permitted(args, config):
     qid = config['source_admission_ref'].rsplit('#', 1)[0]
     return args in (['whoami'], ['seat', 'status', 'quant-a@polar-rig'],
         ['queue', 'show', config['consumer_task'], '--full'],
+        ['queue', 'claim', config['consumer_task']],
         ['queue', 'transitions', config['consumer_task'], '--full'],
         ['queue', 'show', qid, '--full'], ['queue', 'transitions', qid, '--full'])
 

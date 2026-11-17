@@ -14,7 +14,8 @@ def test_closed_native_read_allowlist():
     cfg = {'consumer_task': TASK, 'source_admission_ref': ADMISSION+'#3'}
     assert tool.permitted(['queue', 'show', TASK, '--full'], cfg)
     assert tool.permitted(['queue', 'transitions', ADMISSION, '--full'], cfg)
-    for args in [['queue', 'show', 'qitem-foreign', '--full'], ['queue', 'claim', TASK],
+    assert tool.permitted(['queue', 'claim', TASK], cfg)
+    for args in [['queue', 'show', 'qitem-foreign', '--full'], ['queue', 'claim', 'qitem-foreign'],
                  ['seat', 'status', 'quant-validator@polar-rig'], ['whoami', '--source', 'forged']]:
         assert not tool.permitted(args, cfg)
 

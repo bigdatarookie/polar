@@ -62,6 +62,13 @@ def authorize(config, root, *, queue=None):
             task.get('destinationSession') == actor and task.get('claimedByGeneration') and
             seat.get('current_occupant') == actor and seat.get('logical_id') == 'quant.a' and
             seat.get('rig_name') == 'polar-rig', 'NATIVE_SELECTED_CURRENT_TASK')
+    # whoami/seat status do not expose occupant generation. Refresh only this
+    # already-owned, active finite claim through the native transport; the
+    # daemon derives its generation. This is task custody, not an execution grant.
+    task = queue.read('queue', 'claim', config['consumer_task'])
+    require(task.get('qitemId') == config['consumer_task'] and task.get('state') == 'in-progress' and
+            task.get('destinationSession') == actor and task.get('claimedByGeneration'),
+            'NATIVE_SELECTED_CURRENT_GENERATION')
     generation = task['claimedByGeneration']
     journal = queue.read('queue', 'transitions', config['consumer_task'], '--full')
     claims = [x for x in journal if x.get('state') == 'in-progress' and x.get('transitionNote') == 'claimed']

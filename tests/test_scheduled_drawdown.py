@@ -27,7 +27,6 @@ def fixture(tmp_path, monkeypatch):
     raw = b''.join(json.dumps(v, sort_keys=True, separators=(',', ':')).encode()+b'\n' for v in chosen)
     m.update(symbols=['BIL', 'VTI'], rows=len(chosen), quotes=put(tmp_path/'drawdown-quotes.ndjson', raw))
     cfg['input_ref'] = write(tmp_path/'drawdown-input.json', m)
-    cal['phases'] = {'FINAL': cal['phases']['FINAL']}
     cfg['calendar_ref'] = write(tmp_path/'drawdown-calendar.json', cal)
     p.update(schema=adapter.SCHEMA, policy={'kind': 'QUANT_A_DRAWDOWN_RECOVERY',
         'semantic_candidate': adapter.SEMANTIC_CANDIDATE, 'policy_sha256': adapter.POLICY_SHA},
@@ -115,9 +114,9 @@ def test_complete_invented_scheduled_lifecycle_reuses_frozen_plan(tmp_path, monk
     def once(*args):
         calls.append(True); return real_plan(*args)
     monkeypatch.setattr(scheduled, 'plan_phase', once)
-    assert preflight(service, cfg)['expected_native_accounts'] == 8
+    assert preflight(service, cfg)['expected_native_accounts'] == 16
     result = run(service, cfg)
-    assert len(calls) == 1
+    assert len(calls) == 2
     assert recompute(service, result['semantic_id'])['native_calls'] == 0
     with pytest.raises(ValueError, match='ORIGINAL_ALREADY_RECORDED'):run(service, cfg)
 
