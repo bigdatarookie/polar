@@ -22,7 +22,7 @@ def create(config, profile, grids):
     return {'schema': 'polar.offline-author-binding/1', 'action': 'ORIGINAL',
             'binding_sha256': sha(canonical(binding(config))),
             'candidate_sha': candidate, 'config_sha256': sha(canonical(binding(config))),
-            'data_revision': config['input_ref']['sha256'], 'runtime_image_id': runtime,
+            'data_content_sha256': config['input_ref']['sha256'], 'runtime_image_id': runtime,
             'python_version': platform.python_version(), 'platform': platform.system(),
             'runtime_provenance': 'RUN_CONTEXT_WITH_CHECKED_PROFILE_DEPENDENCIES',
             'expected_native_accounts': account_count(profile, grids),

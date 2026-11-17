@@ -252,6 +252,8 @@ def run(service, config):
     # Stable family across source repair/code revisions; an unsuccessful start is never refunded.
     family = sha(canonical({'protocol_id': profile['protocol_id'], 'input': config['input_ref']['sha256'], 'namespace': config['namespace']}))
     parent = 'scheduled-reference-attempts/' + family; aid = str(uuid.uuid4())
+    if authority is not None and authority.get('schema') == 'polar.offline-author-binding/1':
+        authority = {**authority, 'run_id': aid}
     with service.store.locked():
         directory = service.store.root/parent
         require(not directory.is_symlink(), 'SCHEDULED_ORIGINAL_ALREADY_RECORDED')

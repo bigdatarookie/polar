@@ -105,6 +105,7 @@ def test_retained_contract_full_cli_family_without_permission_file(tmp_path,monk
     assert len(list(root.rglob('start.json')))==1
     value=json.loads(next(root.rglob('authority.json')).read_bytes())
     assert value['schema']=='polar.offline-author-binding/1' and 'method_ref' not in value
+    assert value['run_id']==result['attempt_id']
     for item in result['results'].values():
         detail=ResearchResults(root,128*1024**2).read(item['result_id'])
         assert detail['record']['bindings']['run_id']==result['attempt_id']
