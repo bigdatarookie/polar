@@ -84,7 +84,8 @@ def test_exact_candidate_native_scenarios_wire_and_saved_only_reproduction(tmp_p
         record = ResearchResults(store, 128 * 1024**2).read(result["results"][phase]["result_id"])
         assert len(record["record"]["series"]) == 4
         assert len(record["record"]["criteria"]) == len(candidate["criteria"])
-        assert record["record"]["primary_strategy_id"] == "BOND"
+        assert [series["id"] for series in record["record"]["series"]
+                if series["role"] == "STRATEGY"] == ["BOND"]
         assert record["record"]["primary_benchmark_id"] == "BILL"
         assert record["assessment"]["financial"] == "NOT_REVIEWED"
     before = snapshot(store)
