@@ -27,6 +27,10 @@ class Queue:
                      'claimedByGeneration': 'invented-generation', 'claimedAt': '2026-01-01T00:00:00Z'}
         self.identity = {'sessionName': ACTOR, 'nodeId': 'invented-node', 'logicalId': 'quant.a', 'rigName': 'polar-rig'}
         self.seat = {'current_occupant': ACTOR, 'logical_id': 'quant.a', 'rig_name': 'polar-rig'}
+        self.calls = []
+        self.owner = {'rigName': 'polar-rig', 'logicalId': 'quant.a', 'canonicalSessionName': ACTOR,
+            'sessionStatus': 'running', 'agentActivity': {'generation': 'invented-generation',
+            'generationProvenance': 'resolved', 'evidenceSource': 'native_owner'}}
         self.closing = [{'transitionId': 3, 'state': 'done', 'actorSession': ACTOR, 'identityProvenance': 'transport:v1'}]
         self.row = {'qitemId': ADMISSION, 'state': 'done', 'destinationSession': ACTOR,
             'claimedByGeneration': 'invented-generation', 'closingTransition': {'transitionId': 3},
@@ -35,10 +39,11 @@ class Queue:
                 'claimed_generation': 'invented-generation', 'scope_sha256': sha(canonical(selected.scope(cfg))),
                 'symbols': ['BIL', 'VTI'], 'scientific_verdict': 'NOT_REVIEWED'})}
     def read(self, *args):
+        self.calls.append(args)
+        if args == selected.generation_read(ACTOR):return {'entries': [deepcopy(self.owner)]}
         if args == ('whoami',):return {'identity': deepcopy(self.identity)}
         if args[:2] == ('seat', 'status'):return deepcopy(self.seat)
         if args[:2] == ('queue', 'show'):return deepcopy(self.task if args[2] == TASK else self.row)
-        if args == ('queue', 'claim', TASK):return deepcopy(self.task)
         if args[:2] == ('queue', 'transitions'):return deepcopy(self.claims if args[2] == TASK else self.closing)
         raise AssertionError(args)
 
@@ -94,7 +99,7 @@ def test_selected_spans_only_preserve_tokens_graph_clocks_and_replay(tmp_path, m
     assert prepare_input(cfg, root, 10**8, native_queue=queue) == out
     # Existing prepared values cannot bypass a current consumer generation check.
     queue.task['claimedByGeneration'] = 'successor-generation'
-    with pytest.raises(ValueError, match='SOURCE_ADMISSION'):load_reference(out['input_ref'])
+    with pytest.raises(ValueError, match='CURRENT_GENERATION'):load_reference(out['input_ref'])
 
 
 @pytest.mark.parametrize('field,value', [
@@ -140,14 +145,46 @@ def test_wrong_member_hash_symlink_and_selected_alias_escape_fail(tmp_path, monk
         prepare_input(cfg, root, 10**8, native_queue=queue)
 
 
-def test_transport_claim_generation_invalidates_previous_occupant_admission(tmp_path, monkeypatch):
+def test_live_generation_invalidates_previous_occupant_admission(tmp_path, monkeypatch):
     root, cfg, queue, _, _ = fixture(tmp_path, monkeypatch)
-    original = queue.read
+    queue.owner['agentActivity']['generation'] = 'new-actual-native-generation'
+    monkeypatch.setattr(selected, 'pinned_bytes', lambda _: pytest.fail('read before current generation check'))
+    with pytest.raises(ValueError, match='CURRENT_GENERATION'):
+        prepare_input(cfg, root, 10**8, native_queue=queue)
+
+
+@pytest.mark.parametrize('field,value', [('generationProvenance', 'unresolved'), ('generation', None),
+    ('stale', True), ('fallback', True), ('evidenceSource', 'caller_assertion')])
+def test_unverified_generation_projection_fails_before_member_read(tmp_path, monkeypatch, field, value):
+    root, cfg, queue, _, _ = fixture(tmp_path, monkeypatch)
+    queue.owner['agentActivity'][field] = value
+    monkeypatch.setattr(selected, 'pinned_bytes', lambda _: pytest.fail('read without current custody'))
+    with pytest.raises(ValueError, match='CURRENT_GENERATION'):
+        prepare_input(cfg, root, 10**8, native_queue=queue)
+
+
+def test_readonly_probe_and_authorization_never_claim_active_task(tmp_path, monkeypatch):
+    root, cfg, queue, _, _ = fixture(tmp_path, monkeypatch)
+    # Queue has no mutation handler. The real daemon rejects a claim on this
+    # already-active state; neither probe nor authorization may try one.
+    probe = selected.context_probe(TASK, queue=queue)
+    assert probe['generation'] == 'invented-generation'
+    assert probe['source_admission'] == 'NOT_ISSUED_BY_PROBE'
+    selected.authorize(cfg, root, queue=queue)
+    assert all(call[:2] != ('queue', 'claim') for call in queue.calls)
+    queue.row['resolution'] = 'NOT_ISSUED: provisional task closed without admission'
+    with pytest.raises(ValueError, match='SOURCE_ADMISSION_BINDING'):
+        selected.authorize(cfg, root, queue=queue)
+
+
+def test_generation_change_during_readonly_custody_reread_rejected(tmp_path, monkeypatch):
+    root, cfg, queue, _, _ = fixture(tmp_path, monkeypatch)
+    original = queue.read; reads = []
     def read(*args):
-        if args == ('queue', 'claim', TASK):
-            queue.task['claimedByGeneration'] = 'new-actual-transport-generation'
+        if args == selected.generation_read(ACTOR):
+            reads.append(True)
+            if len(reads) > 1:queue.owner['agentActivity']['generation'] = 'replacement-generation'
         return original(*args)
     queue.read = read
-    monkeypatch.setattr(selected, 'pinned_bytes', lambda _: pytest.fail('read before current generation check'))
-    with pytest.raises(ValueError, match='SOURCE_ADMISSION'):
-        prepare_input(cfg, root, 10**8, native_queue=queue)
+    with pytest.raises(ValueError, match='CUSTODY_CHANGED'):
+        selected.authorize(cfg, root, queue=queue)

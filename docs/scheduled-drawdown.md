@@ -75,11 +75,13 @@ are a contract, not an issued admission):
 
 The native tool verifies current assigned Quant A identity, claimed task,
 transport claim/terminal actors, generation, full config binding and rereads
-custody. The current CLI whoami/seat projections omit occupant generation, so
-only the already-owned active consumer claim is refreshed through the actual
-native claim operation; its daemon-derived generation must match the semantic
-source decision. A seat replacement therefore invalidates the old admission.
-This updates native task custody and grants no new execution permission.
+custody. Current generation comes from the bounded read-only `rig ps --nodes`
+projection for the actual Quant A seat. Its generation provenance must be
+resolved, current and nonfallback, from a verified native owner or a hook checked
+against the occupant tenure at read time. Resolved-but-stale mismatch is rejected.
+The live generation must match the owned active consumer task and terminal source
+decision, and it is read again before return. No claim/unclaim/reclaim is used;
+claiming an already-active task is rejected by the actual daemon.
 A body actor string, readable host path, metadata fit receipt or an old
 source decision is insufficient. Purpose/source admission remains a real consumer
 condition, never inferred from technical tests.
@@ -104,8 +106,8 @@ python -m polar.native_selected_tool --container HEXCID --operation research-run
 This is a context transport into the same existing file-only Service operations,
 not a new runner. The last two accept only registered profile/14. The host and
 container must load the exact same source binding. Every native read is live on
-the inherited host transport, restricted to reads of the consumer/admission tasks and Quant A seat, plus
-refresh of the already-owned consumer claim, bounded to32 reads/2MiB frames/600seconds. No identity, provider,
+the inherited host transport, restricted to reads of the consumer/admission tasks, Quant A seat and exact
+current-generation projection, bounded to32 reads/2MiB frames/600seconds. No identity, provider,
 credential or service is installed in the container. The container's actual
 image, mounted source/data/private-store paths and root identity must match the
 admission; host filesystem readability alone is not container data-plane proof.
@@ -113,3 +115,21 @@ Missing actual admission, qualified mount/build or current native caller remains
 a typed error. Only the author may perform the eventual admitted private prepare,
 preflight and backtest. G rollout, Quant B and UI/Infrastructure acceptance remain
 independent of this source milestone.
+
+
+Before issuing a source decision, the author can verify its actual current native
+context without any source, protocol, store or value access:
+
+```text
+python -m polar.native_selected_tool --container HEXCID --operation native-context-probe CONSUMER_TASK.json
+```
+
+CONSUMER_TASK.json contains only `{"consumer_task":"ACTUAL_OWNED_ACTIVE_QITEM"}`.
+The probe checks the same current actor/task/claim provenance and read-only live
+generation used by preparation, then rereads custody. It returns
+CURRENT_NATIVE_CONSUMER_CUSTODY_VERIFIED with NOT_ISSUED_BY_PROBE; it does not mint
+admission, inspect source pins, load Settings/store or record FIRST_START. It
+uses the same bounded inherited host/stdin bridge and source fingerprint. A
+provisional source-decision row closed with NOT_ISSUED is never an admission.
+Rebuild/pin the corrected actual author candidate and image before source
+admission; preserve earlier qualified build and boundary failure history.
