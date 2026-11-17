@@ -7,7 +7,6 @@ from pathlib import Path
 
 from . import qb_priced_reserve_prototype as author
 from .ci_research import require
-from .gym_contract import canonical
 from .scheduled_signals import AllocationError, sample_covariance
 
 KIND = 'RISK_MATCHED_PRICED_RESERVE'
@@ -66,7 +65,8 @@ def targets(prices, symbols):
         selected = author.reserve_targets(annual)
         actual['completed_rules'] = 1
         actual['risk_evaluations'] = selected['certificate']['priced_reserve_risk_evaluations']
-        diagnostic = dict(kind=KIND, prototype_sha256=PROTOTYPE_SHA256,
+        gap=Fraction(*selected['certificate']['target_variance'])-Fraction(*selected['certificate']['selected_variance'])
+        diagnostic = dict(forecast_variance_gap=[gap.numerator,gap.denominator],kind=KIND, prototype_sha256=PROTOTYPE_SHA256,
                           annual_covariance_binary64=[[repr(x) for x in row] for row in annual],
                           rule=selected, actual_counts=actual)
         return {'weights': {leg:{s:Fraction(*w) for s,w in row.items()}
@@ -108,6 +108,7 @@ def verify_signal(signal):
     k,j=c['cash_grid_index'],c['swept_equity_grid_index']
     require(type(k) is int and type(j) is int and 0<=k<=n and 0<=j<=n,'PRICED_RESERVE_GRID')
     target=_fraction(c['target_variance']); selected=_fraction(c['selected_variance'])
+    require(_fraction(signal['forecast_variance_gap'])==target-selected>=0, 'PRICED_RESERVE_VARIANCE_GAP')
     def f(index):
         x=Fraction(index,n)
         return v*x*x+b*(1-x)**2+2*cov*x*(1-x)
@@ -153,6 +154,8 @@ def verify_signal(signal):
 def verify_plan(plan, profile, calendar, tz):
     from .scheduled_policy import calendar_value
     from .reference_ridge_plan import nanoseconds
+    require(set(plan)=={'profile','symbols','prices','grid','decisions','signals','quote_basis','clock_policy'} |
+            ({'cost_profile'} if 'cost_profile' in plan else set()), 'PRICED_RESERVE_SAVED_PLAN_FIELDS')
     schedule=calendar['source_schedule_rows']; days=[r['date'] for r in schedule]
     grid=calendar_value(calendar,schedule)['FINAL']
     rows={r['date']:r for r in schedule}

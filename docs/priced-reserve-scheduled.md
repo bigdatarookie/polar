@@ -15,3 +15,14 @@ Private phase plans retain original covariance operands, exact targets/weights/v
 Recompute reads the existing immutable bundle, including hash-bound saved TZif bytes, with no source/config references required. Arithmetic certificate verification checks PSD, the cash cap and adjacent maximality inequality, analytic minimum witnesses, selected/next-grid inequalities, explicit fallback, cash balances, clocks, instructions and the common stress plan. It does not reload prices, estimate covariance, invoke the author selector/search or execute native accounts. Returned estimator/rule/risk-search/native/write counts are zero for reproduction; original counts remain private and distinct. Saved NAV bootstrap arithmetic is recomputed from saved returns.
 
 `tests/test_scheduled_priced_reserve.py` contains an invented input/profile composition and actual service tests. No real dataset, private period, numerical result or financial claim is included here. Quant owns the exact candidate composition, author checks, actual frozen experiment and subsequent native Validator submission.
+
+The existing CLI surface is unchanged. Keep real outputs private:
+
+```sh
+polar research-config /absolute/private/scheduled-seed.json > /absolute/private/config.json
+polar research-preflight /absolute/private/config.json > /absolute/private/preflight.json
+polar research-run /absolute/private/config.json > /absolute/private/run.json
+polar research-recompute scheduled-reference-experiment-<manifest-sha256> > /absolute/private/reproduction.json
+```
+
+The profile15 API response avoids original operation counts. Existing private phase/finish artifacts retain them; never infer original zero work from reproduction's zero estimator/search/native/write counts.

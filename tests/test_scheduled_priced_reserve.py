@@ -48,7 +48,8 @@ def fixture(tmp_path,monkeypatch):
 
 def diagnostic(matrix):
     rule=author.reserve_targets(matrix)
-    return dict(kind=priced.KIND,prototype_sha256=priced.PROTOTYPE_SHA256,
+    gap=Fraction(*rule['certificate']['target_variance'])-Fraction(*rule['certificate']['selected_variance'])
+    return dict(forecast_variance_gap=[gap.numerator,gap.denominator],kind=priced.KIND,prototype_sha256=priced.PROTOTYPE_SHA256,
         annual_covariance_binary64=[[repr(float(x)) for x in row] for row in matrix],rule=rule,
         actual_counts=dict(estimator_calls=1,completed_estimates=1,rule_calls=1,completed_rules=1,
                            risk_evaluations=rule['certificate']['priced_reserve_risk_evaluations']))
@@ -103,6 +104,12 @@ def test_service_actual_author_native_stress_saved_source_absent_and_duplicate(t
         assert len(data['evaluation']['criteria'])==6
         assert all(x['metric_id']=='terminal_nav_usd' for x in data['evaluation']['comparisons'] if x['right_id']=='BIL_ONLY')
         for leg in data['simulation']['legs']:
+            cost=data['simulation']['cost_profile']
+            for fill in leg['fills']:
+                assert type(fill['q']) is int and fill['q']>0
+                assert fill['fee_cents']==cost['flat_cents']+(fill['q']*fill['price_micro']*cost['bps']+99_999_999)//100_000_000
+                assert fill['settled_cents']==(fill['q']*fill['price_micro']+5000)//10000
+            assert leg['nav'][-1]['flat_cents']==len(leg['fills'])*cost['flat_cents']
             assert not any(leg['nav'][-1]['positions'].values()) and leg['nav'][-1]['nav_cents']==leg['nav'][-1]['cash_cents']
     for pub in result['results'].values():
         record=ResearchResults(root,128*1024**2).read(pub['result_id'])['record']
@@ -165,8 +172,11 @@ def test_fallback_actual_native_accounts_and_negative_precedence(tmp_path,monkey
     result=ReferenceResearchService(root,128*1024**2).run(cfg)
     phases=json.loads((root/'reference-research-experiments'/result['semantic_id']/'phases.json').read_bytes())
     for data in phases.values():
-        legs=data['simulation']['legs'];left={k:v for k,v in legs[0].items() if k!='id'};right={k:v for k,v in legs[1].items() if k!='id'}
-        assert left==right
+        legs=data['simulation']['legs']
+        assert legs[0]['nav']==legs[1]['nav']
+        for key in ('orders','fills'):
+            assert [{k:v for k,v in row.items() if k!='id'} for row in legs[0][key]]==[
+                   {k:v for k,v in row.items() if k!='id'} for row in legs[1][key]]
         assert data['evaluation']['point_interpretation']=='NOT_SUPPORTIVE_ON_THIS_LIMITED_SCREEN'
         assert data['plan']['signals'][0]['rule']['status'].endswith('FALLBACK_CASH_TARGET' if matrix[0][0] else 'FALLBACK_CASH')
         assert any(row['positions']['BIL']>0 for row in legs[2]['nav'])
