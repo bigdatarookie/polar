@@ -48,7 +48,7 @@ def profile(*, protocol_sha256, input_sha256, calendar_sha256, timezone_sha256):
         "question_label": "Fixed monthly inverse volatility at common forecast risk",
         "question_summary": "Does inverse-volatility allocation meet the entire fixed net wealth, material Sharpe, drawdown and realized-risk screen against equal-weight and momentum controls under each cost scenario?",
         "clock_description": "Eligible formation prefix only; next modeled New York midnight availability, one-second decision delay, next declared reference close, terminal exit override.",
-        "partition_description": "Unchanged exposed retrospective validation/final calendar. Validation is descriptive and selects nothing; fixed FINAL criteria and both cost scenarios retain separate evidence.",
+        "partition_description": "Exposed retrospective FINAL period unchanged from the inherited calendar, with separate base and stress accounts. The accepted paired-resampling profile supports FINAL only; no validation run, selection or untouched confirmation is claimed.",
         "additional_limitations": [
             ["EXPOSED_SMALL_REFERENCE_COHORT", "Only the retained bill, short Treasury and equity adjusted reference paths; PIT, vintage/economic continuity and investor total return remain unestablished. No untouched confirmation."],
             ["COMMON_FORECAST_NOT_REALIZED_RISK", "Common tau is the minimum of the fixed annual cap and every raw-policy forecast risk; it need not equal the cap. Covariance forecasts, rounded targets, realized risk and filled exposures are distinct."],
