@@ -99,6 +99,11 @@ def schedule_binding_matches(manifest,calendar_schedule):
 
 def prepare_input(config, root, limit, *, native_queue=None):
     """Called only by the owning source consumer after applicable qualification."""
+    if type(config) is dict and config.get('schema') == 'polar.reference-input-conversion-config/10':
+        # Closed FOMC source/native scope belongs to the owning integration.
+        # The generic span helper itself is not a CLI authorization boundary.
+        from .fomc_source import prepare_source_input
+        return prepare_source_input(config, root, limit, queue=native_queue)
     if type(config) is dict and config.get('schema') == 'polar.reference-input-conversion-config/8':
         from .snapshot_reference_input import prepare_snapshot
         return prepare_snapshot(config, root, limit)
