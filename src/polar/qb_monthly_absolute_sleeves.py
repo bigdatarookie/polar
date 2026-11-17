@@ -48,7 +48,7 @@ def profile(*, protocol_sha256, input_sha256, calendar_sha256, timezone_sha256):
         "additional_limitations": [
             ["EXPOSED_REFERENCE_HISTORY", "Already exposed vendor-adjusted synthetic units; historical known-by, PIT, revisions and economic continuity are not established. Not investor total return."],
             ["FIXED_BASE_COST_ONLY", "Existing profile/1 executes its actual base flat and proportional fees. No separate cost-stress account or robustness claim is supplied."],
-            ["NO_PARAMETER_SELECTION", "One fixed lookback/skip and comparison set; no fitting, tuning or untouched confirmation. Earlier annual/monthly negative findings remain independent retained history."],
+            ["NO_PARAMETER_SELECTION", "One fixed lookback/skip and comparison set; no fitting, tuning or untouched confirmation. Earlier results remain unchanged retained history; this question does not assign a verdict to another policy."],
         ],
         "subperiods": [],
     }
