@@ -26,6 +26,13 @@ def selected_config(operation, value):
         if not isinstance(value, dict) or set(value) != {'consumer_task'} or not isinstance(value['consumer_task'], str) or not re.fullmatch(r'qitem-[A-Za-z0-9_.:-]+', value['consumer_task']):
             raise ResearchError('NATIVE_SELECTED_CURRENT_TASK', 409)
         return value
+    if operation in ('research-preflight', 'research-run') and value.get('schema') == 'polar.fomc-calendar-config/1':
+        from .fomc_calendar import QUESTION
+        if value.get('question_id') != QUESTION:
+            raise ResearchError('FOMC_NATIVE_SOURCE_SCOPE', 409)
+        return value
+    if operation == 'research-input-prepare' and value.get('schema') == 'polar.reference-input-conversion-config/10':
+        return value
     if operation == 'research-input-prepare':
         config = value
     else:
@@ -75,7 +82,8 @@ def consume(operation, value, expected_source):
         from .native_selected_input import context_probe
         return context_probe(config['consumer_task'], queue=queue)
     settings = Settings.load_artifacts()
-    authorize(config, settings.artifacts, queue=queue)
+    if config.get('schema') not in ('polar.fomc-calendar-config/1', 'polar.reference-input-conversion-config/10'):
+        authorize(config, settings.artifacts, queue=queue)
     # All nested reads, including ordinary load_reference and custody rereads,
     # use this same live host adapter. No caller field can supply this context.
     with inherited_queue(queue):
