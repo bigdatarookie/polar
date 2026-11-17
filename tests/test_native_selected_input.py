@@ -188,3 +188,76 @@ def test_generation_change_during_readonly_custody_reread_rejected(tmp_path, mon
     queue.read = read
     with pytest.raises(ValueError, match='CUSTODY_CHANGED'):
         selected.authorize(cfg, root, queue=queue)
+
+
+def capture_selected_fixture(tmp_path, monkeypatch):
+    """Use the existing captured BIL converter, never a fabricated BIL job."""
+    from test_captured_reference_input import captured_fixture
+    root, cfg, _, parent, rows = fixture(tmp_path, monkeypatch)
+    sub=tmp_path/'capture';sub.mkdir()
+    capture_root,capture_cfg,_=captured_fixture(sub)
+    bil=prepare_input(capture_cfg,capture_root,10**8)
+    cfg['bil_input_ref']=bil['input_ref']
+    queue=Queue(cfg)
+    monkeypatch.setattr(selected,'current_queue',lambda:queue)
+    return root,cfg,queue,parent,rows,capture_cfg
+
+
+def test_captured_bil_and_normalized_vti_preserve_distinct_graphs_and_selected_bytes(tmp_path, monkeypatch):
+    root,cfg,queue,parent,rows,capture_cfg=capture_selected_fixture(tmp_path,monkeypatch)
+    bil=json.loads(Path(cfg['bil_input_ref']['path']).read_bytes())
+    original_bil=Path(bil['quotes']['path']).read_bytes().splitlines(keepends=True)
+    original_relations=json.loads(Path(bil['source_relations']['path']).read_bytes())
+    assert not original_relations['jobs'] and not original_relations['parent_relations']
+    assert 'canonical_job_id' not in original_relations['records'][0]
+    capture=json.loads(Path(capture_cfg['capture_return']['path']).read_bytes())
+    forbidden={capture['body_ref']['path'],capture_cfg['exact_tokens']['path'],parent['quotes']['path']}
+    real=selected.pinned_bytes
+    def read(pin):
+        assert pin['path'] not in forbidden,'opened raw capture/tokens or mixed parent quotes'
+        return real(pin)
+    monkeypatch.setattr(selected,'pinned_bytes',read)
+    result=prepare_input(cfg,root,10**8,native_queue=queue)
+    manifest=json.loads(Path(result['input_ref']['path']).read_bytes())
+    market=load_reference(result['input_ref'])
+    relations=market['source_relations']
+    assert relations['captures']==original_relations['captures']
+    assert relations['records'][0]==original_relations['records'][0]
+    assert all(j['request']['symbols']=='VTI' for j in relations['jobs'].values())
+    out=Path(manifest['quotes']['path']).read_bytes().splitlines(keepends=True)
+    assert [v for v in out if json.loads(v)['symbol']=='BIL']==original_bil
+    assert [json.loads(v)['source_adjusted_close_token'] for v in out if json.loads(v)['symbol']=='VTI']==['20.1']*3
+    assert {p['sha256'] for p in bil['source_members']} <= {p['sha256'] for p in manifest['source_members']}
+    assert market['symbols']==['BIL','VTI'] and market['prices_micro']['2024-01-31']['BIL']==10130000
+    assert preflight_input(result['input_ref'])['status']=='STRUCTURALLY_VALID_SOURCE_ONLY'
+    assert prepare_input(cfg,root,10**8,native_queue=queue)==result
+
+
+@pytest.mark.parametrize('fault',['missing_capture','invalid_capture_map','wrong_capture_pin','ambiguous_job','unselected','wrong_pointer'])
+def test_captured_bil_invalid_graph_rejected_without_publication(tmp_path, monkeypatch, fault):
+    root,cfg,_,_,_,_=capture_selected_fixture(tmp_path,monkeypatch)
+    bil=json.loads(Path(cfg['bil_input_ref']['path']).read_bytes())
+    relations=json.loads(Path(bil['source_relations']['path']).read_bytes())
+    record=relations['records'][0]
+    if fault=='missing_capture':relations['captures']={}
+    if fault=='invalid_capture_map':relations['captures']=[]
+    if fault=='wrong_capture_pin':next(iter(relations['captures'].values()))['capture_return']={'path':'wrong','sha256':'0'*64}
+    if fault=='ambiguous_job':record['canonical_job_id']='invented-false-job'
+    if fault=='unselected':record['selected_for_purpose']=False
+    bil['source_relations']=put(tmp_path/'changed-capture-relations.json',relations)
+    if fault=='wrong_pointer':
+        quotes=[json.loads(v) for v in Path(bil['quotes']['path']).read_bytes().splitlines()]
+        quotes[0]['source_ref']['source_body_sha256']='0'*64
+        bil['quotes']=put(tmp_path/'changed-bil-quotes.ndjson',b''.join(canonical(v)+b'\n' for v in quotes))
+    cfg['bil_input_ref']=put(tmp_path/'changed-bil-input.json',bil)
+    queue=Queue(cfg);monkeypatch.setattr(selected,'current_queue',lambda:queue)
+    before=set((root/'reference-inputs').iterdir())
+    error='REFERENCE_CAPTURE_SOURCE_BINDING' if fault=='wrong_pointer' else 'NATIVE_SELECTED_CAPTURE'
+    if fault!='wrong_pointer':
+        real=selected.pinned_bytes
+        def read(pin):
+            assert pin['path']!=bil['quotes']['path'],'opened quotes before checking capture graph'
+            return real(pin)
+        monkeypatch.setattr(selected,'pinned_bytes',read)
+    with pytest.raises(ValueError,match=error):prepare_input(cfg,root,10**8,native_queue=queue)
+    assert set((root/'reference-inputs').iterdir())==before
