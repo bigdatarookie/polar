@@ -78,12 +78,13 @@ function appContext(fetcher) {
   context.renderAll=()=>{};context.renderChart=()=>{};context.syncToolbar=()=>{};return {context,node,stored,location,history};
 }
 function projection(d,id='run-1'){return {dataset:d,run:{id,dataset_id:d.dataset_id,strategy_version:'cash-flat-v1',state:'completed',created_at:'2024-01-01T00:00:00Z'},report:report(),report_availability:'AVAILABLE'};}
+// Portfolio controls include the old wire's grid and primary benchmark; descriptive controls omit both.
 test('ordinary history compact rows select actual saved comparison and retain a separate research route',()=>{
   const env=appContext(async()=>{throw Error('no request');}),ctx=env.context,id='research-'+'a'.repeat(64);
   ctx.saved={result_id:id,assessment:{financial:'NOT_SUPPORTED',financial_evidence:{status:'ASSESSED_WITH_LIMITS'}},record:{
     question:{id:'model.FINAL',label:'Real <b>label</b>'},bindings:{data_revision:'research-source',data_sha256:'a'.repeat(64)},
-    basis:{wealth_basis:'SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT',cost_basis:'NET',currency:'USD'},grid:['2024-01-02T21:00:00Z'],
-    series:[{id:'model',role:'STRATEGY',ledger:[{positions:{AAPL:1,AMZN:0}}]}],metrics:[{id:'sharpe_252_rf0',label:'Sharpe',unit:'ratio',values:{model:{value:'0.8123',status:'OK',reason:null}}}],provenance:[]}};
+    basis:{wealth_basis:'SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT',cost_basis:'NET',currency:'USD'},grid:['2024-01-02T21:00:00Z'],primary_benchmark_id:'baseline',
+    series:[{id:'model',role:'STRATEGY',ledger:[{positions:{AAPL:1,AMZN:0}}]},{id:'baseline',role:'BENCHMARK',ledger:[{positions:{}}]}],metrics:[{id:'sharpe_252_rf0',label:'Sharpe',unit:'ratio',values:{model:{value:'0.8123',status:'OK',reason:null}}}],provenance:[]}};
   ctx.opened=null;ctx.fakeWorkspace={openResult:(...args)=>ctx.opened=args};
   vm.runInContext("state.dataMode='real';researchWorkspace=fakeWorkspace;mainResearch.page={catalog:{items:[saved],total:1,offset:0,next_offset:null},details:[saved],offsets:{[saved.result_id]:0}};historyContext={revision:{dataset_revision:'raw-history',manifest_sha256:'b'.repeat(64),basis:{ohlc_basis:'VENDOR_RAW_UNADJUSTED'}},instrument:{instrument_id:'raw-id',source_symbol:'AAPL'}};renderRows()",ctx);
   const list=env.node('#strategy-list');assert.match(list.textContent,/Real <b>label<\/b>/);assert.match(list.textContent,/NOT SUPPORTED/);
@@ -261,7 +262,7 @@ test('isolated hits and true same-date overlap preserve all nanosecond IDs witho
 
 test('comparison caption uses the selected retained source candle basis',()=>{
  const env=appContext(async()=>{throw Error('no request');}),ctx=env.context;
- ctx.saved={result_id:'research-'+'a'.repeat(64),record:{series:[{id:'strategy',role:'STRATEGY',label:'Saved strategy'},{id:'benchmark',role:'BENCHMARK',label:'Saved benchmark'}],primary_benchmark_id:'benchmark',basis:{currency:'USD',wealth_basis:'SYNTHETIC_REFERENCE',cost_basis:'NET',timezone:'UTC'},financial_claim:'Limited saved comparison'}};
+ ctx.saved={result_id:'research-'+'a'.repeat(64),record:{grid:['2024-01-02T21:00:00Z'],series:[{id:'strategy',role:'STRATEGY',label:'Saved strategy'},{id:'benchmark',role:'BENCHMARK',label:'Saved benchmark'}],primary_benchmark_id:'benchmark',basis:{currency:'USD',wealth_basis:'SYNTHETIC_REFERENCE',cost_basis:'NET',timezone:'UTC'},financial_claim:'Limited saved comparison'}};
  ctx.selectedMainResearch=()=>ctx.saved;ctx.getAsset=()=>({symbol:'SHY'});ctx.getMainComparison=()=>({usable:true,baselineDate:'2024-01-02',benchmark:{label:'Saved benchmark'},strategyIndex:[100,101],benchmarkIndex:[100,100],historySummary:{reasons:[]}});
  vm.runInContext("state.dataMode='real';historyContext={revision:{basis:{ohlc_basis:'VENDOR_ALL_ADJUSTED_REFERENCE',adjusted_close_basis:'NOT_SUPPLIED',volume_basis:'VENDOR_RESPONSE_UNITS_ADJUSTMENT_ALL_NOT_RAW_SHARES',price_unit:'USD/vendor all-adjusted reference unit',volume_unit:'vendor all-adjusted response units'}}};",ctx);
  const host=env.node('#comparison-test');ctx.renderPortfolioOverlayControls(host);
