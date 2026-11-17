@@ -38,6 +38,9 @@ def _member(root, relative):
 def validate_source(value, members, relations):
     """v2 reader validation, deliberately separate from v1 EODHD pointer semantics."""
     p = value['source_ref']
+    if type(p) is dict and p.get('kind') == 'CAPTURED_SINGLE_SYMBOL_ALL_ADJUSTED_SOURCE':
+        from .snapshot_reference_input import validate_pointer
+        return validate_pointer(value, members, relations)
     if type(p) is dict and p.get('kind')=='CAPTURED_ALL_ADJUSTED_SOURCE':
         from .captured_reference_input import validate_pointer
         return validate_pointer(value,members,relations)
@@ -96,6 +99,9 @@ def schedule_binding_matches(manifest,calendar_schedule):
 
 def prepare_input(config, root, limit, *, native_queue=None):
     """Called only by the owning source consumer after applicable qualification."""
+    if type(config) is dict and config.get('schema') == 'polar.reference-input-conversion-config/8':
+        from .snapshot_reference_input import prepare_snapshot
+        return prepare_snapshot(config, root, limit)
     if type(config) is dict and config.get('schema')=='polar.reference-input-conversion-config/7':
         from .native_selected_input import prepare_selected
         return prepare_selected(config, root, limit, queue=native_queue)
