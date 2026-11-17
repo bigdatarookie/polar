@@ -190,6 +190,7 @@ def prepare_snapshot(config, root, limit):
         symbols.append(symbol)
         records.append({'literal_alias': symbol, 'selected_for_purpose': True, 'capture_receipt': capture['receipt']})
     symbols.sort()
+    require(1 <= len(symbols) <= 256, 'REFERENCE_SNAPSHOT_SYMBOL_BOUND')
     require(set(quotes) == {(d, s) for d in days for s in symbols}, 'REFERENCE_SNAPSHOT_GRID')
     raw_quotes = b''.join(quotes[d, s] for d in days for s in symbols)
     require(len(raw_quotes) <= MAX_BYTES, 'REFERENCE_SNAPSHOT_BYTES')

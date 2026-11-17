@@ -8,7 +8,7 @@ from test_selected_reference_input import selected_fixture
 from polar.reference_input import prepare_input
 from polar.snapshot_reference_input import PROFILE
 from polar.research_reference import load_reference
-from polar.history_bundle import sha
+from polar.history_bundle import sha, canonical
 
 
 def fixture(tmp_path, mutate=None):
@@ -84,3 +84,60 @@ def test_rehashed_invalid_snapshot_never_publishes(tmp_path,case,error):
     before=set((root/'reference-inputs').iterdir())
     with pytest.raises(ValueError,match=error):prepare_input(cfg,root,10**8)
     assert set((root/'reference-inputs').iterdir())==before
+
+
+def wide_parent(tmp_path, base_pin, size):
+    """Construct an invented native v2 parent at the actual reader boundary."""
+    manifest=json.loads(Path(base_pin['path']).read_bytes())
+    days=[r['date'] for r in json.loads(Path(manifest['schedule']['path']).read_bytes())['rows']]
+    symbols=[f'S{i:03d}' for i in range(size)]
+    quotes=[];members=[];jobs={};parents={};records=[]
+    for symbol in symbols:
+        job_id='invented-'+symbol
+        raw=put(tmp_path/(symbol+'-raw.json'),{'bars':{symbol:[{'t':d+'T05:00:00Z','c':'2.125'} for d in days]}})
+        parent={'job_id':job_id,'source_record_ids':[]}
+        parent_hash=sha(canonical(parent));parents[parent_hash]=parent
+        jobs[job_id]={'parent_relation_sha256':parent_hash,'request':{'symbols':symbol},
+                      'source_plan_job_id':job_id,'source_record_ids':[]}
+        records.append({'literal_alias':symbol,'canonical_job_id':job_id,'selected_for_purpose':True})
+        rows=[{'symbol':symbol,'date':d,'close':'2.125','source_reference':{
+            'raw_file':symbol+'-raw.json','source_body_sha256':raw['sha256'],'source_array':'bars/'+symbol,
+            'source_row_ordinal':i,'job_id':job_id,'request_id':None,'page':0}} for i,d in enumerate(days)]
+        lines=[canonical(r)+b'\n' for r in rows]
+        member=tmp_path/(symbol+'-normalized.ndjson');member.write_bytes(b''.join(lines))
+        mp={'path':str(member),'sha256':sha(member.read_bytes())};members.append(mp)
+        for i,(day,line,row) in enumerate(zip(days,lines,rows)):
+            quotes.append({'symbol':symbol,'date':day,'reference_quote':'2.125000',
+                'source_adjusted_close_token':'2.125','source_ref':{
+                    'normalized_member_sha256':mp['sha256'],'line_1based':i+1,'line_sha256':sha(line),
+                    'original_source_reference':row['source_reference'],'query_symbol':symbol,
+                    'source_symbol':symbol,'parent_relation_sha256':parent_hash},
+                'observed_published_at':None,'observed_historical_available_at':None})
+    relations=put(tmp_path/'wide-relations.json',{'schema':'polar.reference-source-relations/1',
+        'jobs':jobs,'parent_relations':parents,'records':records,'source_coverage_records':[]})
+    qp=tmp_path/'wide-quotes.ndjson'
+    qp.write_bytes(b''.join(canonical(v)+b'\n' for v in sorted(quotes,key=lambda v:(v['date'],v['symbol']))))
+    manifest.update(symbols=symbols,rows=len(quotes),source_members=members,source_relations=relations,
+                    quotes={'path':str(qp),'sha256':sha(qp.read_bytes())})
+    pin=put(tmp_path/'wide-manifest.json',manifest)
+    assert len(load_reference(pin)['symbols'])==size
+    return pin
+
+
+@pytest.mark.parametrize('parent_size,accepted',[(255,True),(256,False)])
+def test_reader_symbol_union_boundary_before_publication(tmp_path,parent_size,accepted):
+    root,cfg=fixture(tmp_path)
+    wide=tmp_path/'wide';wide.mkdir()
+    parent=wide_parent(wide,cfg['inputs'][0],parent_size)
+    cfg['inputs']=[parent]
+    q=json.loads(Path(cfg['qualification']['path']).read_bytes())
+    q['source_pins']['parent']={k:parent[k] for k in ('path','sha256')}
+    cfg['qualification']=put(tmp_path/'wide-qualification.json',q)
+    before={p.relative_to(root):p.read_bytes() for p in root.rglob('*') if p.is_file()}
+    if accepted:
+        result=prepare_input(cfg,root,10**8)
+        assert len(load_reference(result['input_ref'])['symbols'])==256
+    else:
+        with pytest.raises(ValueError,match='REFERENCE_SNAPSHOT_SYMBOL_BOUND'):
+            prepare_input(cfg,root,10**8)
+        assert {p.relative_to(root):p.read_bytes() for p in root.rglob('*') if p.is_file()}==before
