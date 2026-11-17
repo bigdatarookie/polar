@@ -222,7 +222,7 @@ def run(service, config):
     def diagnostic(event):
         if event.get('phase') == 'ACCOUNT_SAVED_WITNESS':
             ref = publish_witnesses(service.store, event['account'])
-            event = {'phase': event['phase'], 'leg': event['leg'], 'cost_id': event['cost_id'], 'witness_ref': encode(ref)}
+            event = {'phase': event['phase'], 'leg': event['leg'], 'cost_id': event['cost_id'], 'witness_ref': ref}
         elif event.get('phase') == 'ACCOUNT_PARTIAL':
             raw = canonical(encode(event['evidence']))
             with service.store.locked():
