@@ -29,7 +29,7 @@ def run(name,argv,timeout=1200):
     thread.join();step={'name':name,'argv':argv,'exit':code,'timeout':timed_out,'elapsed_seconds':round(time.monotonic()-t,3),'log_bytes':state['bytes'],'log_truncated':state['bytes']>state['retained']};steps.append(step);print(json.dumps(step),flush=True)
     if code:print(out.read_text(errors='replace')[-12000:],flush=True)
     return 1 if code else 0
-status=1
+status=1;pytest_timeout=None
 try:
     assert versions['nautilus-trader']=='1.231.0'
     # Install the real project entry point against its mounted source. Dependencies
@@ -40,7 +40,11 @@ try:
     if code:raise RuntimeError('CPU_RL_RUNTIME_SMOKE_FAILED')
     selected=a.test or ([] if a.scenario else ['tests'])
     code=0
-    if selected:code=run('pytest',[sys.executable,'-m','pytest','-ra','-q','-p','no:cacheprovider','--basetemp=/tmp/polar-ci-tests','--junitxml=/reports/pytest.xml',*selected])
+    # Exact841's full public suite reached93% before the1200s aggregate timer
+    # killed pytest. Allow one existing600s full-shape family of headroom while
+    # keeping the40-minute Actions job and every operation/scenario cap intact.
+    pytest_timeout=1800 if selected==['tests'] else 1200
+    if selected:code=run('pytest',[sys.executable,'-m','pytest','-ra','-q','-p','no:cacheprovider','--basetemp=/tmp/polar-ci-tests','--junitxml=/reports/pytest.xml',*selected],pytest_timeout)
     # Selected adapter tests never silently replace the native-engine control.
     if a.test and not any(x in ['tests','tests/test_gym.py'] or x.startswith('tests/test_gym.py::test_native_invented_pair') for x in a.test):
         code=max(code,run('native',[sys.executable,'-m','pytest','-ra','-q','-p','no:cacheprovider','--junitxml=/reports/native.xml','tests/test_gym.py::test_native_invented_pair_and_fresh_replay']))
@@ -64,6 +68,6 @@ finally:
                 child=case.find('skipped')
                 if child is not None:skipped.append({'test':case.attrib.get('classname','')+'::'+case.attrib.get('name',''),'reason':child.attrib.get('message','')})
         except ET.ParseError:pass
-    result={'schema':'polar.ci-result/1','candidate_sha':sha,'platform':platform.platform(),'python':platform.python_version(),'dependencies':versions,'selection':a.test or ([] if a.scenario else ['tests']),'scenarios':a.scenario,'native_requested':True,'source_bytecode_policy':'fresh task-private prefix; writes disabled','postgres_configured':bool(os.environ.get('POLAR_TEST_DATABASE_URL')),'status':'PASS' if status==0 else 'FAIL','exit':status,'steps':steps,'skipped':skipped,'duration_seconds':round(time.monotonic()-start,3),'finished_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'scope':'Public/invented technical checks; no financial or retained-data qualification'}
+    result={'schema':'polar.ci-result/1','ci_runner_sha256':hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),'pytest_timeout_seconds':pytest_timeout,'candidate_sha':sha,'platform':platform.platform(),'python':platform.python_version(),'dependencies':versions,'selection':a.test or ([] if a.scenario else ['tests']),'scenarios':a.scenario,'native_requested':True,'source_bytecode_policy':'fresh task-private prefix; writes disabled','postgres_configured':bool(os.environ.get('POLAR_TEST_DATABASE_URL')),'status':'PASS' if status==0 else 'FAIL','exit':status,'steps':steps,'skipped':skipped,'duration_seconds':round(time.monotonic()-start,3),'finished_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'scope':'Public/invented technical checks; no financial or retained-data qualification'}
     (reports/'result.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result),flush=True)
 sys.exit(status)
