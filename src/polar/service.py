@@ -57,6 +57,9 @@ class Service:
                 "operation_binding_sha256": sha(canonical(operation_binding(config, pins)))}
 
     def research_config(self, seed):
+        if seed.get('schema') == 'polar.private-pair-operation-seed/1':
+            from .signed_pair_operation import config_from_seed
+            return config_from_seed(seed, self.artifacts.root)
         if seed.get("namespace") == "RETAINED":
             from .candidate_binding import loaded_revision
             seed = {**seed, "code_revision": loaded_revision()}

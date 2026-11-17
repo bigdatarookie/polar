@@ -69,3 +69,42 @@ root bytes are charged by used(); current SAVED admission does not subtract them
 or reuse original headroom blindly. This local logical check still needs actual
 physical store/staging/export/host logging/allocation-margin certification; no
 physical/global bound or operative grant is inferred from this formula alone.
+
+## Current ordinary offline author intent
+
+For an ordinary offline author operation, `authority_ref: null` uses
+`polar.offline-pair-author-binding/1` rather than requiring an Operator/Lead grant
+file. Existing exact selection, custody, source/method/technical evidence,
+actor/root/runtime, finite resources, physical hosting statement and actual
+registry checks still run first. No source value is opened by preflight. The
+binding records actual clean candidate, configuration, input content, frozen
+protocol/selection, method/custody/resource hashes, runtime/root and execution
+intent; it grants no scientific or financial PASS. Its real run UUID is recorded
+in the existing atomic FIRST_START, before source/native entry. Failed starts
+retain their debit and never receive an automatic retry/refund.
+
+SAVED can use this route only after the matching successful automatic ORIGINAL,
+with the same original run/source/candidate/runtime/root identity. All existing
+success-only, prior-registry, separate saved debit and remaining-resource checks
+still apply. A legacy ORIGINAL does not become an automatic SAVED operation;
+explicit legacy grants keep their original strict validation and never fall
+back on failure.
+
+The existing file-only `research-config` command accepts a closed
+`polar.private-pair-operation-seed/1`: supply the config's scientific/reference,
+namespace/stage, expected_registry and semantic_id fields, omitting computed
+code/code_revision/runtime_image_id/artifact_root_identity. `authority_ref` may
+be omitted for ordinary automatic intent or supplied for the strict legacy
+route. The seed follows no source refs and creates no grant, reservation,
+resource allowance or trial. It attaches the actual clean loaded source,
+current `POLAR_RUNTIME_IMAGE_ID` and existing artifact-root identity. Only the
+INVENTED test namespace may use `POLAR_CI_RUNTIME_IMAGE_ID` as its observed image.
+
+This extension retains the four/two supervisor log/journal/cleanup census,
+HistoryStore's before-writer/staging checks, limited worker/collector store,
+partial-prefix bounds and external hosting checks. It adds no exporter or new
+writer outside the existing START. Physical store/staging/one-export/host log
+allocation and current source/borrow/clock/rights fitness remain their existing
+actual hosting/source predicates; an automatic intent record does not certify
+unknown headroom, peak fit or source fitness. No legacy planning window or
+scientific slot is turned into a new mission-wide compute cap.
