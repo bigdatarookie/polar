@@ -86,6 +86,32 @@ def limits(value,stage):
     return value
 
 
+
+def config_from_seed(seed, root):
+    from .candidate_binding import loaded_revision
+    from .offline_author_binding import pair_runtime
+    fields={'schema','namespace','stage','candidate_id','experiment_id','selection_ref','custody_ref',
+            'source_manifest_ref','method_ref','qualification_ref','resources_ref','expected_registry','semantic_id'}
+    require(type(seed) is dict and set(seed) in (fields,fields|{'authority_ref'}) and
+            seed['schema']=='polar.private-pair-operation-seed/1' and
+            seed['namespace'] in ('INVENTED','RETAINED'), 'PAIR_OPERATION_SEED')
+    # No source ref is followed and no allowance, reservation or grant is made.
+    return {**seed,'schema':CONFIG,'authority_ref':seed.get('authority_ref'),
+            'code':code_binding(),'code_revision':loaded_revision(),
+            'runtime_image_id':pair_runtime(seed['namespace']),
+            'artifact_root_identity':root_identity(root)}
+
+
+def automatic_binding(service, config, input_binding, index, *, run_id=None):
+    from .offline_author_binding import create_pair
+    prior=None
+    if config['stage']=='SAVED':
+        start=restore(decode(read_file(service.store.root,index['attempt_path']+'/start/record.json',MAX_BYTES)))
+        prior=start.get('execution_binding')
+    return create_pair(config,input_binding,prior=prior,
+                       original_run_id=index['attempt_id'] if index else None,run_id=run_id)
+
+
 def prepare(service,config,*,check_registry=True):
     fields={'schema','namespace','stage','candidate_id','experiment_id','selection_ref','custody_ref','source_manifest_ref',
         'method_ref','qualification_ref','resources_ref','authority_ref','code','code_revision','runtime_image_id',
@@ -175,24 +201,31 @@ def prepare(service,config,*,check_registry=True):
     if config['stage']=='ORIGINAL':require(not actual,'PAIR_OPERATION_ORIGINAL_ALREADY_SPENT')
     else:require(len(actual)==1 and actual[0]['status']=='SUCCESS' and actual[0]['attempt_id']==index['attempt_id'],
         'PAIR_OPERATION_SAVED_ORIGINAL_REGISTRY')
-    grant=decode(read_ref(config['authority_ref']))
-    require(grant['schema']=='polar.private-pair-operation-authority/1' and grant['stage']==config['stage'] and
-        grant['binding_sha256']==sha(canonical(binding(config))) and grant['resources_sha256']==config['resources_ref']['sha256'] and
-        grant['family']==family(config) and grant['expected_registry']==config['expected_registry'] and
-        grant['actor_uid']==os.getuid() and grant['actor_gid']==os.getgid() and
-        all(type(grant.get(k)) is int and grant[k]==v for k,v in [('scientific_calls',1 if config['stage']=='ORIGINAL' else 0),
-            ('native_accounts',48 if config['stage']=='ORIGINAL' else 0),('saved_calls',1 if config['stage']=='SAVED' else 0),
-            ('fit_calls',0),('model_calls',0),('feature_calls_max',48*len(expected_binding['formations']) if config['stage']=='ORIGINAL' else 0),
-            ('decision_calls_max',48*len(expected_binding['formations']) if config['stage']=='ORIGINAL' else 0)]),'PAIR_OPERATION_OPERATIVE_AUTHORITY')
+    if config['authority_ref'] is None:
+        automatic_binding(service,config,expected_binding,index)
+    else:
+        grant=decode(read_ref(config['authority_ref']))
+        require(grant['schema']=='polar.private-pair-operation-authority/1' and grant['stage']==config['stage'] and
+            grant['binding_sha256']==sha(canonical(binding(config))) and grant['resources_sha256']==config['resources_ref']['sha256'] and
+            grant['family']==family(config) and grant['expected_registry']==config['expected_registry'] and
+            grant['actor_uid']==os.getuid() and grant['actor_gid']==os.getgid() and
+            all(type(grant.get(k)) is int and grant[k]==v for k,v in [('scientific_calls',1 if config['stage']=='ORIGINAL' else 0),
+                ('native_accounts',48 if config['stage']=='ORIGINAL' else 0),('saved_calls',1 if config['stage']=='SAVED' else 0),
+                ('fit_calls',0),('model_calls',0),('feature_calls_max',48*len(expected_binding['formations']) if config['stage']=='ORIGINAL' else 0),
+                ('decision_calls_max',48*len(expected_binding['formations']) if config['stage']=='ORIGINAL' else 0)]),'PAIR_OPERATION_OPERATIVE_AUTHORITY')
     return selection,source,expected_binding,bound,index
 
 
 class PairOperationService:
     def __init__(self,root,storage_bytes):self.store=GymStore(root,storage_bytes)
     def preflight(self,config):
-        prepare(self,config)
-        return {'status':'BOUND_METADATA_VALID_NOT_STARTED','source_values_read':0,'native_calls':0,'scientific_calls':0,
+        _,_,input_binding,_,index=prepare(self,config)
+        result={'status':'BOUND_METADATA_VALID_NOT_STARTED','source_values_read':0,'native_calls':0,'scientific_calls':0,
             'binding_sha256':sha(canonical(binding(config))),'financial_assessment':'NOT_ISSUED'}
+        if config['authority_ref'] is None:
+            result.update(execution_binding_status='AUTOMATIC_OFFLINE_BINDING_READY_NOT_REVIEWED',
+                          execution_binding=automatic_binding(self,config,input_binding,index))
+        return result
     def run(self,config):return run(self,config)
     def recompute(self,semantic_id):raise ValueError('PAIR_SAVED_OPERATION_AUTHORITY_REQUIRED_USE_RESEARCH_RUN_SAVED_CONFIG')
 
@@ -217,6 +250,8 @@ def run(service,config):
             'attempt_id':aid,'binding':binding(config),'started_ns':time.time_ns(),'input_binding':input_binding,
             'scientific_calls_charged':1 if config['stage']=='ORIGINAL' else 0,'saved_calls_charged':1 if config['stage']=='SAVED' else 0,
             'no_retry_refund':True,'registry_before':registry(service.store,config),'store_used_before':service.store.used(),'resource_limits':bound}
+        if config['authority_ref'] is None:
+            start['execution_binding']=automatic_binding(service,config,input_binding,index,run_id=aid)
         path=parent+'/'+aid
         service.store._publish(path,'start',{'record.json':canonical(encode(start)),'config.json':canonical(config)},file_limit=MAX_BYTES)
     stage_dir=service.store.root/path/'supervision';stage_dir.mkdir(mode=0o700)
