@@ -106,3 +106,26 @@ def test_conversion10_dispatches_only_through_closed_source_owner(tmp_path,monke
     config={'schema':'polar.reference-input-conversion-config/10'};queue=object()
     assert prepare_input(config,tmp_path,100,native_queue=queue)=={'status':'INVENTED_OWNER_REJECTED_BEFORE_SOURCE_ACCESS'}
     assert seen==[(config,tmp_path,100,queue)]
+
+
+def test_all_selected_graph_metadata_rejected_before_any_value_member(tmp_path,monkeypatch):
+    root,spec,parent,capture=selected_fixture_graph(tmp_path)
+    native=json.loads(Path(parent['path']).read_bytes())
+    relation=json.loads(Path(native['source_relations']['path']).read_bytes())
+    record=next(r for r in relation['records'] if r['literal_alias']=='AAA')
+    relation['jobs'][record['canonical_job_id']]['request']['adjustment']='raw'
+    native['source_relations']=put(tmp_path/'changed-relations.json',relation)
+    spec['normalized_inputs'][0]['input_ref']=put(tmp_path/'changed-native-metadata.json',native)
+    leaf=json.loads(Path(spec['leaf_inputs'][0]['input_ref']['path']).read_bytes())
+    binding=json.loads(Path(spec['normalized_inputs'][0]['binding_ref']['path']).read_bytes())
+    selected=next(r for r in binding['records'] if r['literal_alias']=='AAA')
+    forbidden={leaf['quotes']['sha256'],native['quotes']['sha256']} | {s['normalized_member_sha256'] for s in selected['segments']}
+    import polar.selected_component_input as module
+    original=module.pinned_bytes
+    def metadata_only(pin):
+        assert pin['sha256'] not in forbidden,'VALUE_MEMBER_OPENED_BEFORE_GRAPH_REJECTION'
+        return original(pin)
+    monkeypatch.setattr(module,'pinned_bytes',metadata_only)
+    with pytest.raises(ValueError,match='SELECTED_COMPONENT_PARENT_BINDING'):
+        prepare_selected_components(spec,root,10**8,source_binding={'scope':'INVENTED'})
+    assert not (root/'reference-inputs').exists()
