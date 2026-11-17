@@ -1,0 +1,134 @@
+{
+  "calendar": {
+    "cluster": "union of touching or overlapping entry-through-return risk episodes",
+    "cluster_label": "earliest entry through latest component label end",
+    "cutoff": "15:00 America/New_York prior reference session strictly before statement date",
+    "decision_delay_seconds": 60,
+    "defensive_weights": {
+      "BIL": [
+        1,
+        2
+      ],
+      "VTI": [
+        1,
+        2
+      ]
+    },
+    "eligibility": "all source unresolved, timing ineligible and full-episode phase boundary exclusions retained in census; no financial selection",
+    "entry": "first reference close strictly after decision and strictly before modeled statement14NY",
+    "label_end": "second reference close on or after modeled statement",
+    "normal_weights": {
+      "BIL": [
+        0,
+        1
+      ],
+      "VTI": [
+        1,
+        1
+      ]
+    },
+    "return_decision": "label end plus60seconds",
+    "return_execution": "next reference close strictly after return decision"
+  },
+  "clarification_history": "Daily/monthly clock granularity was unspecified in initial prose; explicitly authored before values after capability-fit return. Original firstclose+60 startup, next-close fills, monthly rebalance and all utility/cost/date rules retained; same Validator affected-clock confirmation requested before economics.",
+  "cost_scenarios": {
+    "BASE": {
+      "bps": 10,
+      "flat_cents": 100
+    },
+    "COST_STRESS": {
+      "bps": 20,
+      "flat_cents": 200
+    }
+  },
+  "default_execution_contract": {
+    "continued_deficit_accounting": "NOT_SUPPORTED_BY_LONG_ONLY_CASH_REFERENCE_MODEL_NOT_CLAIMED",
+    "nonpositive_observed_nav": "preserve exact default/zero and mark ordinary ratios invalid; no successful clipped result",
+    "positive_source_marks": "required, source domain failure preserves unfinalized evidence",
+    "unsupported_zero_target_sizing": "FAILED_UNFINALIZED_WITH_PARTIAL_NATIVE_WITNESSES_STOP_NO_RETRY"
+  },
+  "event_index_sha256": "09d3e5b9b4a123555290c454def9dbec3afb6ca669ed46ca7cf1b4023875c7dc",
+  "final_all_required_both_costs": {
+    "actual_material_defensive_time_max_fraction": [
+      1,
+      4
+    ],
+    "es95_max_ratio_to_full_vti": [
+      4,
+      5
+    ],
+    "extra_fees_max_initial_fraction_per_ACT36525_year": [
+      1,
+      200
+    ],
+    "material_defensive_vti_ratio_strictly_below": [
+      3,
+      4
+    ],
+    "maxdrawdown_le_full_vti": true,
+    "positive_net_growth": true,
+    "terminal_min_ratio_to_full_vti": [
+      19,
+      20
+    ]
+  },
+  "financial_run": "NOT_RUN",
+  "independent_preoutcome_assessment_sha256": "d7cc0049beb946cfb71112e956fe98fc89e05c3bd762d7f4d825968091ce8248",
+  "initial_capital_cents": 10000000,
+  "legs": [
+    "CALENDAR_HALF",
+    "FULL_VTI",
+    "MONTHLY_FIXED_HALF",
+    "SMA200",
+    "FULL_BIL"
+  ],
+  "loss": {
+    "W0": "actual pre-routing and prefee mark at cluster entry",
+    "W1": "actual postrouting postfee mark at cluster label end",
+    "nonpositive_wealth": "PRESERVE_DEFAULT_OR_INVALID_NO_ORDINARY_RATIO",
+    "positive_loss": "max(0,1-W1/W0)",
+    "tail": "exact largest k=max(1,ceil(N/20)) all clusters includingzeros, deterministic ID ties",
+    "zero_benchmark": "UNAVAILABLE_BENCHMARK_ES_ZERO"
+  },
+  "monthly_control_clock": {
+    "decision": "formation close plus60seconds",
+    "execution": "next reference close strictly after decision, not current month-end close",
+    "terminal": "EXIT precedence, no unnecessary target/reentry at terminal",
+    "trigger": "first ordinary decision or reference month-end formation close"
+  },
+  "ordinary_daily_clock": {
+    "calendar_decisions": "separate prior15NY+60 and labelend+60, same-Q overlaps coalesced before route",
+    "decision": "formation close plus60seconds",
+    "execution": "first reference close strictly after decision, the next phase reference close",
+    "formation": "each nonterminal phase reference close",
+    "last_pair": "COMMON_TERMINAL_EXIT_OVERRIDES_TARGETS",
+    "quote_eligibility": "latest source-qualified close strictly beforeD, supported known_by<=D; modeled and observedK distinct"
+  },
+  "phases": {
+    "FINAL": {
+      "initial": "2023-01-03",
+      "role": "EXPOSED_CONDITIONAL_POINT_SCREEN",
+      "terminal": "2026-11-06"
+    },
+    "VALIDATION": {
+      "initial": "2021-01-04",
+      "role": "DIAGNOSTIC_ONLY",
+      "terminal": "2022-12-30"
+    }
+  },
+  "proposal_sha256": "ba7ec7f0b051a001082d5ca75be21482fe372a3e726090489b2bcfa1fe96d5e0",
+  "question_id": "FOMC-CALENDAR-ONLY-REFERENCE-01",
+  "runtime_readiness": "actual source fit/current native admission, complete runtime geometry/timezone, supported shared Service adapter/evaluator and full runtime config NOT_YET_QUALIFIED",
+  "schema": "polar.quant-a-fomc-calendar-author-contract/1",
+  "selection": "POST_PR150_NEGATIVE_EXPOSED_PERIODS_NOT_PRISTINE",
+  "sma": {
+    "eligibility": "close strictly beforeD and source-qualified known_by<=D, unknown not eligible",
+    "false": "FULL_BIL",
+    "insufficient": "HOLD_RETAIN_OBSERVED_STATE",
+    "predicate": "200 times last eligible close strictly greater than sum of exactly latest200 eligible closes",
+    "trigger": "first valid observation or observed category change, otherwiseHOLD",
+    "true": "FULL_VTI",
+    "window": 200
+  },
+  "status": "AUTHOR_POLICY_FREEZE_NOT_A_RUNNABLE_CONFIG"
+}

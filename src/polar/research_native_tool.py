@@ -90,8 +90,10 @@ def bridge(container, operation, decision_ref, *, queue=None):
     return pipe_bridge(command, lambda args: permitted(args, decision_ref), queue)
 
 
-def pipe_bridge(command, allow_read, queue, *, initial=None, timeout=60):
+def pipe_bridge(command, allow_read, queue, *, initial=None, timeout=60, max_reads=32):
     """Private bounded stdio transport shared by the closed native consumers."""
+    if type(max_reads) is not int or not 1 <= max_reads <= 128:
+        raise ResearchError('RESEARCH_NATIVE_TOOL_PROTOCOL', 409)
     process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                stderr=subprocess.DEVNULL)
     if initial is not None:
@@ -114,7 +116,7 @@ def pipe_bridge(command, allow_read, queue, *, initial=None, timeout=60):
                 message = json.loads(line)
                 if set(message) == {'native_read'}:
                     args = message['native_read']; reads += 1
-                    if reads > 32 or not allow_read(args):
+                    if reads > max_reads or not allow_read(args):
                         raise ResearchError('RESEARCH_NATIVE_TOOL_PROTOCOL', 409)
                     value = queue.read(*args)
                     process.stdin.write(canonical({'value': value})+b'\n'); process.stdin.flush()

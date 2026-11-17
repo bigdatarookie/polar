@@ -62,6 +62,32 @@ class EventPlan:
     required_anchors: tuple[int, ...]
 
 
+@dataclass(frozen=True)
+class FomcEventPlan(EventPlan):
+    instructions: tuple[dict, ...]
+    sma_signals: tuple[dict, ...]
+    policy_sha256: str
+
+
+def validate_fomc_steps(steps, leg, grid):
+    require(type(steps) in (tuple, list) and steps and leg in LEGS, 'FOMC_STEP_CENSUS')
+    fields = {'leg', 'decision_ns', 'q_ns', 'kind', 'weights', 'reason', 'observed_state'}
+    require(all(type(s) is dict and set(s) == fields and s['leg'] == leg and
+                type(s['decision_ns']) is int and s['q_ns'] in grid[1:] and
+                grid[0] < s['decision_ns'] < s['q_ns'] and
+                s['kind'] in ('TARGET', 'HOLD', 'EXIT') and type(s['reason']) is str and
+                (s['observed_state'] is None or type(s['observed_state']) is bool) and
+                (s['weights'] in ({'BIL': [0, 1], 'VTI': [1, 1]},
+                                 {'BIL': [1, 1], 'VTI': [0, 1]},
+                                 {'BIL': [1, 2], 'VTI': [1, 2]}) if s['kind'] == 'TARGET'
+                 else s['weights'] is None) for s in steps), 'FOMC_STEP_FIELDS')
+    require(all(a['decision_ns'] < b['decision_ns'] for a, b in zip(steps, steps[1:])) and
+            steps[-1]['kind'] == 'EXIT' and steps[-1]['q_ns'] == grid[-1] and
+            steps[-1]['decision_ns'] == grid[-2]+60*10**9 and
+            all(s['kind'] != 'EXIT' and s['q_ns'] < grid[-1] for s in steps[:-1]),
+            'FOMC_STEP_ORDER_TERMINAL')
+
+
 def eligible_closes(rows, decision_ns, symbol):
     require(type(decision_ns) is int and type(rows) is tuple and symbol in SYMBOLS, 'EVENT_ELIGIBILITY_TYPE')
     require(all(type(r) is ReferenceClose and r.symbol in SYMBOLS and type(r.close_ns) is int and
@@ -94,7 +120,7 @@ def sma_vti_category(rows, decision_ns):
 
 
 def validate_plan(plan):
-    require(type(plan) is EventPlan and all(type(v) is str and v for v in
+    require(type(plan) in (EventPlan, FomcEventPlan) and all(type(v) is str and v for v in
             (plan.account_scope,plan.input_id,plan.calendar_id,plan.protocol_id)), 'EVENT_PLAN_IDENTITY')
     require(type(plan.source) is tuple and plan.source and all(type(r) is ReferenceClose for r in plan.source), 'EVENT_SOURCE_ROWS')
     dates = {}; source_ids = set()
@@ -135,6 +161,16 @@ def validate_plan(plan):
     ds=[d.decision_ns for d in plan.daily_decisions]+[e.request.decision_ns for e in plan.events]+[
         e.request.reentry_decision_ns for e in plan.events]
     require(all(not any(q<d<=q+1000 for q in plan.nav_closes) for d in ds), 'EVENT_PHASE_COLLISION')
+    if type(plan) is FomcEventPlan:
+        from .fomc_calendar import POLICY_SHA
+        require(plan.policy_sha256 == POLICY_SHA and type(plan.instructions) is tuple and
+                not plan.events and type(plan.sma_signals) is tuple and
+                {s['leg'] for s in plan.instructions} == set(LEGS), 'FOMC_PLAN_BINDING')
+        for leg in LEGS:
+            steps = tuple(s for s in plan.instructions if s['leg'] == leg)
+            validate_fomc_steps(steps, leg, plan.nav_closes)
+            require(all(not any(q < s['decision_ns'] <= q+1000 for q in plan.nav_closes)
+                        for s in steps), 'EVENT_PHASE_COLLISION')
     return dates
 
 
@@ -222,8 +258,13 @@ def _simulate_account(plan, leg, cost_id, cost, *, diagnostics=None, fill_model=
                 self.clock.set_time_alert_ns('receipt-'+str(q),q+400,lambda e,q=q:self.finalize(e,q))
                 self.clock.set_time_alert_ns('nav-'+str(q),q+1000,lambda e,q=q:self.sample(e,q))
             observations=[]
-            for i,d in enumerate(plan.daily_decisions):observations.append((d.decision_ns,0,'DAILY',d,i))
-            if leg=='CALENDAR_PROTECTION':
+            if type(plan) is FomcEventPlan:
+                if leg == 'SMA200': self.sma = [dict(s) for s in plan.sma_signals]
+                for s in plan.instructions:
+                    if s['leg'] == leg: observations.append((s['decision_ns'], 0, 'AUTHORED', s, 0))
+            else:
+                for i,d in enumerate(plan.daily_decisions):observations.append((d.decision_ns,0,'DAILY',d,i))
+            if leg=='CALENDAR_PROTECTION' and type(plan) is not FomcEventPlan:
                 for e in plan.events:
                     observations.append((e.request.decision_ns,1,'REDUCED',e,0))
                     observations.append((e.request.reentry_decision_ns,2,'EXPIRY',e,0))
@@ -251,7 +292,16 @@ def _simulate_account(plan, leg, cost_id, cost, *, diagnostics=None, fill_model=
             for d,_,kind,obj,index in group:
                 if self.controller.terminal:continue
                 old=self.controller.pending
-                if kind=='DAILY':
+                if kind == 'AUTHORED':
+                    if obj['kind'] == 'HOLD':
+                        action, reason = 'HOLD', obj['reason']
+                    else:
+                        destination = ('EXIT' if obj['kind'] == 'EXIT' else
+                            'NORMAL' if obj['weights']['VTI'] == [1, 1] else
+                            'BIL' if obj['weights']['VTI'] == [0, 1] else 'REDUCED')
+                        result = self.queue_control(d, obj['q_ns'], destination, obj['reason'])
+                        action, reason = result['action'], result['reason']
+                elif kind=='DAILY':
                     q=obj.q_ns
                     if index==len(plan.daily_decisions)-1:
                         result=advance_controller(self.controller,Observation('EXIT',d,q));self.controller=result.state
@@ -283,6 +333,7 @@ def _simulate_account(plan, leg, cost_id, cost, *, diagnostics=None, fill_model=
                         'cancelled_or_superseded_ids':(old.intent_id,) if old and (p is None or p.intent_id!=old.intent_id) else (),
                         'obsolete_pending_cancelled':bool(old and old.destination=='REDUCED' and old.expiry_ns is not None and old.q_ns>old.expiry_ns and (not p or p.intent_id!=old.intent_id))}
                 self.decisions.append(record)
+                if kind == 'AUTHORED': record['fomc_instruction'] = dict(obj)
                 if p and (old is None or p.intent_id!=old.intent_id):
                     if old and old.destination==p.destination and old.decision_ns==p.decision_ns and old.q_ns==p.q_ns and old.intent_id in self.sizing:
                         self.sizing[p.intent_id]={**self.sizing[old.intent_id],'coalesced_from':old.intent_id}
@@ -405,7 +456,7 @@ def _simulate_account(plan, leg, cost_id, cost, *, diagnostics=None, fill_model=
                 'bps_cents':self.bps,'desired':self.controller.desired,'committed':self.controller.committed,
                 'conservative_reduced':self.controller.conservative_reduced,'duration_evidence_complete':self.controller.duration_evidence_complete})
         def output(self):
-            return {'context':context,'leg':leg,'cost_id':cost_id,'cost_profile':dict(cost),
+            result = {'context':context,'leg':leg,'cost_id':cost_id,'cost_profile':dict(cost),
                 'native_account_id':str(engine.portfolio.account(venue).id),'native_instruments':{s:str(ids[s]) for s in SYMBOLS},
                 'quote_basis':'SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT','quantity_unit':'WHOLE_SYNTHETIC_REFERENCE_UNIT_NOT_RAW_SHARE','decisions':self.decisions,
                 'sma':self.sma,'sizing':self.sizing,'anchors':self.anchors,'receipts':self.receipts,'orders':self.orders,
@@ -415,6 +466,12 @@ def _simulate_account(plan, leg, cost_id, cost, *, diagnostics=None, fill_model=
                 'sma_control_complete':all(v['category']!='UNAVAILABLE' for v in self.sma),
                 'event_census':[{'event_id':e.request.event_id,'candidate_q':e.q_ns,'expiry_ns':e.request.expiry_ns,
                     'protection_censored':e.q_ns>plan.nav_closes[-1],'reentry_censored':e.request.reentry_candidate_ns>plan.nav_closes[-1]} for e in plan.events]}
+            if type(plan) is FomcEventPlan:
+                from .gym_contract import canonical, sha
+                steps = tuple(s for s in plan.instructions if s['leg'] == leg)
+                result.update(fomc_steps=steps, fomc_steps_sha256=sha(canonical(steps)),
+                              fomc_policy_sha256=plan.policy_sha256)
+            return result
     adapter=None
     try:
         engine.add_venue(venue=venue,oms_type=OmsType.NETTING,account_type=AccountType.CASH,

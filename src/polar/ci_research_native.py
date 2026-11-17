@@ -16,12 +16,15 @@ from .research_native_money import native_types
 
 def simulate(plan, diagnostics=None):
     if not isinstance(plan, dict):
+        from .fomc_calendar_service import FomcRequest, produce
+        if type(plan) is FomcRequest:
+            return produce(plan, diagnostics)
         from .calendar_study_service import StudyRequest
         if type(plan) is StudyRequest:
             from .event_study import produce_study
             return produce_study(plan.plan,plan.sidecar,plan.roles,plan.binding,diagnostics_callback=diagnostics,preserve_accounts=True)
-        from .event_native import EventPlan, simulate_event_component
-        if type(plan) is EventPlan:
+        from .event_native import EventPlan, FomcEventPlan, simulate_event_component
+        if type(plan) in (EventPlan, FomcEventPlan):
             return simulate_event_component(plan, diagnostics)
     if plan.get('profile', {}).get('kind') == 'RAW_ACTION_REINVEST':
         from .raw_action_native import simulate as raw_simulate
