@@ -1,0 +1,267 @@
+{
+  "schema": "polar.quant-a-drawdown-author-protocol/1",
+  "semantic_candidate": "957447a203d7fca6c99b5854b47a51791954c438",
+  "accepted_engineering_source": "f302de664c2edd8b72be458d63e5fa801c1ca488",
+  "original_semantic_config": {
+    "question_id": "V043-A-DRAWDOWN-RECOVERY-GATE-20261117",
+    "candidate_id": "quant-a-drawdown-recovery-gate-v1",
+    "module": "research_candidates/quant_a_drawdown_gate/policy.py",
+    "symbols": [
+      "BIL",
+      "VTI"
+    ],
+    "lookback_observations": 252,
+    "exit_drawdown": [
+      1,
+      5
+    ],
+    "reentry_drawdown": [
+      1,
+      10
+    ],
+    "first_observed_state_before_thresholds": "RISK_ON",
+    "target_rule": "FIRST_ELIGIBLE_SIGNAL_OR_OBSERVED_STATE_CHANGE_ONLY",
+    "execution": "SHARED_REFERENCE_LEDGER_NEXT_REFERENCE_CLOSE_AFTER_FORMATION_AND_ELIGIBILITY",
+    "insufficient_history": "HOLD_NO_FABRICATED_WARMUP",
+    "initial_cents": 10000000,
+    "benchmarks": [
+      "FULL_VTI",
+      "FIXED_HALF_VTI_HALF_BIL_MONTHLY",
+      "FULL_BIL"
+    ],
+    "cost_scenarios": [
+      {
+        "id": "BASE",
+        "flat_cents": 100,
+        "bps": 10
+      },
+      {
+        "id": "COST_STRESS",
+        "flat_cents": 200,
+        "bps": 20
+      }
+    ],
+    "design_context": [
+      "2017-01-03",
+      "2020-12-31"
+    ],
+    "validation_context": [
+      "2021-01-04",
+      "2022-12-30"
+    ],
+    "evaluation_request": [
+      "2023-01-03",
+      "2026-11-06"
+    ],
+    "screen": [
+      "MAX_DRAWDOWN_LE_FIXED_HALF_REFERENCE",
+      "TERMINAL_WEALTH_GE_FIXED_HALF_REFERENCE",
+      "POSITIVE_MODELED_GROWTH",
+      "APPLY_SAME_SCREEN_TO_BASE_AND_COST_STRESS"
+    ],
+    "source_basis": "SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT_NOT_BROKER_SHARE_OR_INVESTOR_TOTAL_RETURN",
+    "historical_PIT": "UNKNOWN",
+    "holdout_status": "UNQUALIFIED_REQUEST_NO_VALUE_ACCESS_UNTIL_CUSTODY_RESOLVED",
+    "source_purpose": "PENDING_DR_NEW_METHOD_REUSE_QUALIFICATION",
+    "author_backtest": "NOT_RUN",
+    "strategy_PR": "NOT_READY_REQUIRES_COMPLETED_AUTHOR_BACKTEST",
+    "scientific_verdict": "NOT_REVIEWED",
+    "cost_evidence": "MODELED_SCENARIOS_NOT_OBSERVED_HISTORICAL_EXECUTION",
+    "baselines": [
+      "FULL_VTI",
+      "MONTHLY_FIXED_50_50_VTI_BIL",
+      "FULL_BIL"
+    ],
+    "supportive_point_screen": {
+      "all_of": [
+        "MAX_DRAWDOWN_NO_WORSE_THAN_FIXED_50_50",
+        "TERMINAL_WEALTH_NO_LOWER_THAN_FIXED_50_50",
+        "POSITIVE_TERMINAL_GROWTH"
+      ],
+      "cost_scenarios_required": [
+        "BASE",
+        "COST_STRESS"
+      ],
+      "claim": "EXPOSED_RETROSPECTIVE_MODELED_SAME_TAPE_ONLY_NO_UNTOUCHED_PIT_COMPETITIVENESS_OR_PROFITABILITY_PROOF"
+    },
+    "proposed_partitions": {
+      "DESIGN": [
+        "2017-01-03",
+        "2020-12-31"
+      ],
+      "VALIDATION": [
+        "2021-01-04",
+        "2022-12-30"
+      ],
+      "EVALUATION": [
+        "2023-01-03",
+        "2026-11-06"
+      ]
+    },
+    "partition_admission": "EXPOSED_RETROSPECTIVE_ANALYSIS_ONLY_SOURCE_PURPOSE_STILL_UNQUALIFIED",
+    "data_revision": null,
+    "data_revision_status": "RETAINED_MANIFEST_LOCATED_BUT_NEW_PURPOSE_MAPPING_NOT_ESTABLISHED_NO_VALUE_READ",
+    "runner_config_status": "POLICY_CANDIDATE_ONLY_NOT_SUBMITTABLE_RUNTIME_CONFIG",
+    "source_clock_claim": "MODELED_REFERENCE_ELIGIBILITY_ONLY_HISTORICAL_PIT_UNKNOWN",
+    "new_backtest": "NOT RUN",
+    "partition_semantics": {
+      "DESIGN": "EXPOSED_HISTORICAL_DESIGN_CONTEXT_NO_FIT_OR_PRISTINE_SAMPLE",
+      "VALIDATION": "EXPOSED_RETROSPECTIVE_DIAGNOSTIC_SEGMENT_NOT_UNTOUCHED_VALIDATION",
+      "EVALUATION": "EXPOSED_RETROSPECTIVE_EVALUATION_NOT_PRISTINE_EXAM"
+    },
+    "prior_exposure": "B9_B10_SAVED_FULL_HISTORY_STUDIES_OVERLAP_ALL_PROPOSED_WINDOWS",
+    "untouched_holdout": false,
+    "strategy_previously_fitted": "NOT_ESTABLISHED_NEW_POLICY_HAS_NO_DATA_FIT",
+    "exposure_source_receipt_sha256": "7d1e36bf66edfefb091725ce35b3b956cf07d14ba4980f2f59a051f689056856"
+  },
+  "profile_template": {
+    "schema": "polar.scheduled-reference-profile/14",
+    "protocol_id": "V043-A-DRAWDOWN-RECOVERY-GATE-20261117",
+    "symbols": [
+      "BIL",
+      "VTI"
+    ],
+    "policy": {
+      "kind": "QUANT_A_DRAWDOWN_RECOVERY",
+      "semantic_candidate": "957447a203d7fca6c99b5854b47a51791954c438",
+      "policy_sha256": "974bc78fea2d0495d213d361abf257a31ebd05f63b9197061a0a2c490a909a2c"
+    },
+    "legs": [
+      {
+        "id": "DRAWDOWN_GATE",
+        "label": "Drawdown recovery gate",
+        "rule": "DRAWDOWN",
+        "scale": [
+          1,
+          1
+        ]
+      },
+      {
+        "id": "FULL_VTI",
+        "label": "Initial full VTI",
+        "rule": "FULL_VTI",
+        "scale": [
+          1,
+          1
+        ]
+      },
+      {
+        "id": "FIXED_HALF",
+        "label": "Monthly half VTI half BIL",
+        "rule": "MONTHLY_HALF",
+        "scale": [
+          1,
+          1
+        ]
+      },
+      {
+        "id": "FULL_BIL",
+        "label": "Initial full BIL",
+        "rule": "FULL_BIL",
+        "scale": [
+          1,
+          1
+        ]
+      }
+    ],
+    "primary_strategy": "DRAWDOWN_GATE",
+    "primary_benchmark": "FIXED_HALF",
+    "decision_delay_seconds": 60,
+    "criteria": [
+      {
+        "id": "DRAWDOWN_LE",
+        "description": "DRAWDOWN LE",
+        "kind": "DRAWDOWN_LE",
+        "left_id": "DRAWDOWN_GATE",
+        "right_id": "FIXED_HALF"
+      },
+      {
+        "id": "TERMINAL_GE",
+        "description": "TERMINAL GE",
+        "kind": "TERMINAL_GE",
+        "left_id": "DRAWDOWN_GATE",
+        "right_id": "FIXED_HALF"
+      },
+      {
+        "id": "POSITIVE_GROWTH",
+        "description": "POSITIVE GROWTH",
+        "kind": "POSITIVE_GROWTH",
+        "left_id": "DRAWDOWN_GATE"
+      }
+    ],
+    "cost_scenarios": [
+      {
+        "id": "BASE",
+        "cost_profile": {
+          "flat_cents": 100,
+          "bps": 10
+        }
+      },
+      {
+        "id": "COST_STRESS",
+        "cost_profile": {
+          "flat_cents": 200,
+          "bps": 20
+        }
+      }
+    ],
+    "question_label": "Fixed drawdown recovery versus VTI/BIL controls",
+    "question_summary": "Unfitted252-close20-percent exit10-percent reentry, observed-state TARGET/HOLD, same-tape controls and two modeled cost scenarios.",
+    "clock_description": "UTC next-day modeled eligibility plus60seconds; subsequent reference close execution, pinned early-close schedule. Historical information availability is UNKNOWN.",
+    "partition_description": "Exposed historical design2017-2020; separate fresh-capital VALIDATION2021-2022 diagnostic and FINAL2023-2026 point screen. All overlap prior B9/B10 exposure; no untouched holdout or parameter selection.",
+    "additional_limitations": [
+      [
+        "EXPOSED_RETROSPECTIVE",
+        "All windows overlap prior B9/B10 studies; no pristine validation, exam, predictive or profitability proof."
+      ],
+      [
+        "SYNTHETIC_REFERENCE_UNIT",
+        "Vendor all-adjusted units with no extra dividend/split credit; not raw shares or actual investor total return."
+      ],
+      [
+        "PIT_UNKNOWN",
+        "Historical published/available clocks unknown; mixed capture vintages, uncertified complete action and exchange calendar."
+      ],
+      [
+        "MODELED_COSTS",
+        "BASE and doubled COST_STRESS are fixed modeled costs; no observed historical fills, taxes, funding or investor feasibility claim."
+      ],
+      [
+        "PRIVATE_OWNER_ONLY",
+        "Private sole-owner noncommercial research only; no other-human/public display, redistribution or data-bearing sharing."
+      ],
+      [
+        "FIXED_POINT_SCREEN",
+        "FINAL three-condition screen retained separately for both costs; validation diagnostic only. No population or calibrated statistical inference."
+      ]
+    ],
+    "subperiods": []
+  },
+  "private_runtime_bindings": [
+    "protocol_sha256",
+    "input_sha256",
+    "calendar_sha256",
+    "timezone_sha256"
+  ],
+  "calendar": {
+    "schema": "polar.daily-gate-policy-calendar/1",
+    "phases": {
+      "VALIDATION": [
+        "2021-01-04",
+        "2022-12-30"
+      ],
+      "FINAL": [
+        "2023-01-03",
+        "2026-11-06"
+      ]
+    },
+    "decision_rule": "ALL_CONSECUTIVE_REFERENCE_DATES_EXCEPT_TERMINAL_EXIT",
+    "timezone": "UTC"
+  },
+  "author_attempt": "ORIGINAL",
+  "initial_cents": 10000000,
+  "fit": "NONE",
+  "parameter_search": "NONE",
+  "scientific_verdict": "NOT_REVIEWED",
+  "reproduction": "In clean exact candidate with accepted Python3.13.18 locked image: native_selected_tool research-input-prepare config7, research-input-preflight pin; polar.cli research-config private seed; native_selected_tool research-preflight then research-run same runtime config. Actual native source admission required before selected quote reads. Physical input/root/image/native pins remain private artifacts; no values in Git."
+}
