@@ -42,3 +42,32 @@ checks still apply. Saved-only recomputation and read paths do not rerun researc
 CI targets the actual PR head/event SHA; workflow dispatch requires the real PR,
 without the historical PR49 fallback. Successful status requires exact-head PASS
 receipts from applicable checks, including the primary command's receipt.
+
+## Ordinary offline author binding
+
+An ordinary retained author backtest without a legacy execution-authority file
+now creates a typed execution binding automatically. It uses the existing
+research-config / research-preflight / research-run CLI and scheduled engine;
+no separate Operator/Lead grant, reservation or pre-run method PASS is required.
+The observed Quant B failure was a legacy protocol-binding defect before
+FIRST_START. User approval of offline author work is not scientific acceptance.
+
+The binding captures the loaded clean candidate, immutable data/config identity,
+run-context engine image and actual dependency checks. The existing stable
+protocol/input family, conservative FIRST_START and no-refund/repeat rules remain.
+Supplied legacy and corrective authority files keep their strict lineage checks.
+Source rights, frozen criteria, exposed/PIT-unknown history and trial history are
+unchanged. This does not authorize live trading or private numerical publication.
+
+Successful new author records add tool-derived config_sha256 and actual run_id
+bindings. The config identity uses the existing scheduled canonical binding,
+excluding administrative execution_authority_ref. An actual independent native
+Validator decision must bind those exact fields before a new retained portfolio
+result can acquire trusted native review. Default review remains NOT_REVIEWED.
+Legacy result bytes/IDs omit absent additions and remain exact.
+
+Deploy this additive binding reader to product API/worker and qualify accepted
+web before delivering new results there; retain it as the rollback floor. PR138
+is the separate descriptive-G reader milestone, which must not wait for E. The
+private author candidate uses its own qualified reader and persistent store; no
+private numerical output moves into the product merely by running its backtest.

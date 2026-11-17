@@ -150,6 +150,17 @@ def preflight(service, config):
             'operation_binding_sha256': sha(canonical(binding(config))), 'policy_execution': 'NOT_RUN',
             'scientific_starts': 0, 'fit_calls': 0, 'predict_calls': 0,
             'expected_native_accounts': account_count(p, grids)}
+    if config['namespace'] == 'RETAINED' and config['execution_authority_ref'] is None:
+        from .offline_author_binding import create
+        create(config, p, grids)
+        family = sha(canonical({'protocol_id': p['protocol_id'],
+                                'input': config['input_ref']['sha256'], 'namespace': config['namespace']}))
+        parent = service.store.root/'scheduled-reference-attempts'
+        directory = parent/family
+        require(not parent.is_symlink() and not directory.is_symlink(), 'SCHEDULED_ATTEMPT_HISTORY_UNSAFE')
+        require(not directory.exists() or (directory.is_dir() and not any(directory.iterdir())),
+                'SCHEDULED_ORIGINAL_ALREADY_RECORDED')
+        result['execution_binding_status'] = 'AUTOMATIC_OFFLINE_BINDING_READY_NOT_REVIEWED'
     if p['schema'].endswith('/13'):
         result.update(model_calls=0,score_calls=0,rank_calls=0,feature_calls=0,estimator_calls=0,optimizer_calls=0,bootstrap_samples=0)
     if p['schema'].endswith('/11'):
@@ -170,6 +181,9 @@ def preflight(service, config):
 def authority_for(service, config, profile, grids):
     if config['namespace'] == 'INVENTED' and config['execution_authority_ref'] is None:
         return None
+    if config['execution_authority_ref'] is None:
+        from .offline_author_binding import create
+        return create(config, profile, grids)
     authority = decode(read_ref(config['execution_authority_ref']))
     require(authority.get('schema') == 'polar.scheduled-reference-operation/1' and authority.get('action') in ('ORIGINAL','CORRECTIVE_E1','CORRECTIVE_RAW_ACTION_E1','CORRECTIVE_RAW_ACTION_E2','CORRECTIVE_MODEL_PRICE_E1') and
             (authority.get('action')=='ORIGINAL' or
@@ -361,6 +375,8 @@ def run(service, config):
                 project_estimation(record,estimator_counts)
             if profile['schema'].endswith('/4'):
                 project_optimization(record, optimizer_counts)
+            if authority is not None and authority.get('schema') == 'polar.offline-author-binding/1':
+                record['bindings'].update(config_sha256=sha(canonical(binding(config))), run_id=aid)
             publications[phase] = service.results.publish(record)
         finish = {'status': 'SUCCESS', 'attempt_id': aid, 'semantic_id': sid, 'results': publications,
                   'fit_calls': 0, 'predict_calls': 0, 'model_calls': 0, 'native_accounts': completed,

@@ -142,3 +142,19 @@ def test_native_writer_is_off_until_reader_and_replay_floor(tmp_path):
     with pytest.raises(ResearchError, match='RESEARCH_NATIVE_REVIEW_WRITER_DISABLED'):
         store.review({'decision_ref': REF})
     assert store.read(pub['result_id'])['assessment']['native_review']['financial'] == 'NOT_REVIEWED'
+
+
+def test_retained_native_review_requires_tool_run_and_config(tmp_path):
+    result=invented_result();result['evidence_level']='RETAINED_DESCRIPTIVE'
+    store=ResearchResults(tmp_path,10**8,native_review_writer_enabled=True)
+    store.publish(result)
+    with pytest.raises(ResearchError,match='RESEARCH_NATIVE_EXECUTION_BINDING'):
+        store.native_review(REF,queue=Queue(result))
+    result['bindings'].update(config_sha256='b'*64,run_id='11111111-1111-4111-8111-111111111111')
+    publication=store.publish(result)
+    for key,value in [('config_sha256','c'*64),('run_id','22222222-2222-4222-8222-222222222222')]:
+        q=Queue(result);q.decision['bindings']={**q.decision['bindings'],key:value}
+        with pytest.raises(ResearchError,match='RESEARCH_NATIVE_DECISION_BINDING'):
+            store.native_review(REF,queue=q)
+    store.native_review(REF,queue=Queue(result))
+    assert store.read(publication['result_id'])['assessment']['native_review']['financial']=='NOT_SUPPORTED'
