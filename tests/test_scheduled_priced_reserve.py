@@ -230,3 +230,12 @@ def test_saved_plan_arithmetic_rejects_tampering(tmp_path,monkeypatch,field):
     elif field=='timezone_join':plan['signals'][0]['execution']=plan['signals'][0]['formation']
     else:plan['grid'][0]['sample_ns']+=1
     with pytest.raises(ValueError):priced.verify_plan(plan,p,calendar,tz)
+
+
+def test_bootstrap_priced_recipe_rejects_terminal_hurdle_and_legacy_pair():
+    from polar.scheduled_uncertainty import bootstrap
+    simulation={'legs':[{'id':x,'returns':[Fraction(1,100),Fraction(-1,200)]} for x in ('SWEPT','BIL_ONLY')]}
+    with pytest.raises(ValueError,match='PRICED_RESERVE_IDENTITIES'):
+        bootstrap(simulation,'SWEPT',['BIL_ONLY'],seed=37004,recipe='PRICED_RESERVE_DESCRIPTIVE')
+    with pytest.raises(ValueError,match='THREE_BASE_LEG_IDENTITIES'):
+        bootstrap(simulation,'SWEPT',['BIL_ONLY'],seed=37001)

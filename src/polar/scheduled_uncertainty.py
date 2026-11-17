@@ -227,23 +227,27 @@ def _interval(values, invalid_reasons, samples):
 
 
 def bootstrap(simulation, primary_id, benchmark_ids, *, seed=SEED, recipe="LEGACY"):
-    """Fixed1000 paired circular63 draws from ONLY the three saved BASE legs.
+    """Fixed1000 paired circular63 draws from the closed saved BASE leg set.
 
     Legs may have native positive integer-cent ``nav`` rows, or ``returns`` with
     exact numerator/denominator strings (Fraction values are also accepted for
     invented pure callers). Floats and mismatched/missing observations are never
     substituted or silently dropped. This function does not decide robustness.
     """
-    if type(seed) is not int or seed not in {'LEGACY':(37001,37002),'TEMPORAL_DESCRIPTIVE':(37003,), 'RELATIVE_DESCRIPTIVE':(37004,)}.get(recipe,()):
+    if type(seed) is not int or seed not in {'LEGACY':(37001,37002),'TEMPORAL_DESCRIPTIVE':(37003,), 'RELATIVE_DESCRIPTIVE':(37004,), 'PRICED_RESERVE_DESCRIPTIVE':(37004,)}.get(recipe,()):
         raise ValueError('BOOTSTRAP_SEED')
+    priced = recipe=='PRICED_RESERVE_DESCRIPTIVE'
+    size = 2 if priced else 3
     legs = simulation.get('legs') if isinstance(simulation, dict) else None
-    if (not isinstance(legs, list) or len(legs) != 3 or not isinstance(benchmark_ids, (list, tuple))
-            or type(primary_id) is not str or len(benchmark_ids) != 2
-            or any(type(b) is not str for b in benchmark_ids) or len(set([primary_id, *benchmark_ids])) != 3
+    if priced and (primary_id!='SWEPT' or benchmark_ids!=['CASH_TARGET']):
+        raise ValueError('BOOTSTRAP_PRICED_RESERVE_IDENTITIES')
+    if (not isinstance(legs, list) or len(legs) != size or not isinstance(benchmark_ids, (list, tuple))
+            or type(primary_id) is not str or len(benchmark_ids) != size-1
+            or any(type(b) is not str for b in benchmark_ids) or len(set([primary_id, *benchmark_ids])) != size
             or any(not isinstance(leg, dict) or type(leg.get('id')) is not str for leg in legs)):
         raise ValueError('BOOTSTRAP_THREE_BASE_LEG_IDENTITIES')
     ids = [leg['id'] for leg in legs]
-    if len(set(ids)) != 3 or set(ids) != {primary_id, *benchmark_ids}:
+    if len(set(ids)) != size or set(ids) != {primary_id, *benchmark_ids}:
         raise ValueError('BOOTSTRAP_THREE_BASE_LEG_IDENTITIES')
     parsed = {leg['id']: _vector(leg) for leg in legs}
     n = parsed[primary_id][1]

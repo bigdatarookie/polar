@@ -751,7 +751,7 @@ def uncertainty_for(simulation,profile):
     base={'legs':[l for l in simulation['legs'] if l['id'] in wanted]}
     return bootstrap(base,profile['primary_strategy'],[x['id'] for x in profile['legs']
         if x['id'] in wanted and x['id']!=profile['primary_strategy']],seed=profile['uncertainty']['seed'],
-        recipe='RELATIVE_DESCRIPTIVE' if profile['schema'].endswith('/7') else 'TEMPORAL_DESCRIPTIVE' if temporal else 'LEGACY')
+        recipe='PRICED_RESERVE_DESCRIPTIVE' if profile['schema'].endswith('/15') else 'RELATIVE_DESCRIPTIVE' if profile['schema'].endswith('/7') else 'TEMPORAL_DESCRIPTIVE' if temporal else 'LEGACY')
 
 
 def phase_diagnostics(simulation, schedule, profile, plan, *, cost_id='BASE', subperiods=()):
