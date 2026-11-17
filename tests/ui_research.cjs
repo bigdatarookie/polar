@@ -253,3 +253,30 @@ test('descriptive identity, shape, applicability and observation corruption fail
  }
 });
 module.exports.descriptionFixture=descriptionFixture;
+
+test('null original run binding stays unknown; external PASS never becomes native acceptance',()=>{
+ const f=descriptionFixture();f.detail.record.bindings.experiment_id=null;
+ const a=f.detail.assessment;a.technical='PASS';a.native_review={technical:'NOT_REVIEWED',product:'NOT_REVIEWED',financial:'NOT_REVIEWED'};
+ const detail=validateResearchDetail(f.detail,f.item);
+ assert.equal(detail.record.bindings.experiment_id,null);
+ const {researchFinancialLabel,researchAssessmentText,researchReviewProvenanceLabel}=require('../src/polar/web/research.js');
+ assert.match(researchFinancialLabel({financial:'SUPPORTED_WITH_LIMITS'}),/Recorded financial: SUPPORTED WITH LIMITS · Native provenance UNKNOWN/);
+ assert.match(researchAssessmentText(a),/Recorded assessments: Technical PASS/);
+ assert.match(researchAssessmentText(a),/Server-verified native review: Technical NOT_REVIEWED/);
+ assert.match(researchReviewProvenanceLabel({reviewer_id:'claimed-validator'}),/^UNKNOWN/);
+ a.native_review.technical='PASS';assert.throws(()=>validateResearchDetail(f.detail,f.item),/RESEARCH_NATIVE_ASSESSMENT_UNBOUND/);
+});
+function nativeDescriptionFixture(){
+ const f=descriptionFixture(),a=f.detail.assessment;
+ const proof={schema_version:'polar.native-review-provenance/1',decision_ref:'qitem-invented-decision#12',validator_session:'validator@invented-rig',claimed_generation:'invented-generation',claim_transition:10,terminal_transition:12,identity_provenance:'transport:v1',author_sessions:['author@invented-rig'],result_id:f.item.result_id,content_sha256:f.item.content_sha256,bindings:structuredClone(f.detail.record.bindings),decision_sha256:'d'.repeat(64),assessment_reference:{role:'invented_assessment',id:'invented',sha256:'c'.repeat(64)}};
+ a.reviews=[{schema_version:'polar.research-review/1',result_id:f.item.result_id,content_sha256:f.item.content_sha256,reviewer_id:'native-invented',scope:'TECHNICAL',verdict:'PASS',recorded_at:'2024-01-01T00:00:00Z',evidence_status:'NOT_APPLICABLE',reason:null,scope_description:'Invented wire control only',reference:{role:'verified_native_decision',id:'qitem-invented-decision',sha256:'e'.repeat(64)},provenance_status:'VERIFIED_NATIVE_DECISION',native_provenance:proof}];
+ a.technical='PASS';a.native_review={technical:'PASS',product:'NOT_REVIEWED',financial:'NOT_REVIEWED'};return f;
+}
+test('server native projection is structurally bound to exact content, bindings and decision',()=>{
+ const {researchReviewProvenanceLabel}=require('../src/polar/web/research.js');
+ const f=nativeDescriptionFixture();validateResearchDetail(f.detail,f.item);
+ assert.equal(researchReviewProvenanceLabel(f.detail.assessment.reviews[0]),'Server-verified native decision');
+ for(const change of [r=>delete r.native_provenance,r=>r.native_provenance.result_id='research-'+'b'.repeat(64),r=>r.native_provenance.bindings.data_revision='wrong',r=>r.native_provenance.identity_provenance='claimed:v1',r=>r.native_provenance.author_sessions.push(r.native_provenance.validator_session),r=>r.reference.role='claimed_native',r=>r.native_provenance.decision_ref='qitem-other#12']){
+  const g=nativeDescriptionFixture();change(g.detail.assessment.reviews[0]);assert.throws(()=>validateResearchDetail(g.detail,g.item),/RESEARCH_NATIVE_PROOF_INVALID/);
+ }
+});
