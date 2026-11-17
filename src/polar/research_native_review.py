@@ -13,7 +13,7 @@ from typing import Annotated, Literal
 from pydantic import Field, ValidationError
 
 from .history_bundle import canonical, sha
-from .research_results import Closed, Hash, ResearchError, ResearchReview
+from .research_results import Closed, Hash, ResearchError, ResearchReview, public_text
 
 Actor = Annotated[str, Field(pattern=r'^[A-Za-z0-9_.:-]+@[A-Za-z0-9_.:-]+$')]
 DecisionRef = Annotated[str, Field(pattern=r'^qitem-[A-Za-z0-9_.:-]+#[1-9][0-9]*$')]
@@ -118,6 +118,8 @@ def resolve(decision_ref, queue=None):
         proof['assessment_reference'] = review['reference']
         review['reference'] = {'role': 'verified_native_decision', 'id': qid,
                                'sha256': sha(canonical(proof))}
+        public_text(review)
+        public_text(proof)
         return review, proof
     except (ValidationError, ValueError, TypeError, KeyError, AttributeError):
         raise ResearchError('RESEARCH_NATIVE_DECISION_INVALID', 422) from None

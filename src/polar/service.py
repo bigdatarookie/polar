@@ -15,7 +15,8 @@ class DatasetIntegrityError(Exception):
 
 
 class Service:
-    def __init__(self, settings):
+    def __init__(self, settings, *, native_queue=None):
+        self.native_queue = native_queue
         self.descriptive_writer_enabled = settings.descriptive_writer_enabled
         self.native_review_writer_enabled = settings.native_review_writer_enabled
         self.registry = Registry(settings)
@@ -29,7 +30,7 @@ class Service:
         from .research_results import ResearchResults
         return ResearchResults(self.artifacts.root, self.artifacts.limit,
                                descriptive_writer_enabled=self.descriptive_writer_enabled,
-                               native_review_writer_enabled=self.native_review_writer_enabled)
+                               native_review_writer_enabled=self.native_review_writer_enabled, native_queue=self.native_queue)
 
     def _research_engine(self, config=None, semantic_id=None):
         if (isinstance(config,dict) and config.get('schema')=='polar.private-pair-operation-config/1') or (semantic_id or '').startswith('pair-stream-operation-'):
@@ -103,7 +104,7 @@ class Service:
 
     def research_delivery_submit(self, body):
         from .research_delivery import submit
-        return submit(self.registry, body)
+        return submit(self.registry, body, native_queue=self.native_queue)
 
     def research_delivery_status(self, delivery_id):
         from .research_delivery import delivery_status

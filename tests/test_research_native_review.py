@@ -111,22 +111,27 @@ def test_native_delivery_before_result_replay_and_no_scientific_run(registry):
     reg = registry; reg.migrate()
     result = invented_result(); queue = Queue(result)
     store = ResearchResults(reg.settings.artifacts, 10**8, native_queue=queue, native_review_writer_enabled=True)
+    unrelated = invented_result(); unrelated['question']['label'] = 'Unrelated queued subject'
+    other = submit(reg, {'schema_version': 'polar.research-delivery/1', 'kind': 'RESULT',
+        'display_scope': 'OWNER_LOCAL', 'content_sha256': sha(canonical(unrelated)), 'payload': unrelated})
     submitted = submit(reg, {'decision_ref': REF}, native_queue=queue)
-    assert deliver_once(reg, store)['state'] == 'WAITING_FOR_RESULT'
+    assert deliver_once(reg, store, delivery_id=submitted['id'])['state'] == 'WAITING_FOR_RESULT'
+    assert reg.research_delivery(other['id'])['state'] == 'QUEUED'
     with reg.connect() as db:
         db.execute("UPDATE research_deliveries SET not_before=now()+interval '1 hour' WHERE id=%s", (submitted['id'],))
     h = sha(canonical(result))
-    submit(reg, {'schema_version': 'polar.research-delivery/1', 'kind': 'RESULT',
+    result_row = submit(reg, {'schema_version': 'polar.research-delivery/1', 'kind': 'RESULT',
         'display_scope': 'OWNER_LOCAL', 'content_sha256': h, 'payload': result})
-    assert deliver_once(reg, store)['state'] == 'DELIVERED'
+    assert deliver_once(reg, store, delivery_id=result_row['id'])['state'] == 'DELIVERED'
     with reg.connect() as db:
         db.execute("UPDATE research_deliveries SET not_before=now()-interval '1 second' WHERE id=%s", (submitted['id'],))
-    done = deliver_once(reg, store)
+    done = deliver_once(reg, store, delivery_id=submitted['id'])
     assert done['id'] == submitted['id'] and done['state'] == 'DELIVERED'
     assert done['receipt']['status'] == 'VERIFIED_NATIVE_DECISION'
     assert store.read('research-'+h)['assessment']['native_review']['financial'] == 'NOT_SUPPORTED'
     assert submit(reg, {'decision_ref': REF}, native_queue=queue)['state'] == 'DELIVERED'
-    assert deliver_once(reg, store) is None
+    assert deliver_once(reg, store, delivery_id=submitted['id']) is None
+    assert reg.research_delivery(other['id'])['state'] == 'QUEUED'
     with reg.connect() as db:
         assert [db.execute('SELECT count(*) AS n FROM '+t).fetchone()['n'] for t in ('runs','attempts')] == [0,0]
 

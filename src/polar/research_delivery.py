@@ -70,8 +70,8 @@ def submit(registry, value, *, native_queue=None):
     return delivery_status(registry.submit_research_delivery("delivery-"+h, body["kind"], rid, h, body))
 
 
-def deliver_once(registry, results):
-    row = registry.claim_research_delivery()
+def deliver_once(registry, results, *, delivery_id=None):
+    row = registry.claim_research_delivery(delivery_id) if delivery_id is not None else registry.claim_research_delivery()
     if row is None:
         return None
     # A process loss before finish leaves only a lease to reclaim. Publication is

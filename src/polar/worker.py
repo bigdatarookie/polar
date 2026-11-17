@@ -124,7 +124,7 @@ def work_once(settings):
     return reg.get(rid)
 
 
-def work_research_delivery_once(settings):
+def work_research_delivery_once(settings, *, native_queue=None, delivery_id=None):
     from .research_delivery import deliver_once
     from .research_results import ResearchResults
     from .history_bundle import HistoryError
@@ -140,9 +140,9 @@ def work_research_delivery_once(settings):
             raise RuntimeError("RESEARCH_DELIVERY_STORAGE_UNAVAILABLE")
         results = ResearchResults(settings.artifacts, remaining,
                                   descriptive_writer_enabled=settings.descriptive_writer_enabled,
-                                  native_review_writer_enabled=settings.native_review_writer_enabled)
+                                  native_review_writer_enabled=settings.native_review_writer_enabled, native_queue=native_queue)
         try:
-            return deliver_once(registry, results)
+            return deliver_once(registry, results, delivery_id=delivery_id)
         except HistoryError:
             # read_file intentionally folds OS errors. Do not certify a transient
             # IO/permission/capacity failure as permanent invalidity; preserve its

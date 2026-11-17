@@ -54,3 +54,31 @@ Queued, first/last started, delivered and finished timestamps measure delivery
 latency. A result's calculation completion and a browser's committed refresh are
 separate evidence clocks; report UNKNOWN when not actually observed. Do not infer
 calculation-to-publication latency from queued-to-delivered latency.
+
+## Actual native tool reach
+
+When the existing product store lives in a Docker volume and its containers lack
+`rig`, use the bounded existing-tool adapter after the accepted reader rollout:
+
+```
+python -m polar.research_native_tool --container EXACT_HEX_CONTAINER_ID --operation probe --decision-ref QITEM#TERMINAL_TRANSITION
+```
+
+The host runs its actual inherited native tool. The already deployed consumer
+module accesses its existing registry/store; each resolver read crosses private
+process stdio back to the real host tool, including the current-custody reread.
+The consumer package fingerprint must match the reviewed host package. No actor
+or environment override, uploaded proof, mounted host store, new daemon/service,
+or arbitrary command in the HTTP API is involved. `probe` resolves the exact
+native decision and checks existing registry/store reach without writing.
+
+After the deployment owner enables `POLAR_NATIVE_REVIEW_WRITER_ENABLED=1`, the
+same command with `--operation submit` queues the address-only assessment using
+existing outbox idempotency. `--operation work-once` consumes only that exact
+content-bound delivery row and preserves every other queue row. Result delivery
+continues through its existing interface; review-before-result waits normally.
+The command is bounded, uses current native reads and closes its owned process.
+Loss of its response is not permission for a financial rerun; inspect/retry the
+same immutable delivery ID. The accepted dualreader/replay floor and private
+numerical field limits still apply. A fixture-store success is not deployment or
+actual product-volume consumption.
