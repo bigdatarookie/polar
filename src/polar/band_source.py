@@ -242,7 +242,10 @@ def producer_result(config, manifest):
             'source_revision': manifest['parent_dataset_revision']}
 
 
-def prepared_authorization(manifest, *, queue=None):
+def prepared_authorization(manifest, *, queue=None, reconciliation_ref=None):
+    if reconciliation_ref is not None:
+        from .band_reconciliation import authorize_existing
+        return authorize_existing(manifest, reconciliation_ref, queue=queue)
     metadata = manifest.get('conversion_metadata', manifest.get('provenance', {}))
     proof = metadata.get('source_native_binding', {})
     config = proof.get('config')
@@ -291,7 +294,7 @@ def authorize_financial(config, profile, manifest, root, *, queue=None):
             source.get('protocol_ref', {}).get('sha256') == protocol and
             source.get('contract_ref', {}).get('sha256') == contract and
             sha(read_ref(config['protocol_ref'])) == protocol, 'BAND_FINANCIAL_SOURCE_BINDING')
-    proof = prepared_authorization(manifest, queue=queue)
+    proof = prepared_authorization(manifest, queue=queue, reconciliation_ref=config['input_ref'].get('reconciliation_ref'))
     require(proof is not None, 'BAND_FINANCIAL_SOURCE_BINDING')
     again = consumer_custody(config['consumer_task'], queue=queue)
     require(again[:2] == (actor, generation) and

@@ -36,7 +36,7 @@ def config_from_seed(seed):
         raw = read_file(path.parent, path.name, 32*1024**2)
         return {'path': str(path), 'sha256': sha(raw), 'bytes': len(raw)}
     band=seed.get('schema')=='polar.band-reference-seed/1'
-    return {'schema': 'polar.band-reference-config/1' if band else CONFIG_SCHEMA,
+    config = {'schema': 'polar.band-reference-config/1' if band else CONFIG_SCHEMA,
             **({'consumer_task':seed['consumer_task']} if band else {}), 'namespace': seed['namespace'],
             **{k + '_ref': ref(k + '_path') for k in ('profile', 'protocol', 'input', 'calendar', 'timezone')},
             'code': code_binding(), 'code_revision': seed['code_revision'],
@@ -44,6 +44,13 @@ def config_from_seed(seed):
             'experiment_id': seed['experiment_id'],
             'execution_authority_ref': ref('execution_authority_path') if seed.get('execution_authority_path') else None,
             'artifact_root_identity': root_identity(Path(os.environ.get('POLAR_ARTIFACT_ROOT', '/data/artifacts')))}
+    if seed.get('reconciled_input_path') is not None:
+        require(band, 'BAND_RECONCILIATION_SCOPE')
+        reconciled = decode(read_ref(ref('reconciled_input_path')))
+        require({k:v for k,v in reconciled.items() if k!='reconciliation_ref'} == config['input_ref'] and
+                'reconciliation_ref' in reconciled, 'BAND_RECONCILIATION_INPUT_PIN')
+        config['input_ref'] = reconciled
+    return config
 
 
 def prepare(service, config, *, load_prices=True):
