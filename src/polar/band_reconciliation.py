@@ -198,8 +198,11 @@ def verify_publication(request, root, queue):
     for key, name in (('quotes', 'quotes.ndjson'), ('schedule', 'schedule.json'), ('source_relations', 'source-relations.json')):
         require(manifest[key] == {'path': str(directory/name), 'sha256': before[name]['sha256'],
                                  'bytes': before[name]['bytes']}, 'BAND_RECONCILIATION_FILE_PIN')
-    quality = decode(read_file(directory, 'quality.json', limit=MAX_BYTES))
-    require(quality == {'status': 'SELECTED_SOURCE_ONLY', 'excluded_value_decodes': 0,
+    quality_raw = read_file(directory, 'quality.json', limit=MAX_BYTES)
+    quality = decode(quality_raw)
+    require(quality_raw == canonical(quality) and
+            before['quality.json']['sha256'] == sha(quality_raw) and
+            quality == {'status': 'SELECTED_SOURCE_ONLY', 'excluded_value_decodes': 0,
             'mixed_parent_quote_reads': 0, 'raw_source_body_reads': 0, 'financial_or_provider_calls': 0,
             'integrity_scope': 'SELECTED_MEMBERS_HASHED_SELECTED_ROWS_VALIDATED_EXCLUDED_VALUES_UNDECODED'} and
             metadata.get('integrity_scope') == quality['integrity_scope'] and

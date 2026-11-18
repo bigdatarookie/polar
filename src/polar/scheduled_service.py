@@ -47,7 +47,9 @@ def config_from_seed(seed):
     if seed.get('reconciled_input_path') is not None:
         require(band, 'BAND_RECONCILIATION_SCOPE')
         reconciled = decode(read_ref(ref('reconciled_input_path')))
-        require({k:v for k,v in reconciled.items() if k!='reconciliation_ref'} == config['input_ref'] and
+        base = {k:v for k,v in reconciled.items() if k!='reconciliation_ref'}
+        require({'path','sha256'} <= set(base) <= {'path','sha256','bytes'} and
+                all(config['input_ref'].get(k)==v for k,v in base.items()) and
                 'reconciliation_ref' in reconciled, 'BAND_RECONCILIATION_INPUT_PIN')
         config['input_ref'] = reconciled
     return config
