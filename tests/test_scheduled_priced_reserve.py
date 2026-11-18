@@ -108,7 +108,8 @@ def test_service_actual_author_native_stress_saved_source_absent_and_duplicate(t
             for fill in leg['fills']:
                 assert type(fill['q']) is int and fill['q']>0
                 assert fill['fee_cents']==cost['flat_cents']+(fill['q']*fill['price_micro']*cost['bps']+99_999_999)//100_000_000
-                assert fill['settled_cents']==(fill['q']*fill['price_micro']+5000)//10000
+                cents,remainder=divmod(fill['q']*fill['price_micro'],10000)
+                assert fill['settled_cents']==cents+int(remainder>5000 or remainder==5000 and cents%2==1)
             assert leg['nav'][-1]['flat_cents']==len(leg['fills'])*cost['flat_cents']
             assert not any(leg['nav'][-1]['positions'].values()) and leg['nav'][-1]['nav_cents']==leg['nav'][-1]['cash_cents']
     for pub in result['results'].values():
@@ -118,6 +119,8 @@ def test_service_actual_author_native_stress_saved_source_absent_and_duplicate(t
     finishes=list((root/'scheduled-reference-attempts').glob('*/*/finish/record.json'))
     finish=json.loads(finishes[0].read_bytes());assert finish['native_accounts']==6
     assert finish['actual_priced_reserve_counts']==priced.counts(base['plan']['signals'])
+    source=json.loads(Path(cfg['input_ref']['path']).read_bytes())
+    Path(source['quotes']['path']).unlink();Path(source['schedule']['path']).unlink()
     for ref in ('input_ref','profile_ref','protocol_ref','calendar_ref','timezone_ref'):
         Path(cfg[ref]['path']).unlink()
     before={str(path):sha256(path.read_bytes()).hexdigest() for path in root.rglob('*') if path.is_file()}

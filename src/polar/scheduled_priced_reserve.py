@@ -55,9 +55,9 @@ def counts(signals):
 def targets(prices, symbols):
     policy_binding()
     actual = counts([])
-    actual['estimator_calls'] = 1
     try:
         require(symbols == ['BIL','VTI'], 'PRICED_RESERVE_SYMBOLS')
+        actual['estimator_calls'] = 1
         _, _, covariance = sample_covariance(prices, symbols, window=60)
         actual['completed_estimates'] = 1
         annual = [[252*x for x in row] for row in covariance]
