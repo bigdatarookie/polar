@@ -84,6 +84,10 @@ class Service:
         except (KeyError, TypeError, IndexError, AttributeError):
             raise ValueError('REFERENCE_CONVERSION_INVALID') from None
 
+    def research_input_reconcile(self, request):
+        from .band_reconciliation import reconcile
+        return reconcile(request, self.artifacts.root, self.artifacts.limit, queue=self.native_queue)
+
     def research_input_preflight(self, manifest_pin):
         from .reference_input import preflight_input
         try:

@@ -75,7 +75,7 @@ def main(argv=None):
     subs.add_parser("gym-attempt").add_argument("attempt_id")
     subs.add_parser("gym-report").add_argument("experiment_id")
     for name in ("research-publish", "research-review", "research-preflight", "research-run", "research-config",
-                 "research-input-prepare", "research-input-preflight"):
+                 "research-input-prepare", "research-input-preflight", "research-input-reconcile"):
         subs.add_parser(name).add_argument("file", type=Path)
     subs.add_parser("research-result").add_argument("result_id")
     subs.add_parser("research-recompute").add_argument("semantic_id")
@@ -227,7 +227,7 @@ def main(argv=None):
         try:
             service = Service(Settings.load_artifacts())
             if args.command in ("research-publish", "research-review", "research-preflight", "research-run", "research-config",
-                                "research-input-prepare", "research-input-preflight"):
+                                "research-input-prepare", "research-input-preflight", "research-input-reconcile"):
                 with args.file.open("rb") as stream:
                     raw = stream.read(MAX_RESULT + 1)
                 if len(raw) > MAX_RESULT:

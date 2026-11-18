@@ -15,13 +15,18 @@ from .research_results import ResearchError
 from .research_native_review import NativeQueue, inherited_queue
 from .research_native_tool import ToolPipe, source_identity, pipe_bridge, MAX_LINE
 
-OPERATIONS = ('native-context-probe', 'research-input-prepare', 'research-input-preflight', 'research-preflight', 'research-run')
+OPERATIONS = ('native-context-probe', 'research-input-prepare', 'research-input-preflight', 'research-input-reconcile', 'research-preflight', 'research-run')
 
 
 def selected_config(operation, value):
     from .research_reference import decode, pinned_bytes
     from .native_selected_input import SCHEMA, CONVERTER
     from .scheduled_drawdown import SCHEMA as PROFILE_SCHEMA
+    if operation == 'research-input-reconcile':
+        from .band_reconciliation import REQUEST
+        if value.get('schema') != REQUEST:
+            raise ResearchError('BAND_RECONCILIATION_SCOPE', 409)
+        return value
     if operation == 'native-context-probe':
         if not isinstance(value, dict) or set(value) != {'consumer_task'} or not isinstance(value['consumer_task'], str) or not re.fullmatch(r'qitem-[A-Za-z0-9_.:-]+', value['consumer_task']):
             raise ResearchError('NATIVE_SELECTED_CURRENT_TASK', 409)
@@ -40,6 +45,13 @@ def selected_config(operation, value):
     if operation == 'research-input-prepare' and value.get('schema') in (
             'polar.reference-input-conversion-config/10', 'polar.reference-input-conversion-config/11'):
         return value
+    if operation == 'research-input-preflight' and value.get('reconciliation_ref') is not None:
+        reference = value['reconciliation_ref']
+        from .band_reconciliation import OBSERVATION
+        receipt = decode(pinned_bytes(reference['observation_ref']))
+        if receipt.get('schema') != OBSERVATION:
+            raise ResearchError('BAND_RECONCILIATION_REFERENCE', 409)
+        return receipt['request']
     if operation == 'research-input-preflight':
         manifest = decode(pinned_bytes(value))
         meta = manifest.get('conversion_metadata', manifest.get('provenance', {}))
@@ -73,16 +85,22 @@ def selected_config(operation, value):
 
 
 def permitted(args, config):
-    if config.get('schema') in ('polar.reference-input-conversion-config/11', 'polar.band-reference-config/1'):
+    if config.get('schema') in ('polar.reference-input-conversion-config/11', 'polar.band-reference-config/1',
+                                 'polar.band-existing-publication-reconciliation/1'):
         from .band_source import ACTORS, generation_read
         tasks = [config['consumer_task']]
+        if config['schema'] == 'polar.band-existing-publication-reconciliation/1':
+            tasks.append(config['original_failure_ref'].split('#')[0])
         if config['schema'] == 'polar.band-reference-config/1':
             from .research_reference import decode, pinned_bytes
-            manifest = decode(pinned_bytes(config['input_ref']))
+            manifest = decode(pinned_bytes({k:v for k,v in config['input_ref'].items() if k!='reconciliation_ref'}))
             source = manifest.get('provenance', {}).get('source_native_binding', {}).get('config', {})
             if source.get('schema') != 'polar.reference-input-conversion-config/11':
                 return False
             tasks.append(source['consumer_task'])
+            reference = config['input_ref'].get('reconciliation_ref')
+            if reference is not None:
+                tasks.append(reference['observer_task'])
         allowed = [['whoami'], ['queue', 'show', config['consumer_task'], '--full'],
                    ['queue', 'transitions', config['consumer_task'], '--full']]
         for task in tasks:
@@ -114,7 +132,8 @@ def consume(operation, value, expected_source):
         return context_probe(config['consumer_task'], queue=queue)
     settings = Settings.load_artifacts()
     if config.get('schema') not in ('polar.fomc-calendar-config/1', 'polar.reference-input-conversion-config/10',
-                                  'polar.reference-input-conversion-config/11', 'polar.band-reference-config/1'):
+                                  'polar.reference-input-conversion-config/11', 'polar.band-reference-config/1',
+                                  'polar.band-existing-publication-reconciliation/1'):
         authorize(config, settings.artifacts, queue=queue)
     # All nested reads, including ordinary load_reference and custody rereads,
     # use this same live host adapter. No caller field can supply this context.
@@ -131,7 +150,8 @@ def bridge(container, operation, value, *, queue=None):
     return pipe_bridge(command, lambda args: permitted(args, config), queue or NativeQueue(),
                        initial={'value': value}, timeout=600, max_reads=128 if config.get('schema') in
                        ('polar.fomc-calendar-config/1', 'polar.reference-input-conversion-config/10',
-                        'polar.reference-input-conversion-config/11', 'polar.band-reference-config/1') else 32)
+                        'polar.reference-input-conversion-config/11', 'polar.band-reference-config/1',
+                        'polar.band-existing-publication-reconciliation/1') else 32)
 
 
 def main():
