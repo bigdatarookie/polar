@@ -15,7 +15,8 @@ def code_binding():
     root=Path(__file__).parent
     names=sorted(str(p.relative_to(root)) for p in root.rglob('*') if p.is_file() and p.suffix in ('.py','.json','.sql'))
     from .scheduled_drawdown import policy_binding
-    return {**{n:sha((root/n).read_bytes()) for n in names}, **policy_binding()}
+    from .band_contract import policy_binding as band_binding
+    return {**{n:sha((root/n).read_bytes()) for n in names}, **policy_binding(), **band_binding()}
 
 def native_worker(connection,converted):
     try:

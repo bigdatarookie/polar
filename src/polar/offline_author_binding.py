@@ -10,8 +10,10 @@ from .research_results import ResearchError
 
 def create(config, profile, grids):
     from .scheduled_service import account_count, binding
-    if config.get('namespace') != 'RETAINED' or config.get('schema') != 'polar.scheduled-reference-config/1':
+    if config.get('namespace') != 'RETAINED' or config.get('schema') not in ('polar.scheduled-reference-config/1','polar.band-reference-config/1'):
         raise ResearchError('RESEARCH_OFFLINE_AUTHOR_BINDING_UNSUPPORTED', 422)
+    if config.get('schema')=='polar.band-reference-config/1' and profile.get('schema')!='polar.scheduled-reference-profile/17':
+        raise ResearchError('RESEARCH_OFFLINE_AUTHOR_BINDING_UNSUPPORTED',422)
     candidate = loaded_revision()
     if config.get('code_revision') != candidate:
         raise ResearchError('RESEARCH_CANDIDATE_REVISION_MISMATCH', 409)
