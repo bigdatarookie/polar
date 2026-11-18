@@ -1,0 +1,106 @@
+{
+  "actual_source_policy_engine_runtime_fit": "NOT_RUN_NOT_READY",
+  "band": {
+    "equality": "HOLD",
+    "lower": [
+      2,
+      5
+    ],
+    "nonpositive_nav": "FAIL_ASSESSABILITY_NO_DEFAULT_RATIO",
+    "observation": "PER_ACCOUNT_ACTUAL_NATIVE_HOLDINGS_PLUS_RESIDUAL_CASH_MARKED_AT_FORMATION_NOT_FUTURE_EXECUTION",
+    "target": [
+      1,
+      2
+    ],
+    "trigger": "MONTH_END_FORMATION",
+    "upper": [
+      3,
+      5
+    ]
+  },
+  "clock": {
+    "MODEL_K": "NEXT_CIVIL_UTC_MIDNIGHT_AFTER_SOURCE_DATE",
+    "decision_delay_seconds": 60,
+    "execution": "FIRST_COMMON_SOURCE_CLOSE_STRICTLY_AFTER_D",
+    "source_K": "UNKNOWN_NOT_UPGRADED",
+    "terminal": "COMMON_EXIT_OVERRIDES_ANY_TARGET_NO_FINAL_REENTRY"
+  },
+  "cost_scenarios": {
+    "BASE": {
+      "bps": 10,
+      "flat_cents": 100
+    },
+    "COST_STRESS": {
+      "bps": 20,
+      "flat_cents": 200
+    }
+  },
+  "criteria_all_FINAL_both_costs": {
+    "every_common_session_posttrade_vti_fraction_max": [
+      3,
+      4
+    ],
+    "fees_strictly_less_monthly_half": true,
+    "maxdd_max_ratio_to_monthly_half": [
+      11,
+      10
+    ],
+    "positive_net_growth": true,
+    "terminal_min_ratio_to_monthly_half": [
+      19,
+      20
+    ],
+    "zero_benchmark_drawdown_requires_zero": true
+  },
+  "distress_disposition": {
+    "mandatory_sale_fee_shortfall_or_genuine_nonpositive_NAV": "ECONOMIC_DISTRESS_UNFINALIZED_TERMINAL_AND_ALL_CASE_CLAIM_NOT_EVALUABLE_PRESERVE_PARTIAL",
+    "missing_or_invalid_source_caller_state": "INVALID_SOURCE_OR_INTEGRATION_NOT_PRESUMED_ECONOMIC_DEFAULT",
+    "native_unrepresentable_branch": "READINESS_GAP_BEFORE_FIRST_START",
+    "ordinary_zero_buy": "ACTUAL_FUNDED_EXECUTED_PATH_NO_FABRICATED_FILL_OR_FEE",
+    "retry": "NO_COMPLETED_SCIENCE_REPLAY_OR_FAVORABLE_RESTART",
+    "unstarted_cases": "NOT_RUN_RETAIN_NO_DROP"
+  },
+  "execution": "ACCEPTED_NATIVE_ACCOUNTS_ONLY_NO_AUTHOR_LEDGER_OR_FAKE_FILLS",
+  "financial_run": "NOT_RUN",
+  "future_financial_miss": {
+    "evidence_status": "ASSESSED_WITH_LIMITS",
+    "verdict": "NOT_SUPPORTED"
+  },
+  "holdout": "EXPOSED_NOT_PRISTINE",
+  "independent_method_review": "AFFECTED_R1_R2_C1_CORRECTION_PENDING_SAME_VALIDATOR",
+  "initial_capital_cents": 10000000,
+  "legs": [
+    "BAND_HALF",
+    "MONTHLY_HALF",
+    "HOLD_INITIAL_HALF",
+    "FULL_VTI",
+    "FULL_BIL"
+  ],
+  "observation_basis": {
+    "asset_values": "research_allocation.nav_cents individual obs158_math.cent_round_micro HALF_EVEN after quantity*microprice",
+    "concentration": "same integer native marked cents and NAV at every funding/common HOLD/terminal mark",
+    "maxdd": "all marks including initial funding running peak, latest equal peak timestamps",
+    "policy_fields": "integer VTI/BIL/cash/NAV cents, exact native NAV=sum",
+    "snapshot": "per-leg per-cost actual formation postroute/postfill/postfee saved mark at nominal+1000ns, no intervening account event before D"
+  },
+  "phases": {
+    "DIAGNOSTIC": [
+      "2021-01-04",
+      "2022-12-30"
+    ],
+    "EXPOSED_FINAL": [
+      "2023-01-03",
+      "2026-11-06"
+    ]
+  },
+  "policy_sha256": "014d219579346ff8c2a11873ae2143543723de8498d048d3bf3c56d411bcccbd",
+  "protocol_sha256": "404dc1dfc13c4ad523aac50d5a4b88021bc3a642ecb6bb292e1032237b70df03",
+  "question_id": "VTI-BIL-NO-TRADE-BAND-01",
+  "schema": "polar.quant-a-vti-bil-band-author-contract/2",
+  "source_fit": "DR_WITH_LIMITS_PROJECTION_NOT_READY",
+  "status": "AUTHOR_PURE_POLICY_NOT_RUNNABLE_CONFIG",
+  "symbols": [
+    "BIL",
+    "VTI"
+  ]
+}
