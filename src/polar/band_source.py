@@ -168,27 +168,28 @@ def authorize(config, root, *, queue=None, prior=None, terminal_result=None, his
                         require_terminal=historical)
 
 
-def checked_spec(config):
+def checked_spec(config, *, read=None):
     """Question-specific source metadata contract; never a substitute grant."""
+    read = read or read_ref
     question, contract, protocol, candidate = method_binding()
     require(config['contract_ref'].get('sha256') == contract and
             config['protocol_ref'].get('sha256') == protocol, 'BAND_SOURCE_METHOD_PINS')
-    require(sha(read_ref(config['contract_ref'])) == contract and sha(read_ref(config['protocol_ref'])) == protocol,
+    require(sha(read(config['contract_ref'])) == contract and sha(read(config['protocol_ref'])) == protocol,
             'BAND_SOURCE_METHOD_PINS')
     if config['namespace'] == 'RETAINED':
         require(config['source_fit_ref'].get('sha256') == DR_FIT_SHA, 'BAND_SOURCE_FIT_PIN')
-    fit_raw = read_ref(config['source_fit_ref'])
+    fit_raw = read(config['source_fit_ref'])
     fit = decode(fit_raw)
     require(sha(fit_raw) == DR_FIT_SHA if config['namespace'] == 'RETAINED' else
             fit == {'schema': 'polar.band-invented-source-fit/1', 'namespace': 'INVENTED',
                     'source_payloads': 'NONE'}, 'BAND_SOURCE_FIT_PIN')
-    spec = decode(read_ref(config['spec_ref']))
+    spec = decode(read(config['spec_ref']))
     require(spec.get('schema') == 'polar.selected-component-materialization/1' and
             spec.get('namespace') == config['namespace'], 'BAND_SOURCE_SPEC')
     require(len(spec.get('leaf_inputs', [])) == len(spec.get('normalized_inputs', [])) == 1 and
             spec['leaf_inputs'][0].get('symbol') == 'BIL' and spec['normalized_inputs'][0].get('symbol') == 'VTI',
             'BAND_SOURCE_SPEC_SYMBOLS')
-    purpose = decode(read_ref(spec['purpose_ref']))
+    purpose = decode(read(spec['purpose_ref']))
     from .selected_reference_input import RIGHTS
     require(purpose.get('schema') == 'polar.band-selected-source-purpose-metadata/1' and
             purpose.get('question_id') == question and purpose.get('candidate_revision') == candidate and
@@ -206,7 +207,7 @@ def checked_spec(config):
                 spec['normalized_inputs'][0]['input_ref']['sha256'] == VTI_PARENT_SHA,
                 'BAND_SOURCE_RETAINED_COMPONENTS')
         from .research_reference import reference_schedule
-        _, days = reference_schedule(decode(read_ref(spec['schedule'])))
+        _, days = reference_schedule(decode(read(spec['schedule'])))
         phases = fit['phase_geometry']
         first = min(p['startup_formation_session'] for p in phases)
         last = max(p['last_session'] for p in phases)
@@ -294,7 +295,9 @@ def authorize_financial(config, profile, manifest, root, *, queue=None):
             source.get('protocol_ref', {}).get('sha256') == protocol and
             source.get('contract_ref', {}).get('sha256') == contract and
             sha(read_ref(config['protocol_ref'])) == protocol, 'BAND_FINANCIAL_SOURCE_BINDING')
-    proof = prepared_authorization(manifest, queue=queue, reconciliation_ref=config['input_ref'].get('reconciliation_ref'))
+    reference = config.get('input_ref', {}).get('reconciliation_ref')
+    proof = prepared_authorization(manifest, queue=queue, **(
+        {'reconciliation_ref': reference} if reference is not None else {}))
     require(proof is not None, 'BAND_FINANCIAL_SOURCE_BINDING')
     again = consumer_custody(config['consumer_task'], queue=queue)
     require(again[:2] == (actor, generation) and

@@ -153,6 +153,17 @@ def test_actual_native_rejections_record_safe_operands_without_source_bodies(tmp
     forbidden=('reference_quote','resolution','source_adjusted_close_token','source_reference','body')
     assert not any(k in e.get('actual',{}) for e in entries if isinstance(e.get('actual'),dict) for k in forbidden)
     assert files(Path(request['input_ref']['path']).parent)==before
+    if part in ('claim','terminal'):
+        if part=='claim':
+            cell=next(e for e in entries if e['read']=='queue' and isinstance(e.get('actual'),list))
+            assert cell['expected']['identityProvenance']=='transport:v1'
+            assert cell['actual'][0]['identityProvenance']=='caller:v1'
+        else:
+            comparisons=json.loads(next(root.glob('band-source-reconciliation-attempts/*/failure/comparison-operands.json')).read_bytes())
+            cell=next(e for e in comparisons if e['check']=='ORIGINAL_NATIVE_TRANSITIONS')
+            assert cell['expected']['terminal_transition']==3
+            assert cell['expected']['identityProvenance']=='transport:v1'
+            assert cell['actual']['terminal']['identityProvenance']=='caller:v1'
 
 
 @pytest.mark.parametrize('part',['manifest','quotes','schedule','source-relations','quality','missing','foreign'])
@@ -167,6 +178,20 @@ def test_existing_object_integrity_rejection_never_rebuilds(tmp_path,monkeypatch
         path=directory/name;path.chmod(0o600);path.write_bytes(path.read_bytes()+b' ')
     with pytest.raises(ValueError):rec.reconcile(request,root,10**8,queue=queue)
     assert not list(root.glob('band-source-reconciliation-attempts/*/finish'))
+    evidence=json.loads(next(root.glob('band-source-reconciliation-attempts/*/failure/comparison-operands.json')).read_bytes())
+    if part=='missing':
+        item=next(e for e in evidence if e['check']=='SAVED_FILE_PRESENCE' and e['actual']['file']=='quality.json')
+        assert item['expected']['present'] is True and item['actual']['present'] is False
+    elif part=='foreign':
+        item=next(e for e in evidence if e['check']=='SAVED_INPUT_ROOT')
+        assert item['actual']['path']!=item['expected']['root']+'/manifest.json'
+    else:
+        item=next(e for e in evidence if e['check']=='SAVED_FILE_INTEGRITY' and
+                  e['actual'].get('sha256') and e['expected']['sha256']!=e['actual']['sha256'])
+        assert len(item['expected']['sha256'])==len(item['actual']['sha256'])==64
+        assert item['actual']['bytes']==item['expected']['bytes']+1
+        assert len(item['actual']['identity'])==5
+        assert 'reference_quote' not in json.dumps(evidence)
 
 
 @pytest.mark.parametrize('part',['observer_task','observer_resolution','failed_terminal','missing_terminal',
@@ -228,3 +253,19 @@ def test_original_failure_cannot_be_relabelled_by_pure_prepare_result_formatter(
         source.authorize(old,root,queue=queue,prior=proof,
                          terminal_result=source.producer_result(old,manifest),historical=True)
     assert queue.original_row==before
+
+
+def test_source_purpose_file_failure_preserves_hash_operands_not_body(tmp_path,monkeypatch):
+    root,request,queue=fixture(tmp_path,monkeypatch)
+    manifest=json.loads(Path(request['input_ref']['path']).read_bytes())
+    config=manifest['conversion_metadata']['source_native_binding']['config']
+    spec=json.loads(Path(config['spec_ref']['path']).read_bytes())
+    pin=spec['purpose_ref'];path=Path(pin['path'])
+    path.write_bytes(path.read_bytes()+b' ')
+    with pytest.raises(ValueError):rec.reconcile(request,root,10**8,queue=queue)
+    evidence=json.loads(next(root.glob('band-source-reconciliation-attempts/*/failure/comparison-operands.json')).read_bytes())
+    cell=next(e for e in evidence if e['check']=='SAVED_FILE_INTEGRITY' and
+              e['expected']['sha256']==pin['sha256'])
+    assert cell['actual']['sha256']!=pin['sha256']
+    assert cell['actual']['bytes']==pin['bytes']+1
+    assert 'source_qualification_refs' not in json.dumps(evidence)

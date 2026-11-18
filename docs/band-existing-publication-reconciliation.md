@@ -53,3 +53,12 @@ adjustment/K-vintage/investor upgrade, financial readiness or original
 preparation success follows. Quant owns any later independently bound financial
 operation. On any error preserve the original object and all new receipts;
 never rerun config11 prepare or overwrite a failed producer.
+
+Observation failures retain two private diagnostic files: custody-comparisons.json
+contains expected/current actor, generation, claim and terminal metadata;
+comparison-operands.json contains exact expected/actual file hashes, byte lengths,
+descriptor identities, presence, original native transition/closure operands and
+hashed saved relationship/status operands. No task/transition bodies, resolution
+bodies, source rows or numerical values are retained in these diagnostics. Bound
+or unreadable files record their observed metadata and an unavailable digest
+rather than being read beyond the existing limit.
