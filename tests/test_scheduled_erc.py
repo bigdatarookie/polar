@@ -108,6 +108,7 @@ def test_actual_native_service_then_immutable_source_absent_reproduction(tmp_pat
     assert {k:v for k,v in base['plan'].items() if k!='cost_profile'}=={k:v for k,v in stress['plan'].items() if k!='cost_profile'}
     finish=json.loads(next((root/'scheduled-reference-attempts').glob('*/*/finish/record.json')).read_bytes())
     assert finish['native_accounts']==6 and finish['actual_erc_counts']==erc.counts(base['plan']['signals'])
+    assert finish['actual_erc_native_invocations']=={'attempted':2,'completed':2}
     for data in phases.values():
         cost=data['simulation']['cost_profile'];assert len(data['evaluation']['criteria'])==9
         for leg in data['simulation']['legs']:
@@ -190,13 +191,18 @@ def test_partial_native_failure_keeps_shared_original_work(tmp_path,monkeypatch)
     original=module.bounded_native;calls=[]
     def fail_stress(plan):
         calls.append(1)
-        if len(calls)==2:raise ValueError('INVENTED_PARTIAL_NATIVE')
+        if len(calls)==2:
+            plan=deepcopy(plan)
+            for decision in plan['decisions']:del decision['instructions']['EW']
         return original(plan)
     monkeypatch.setattr(module,'bounded_native',fail_stress)
     service=ReferenceResearchService(root,128*1024**2)
-    with pytest.raises(ValueError,match='INVENTED_PARTIAL_NATIVE'):service.run(cfg)
+    from polar.ci_research_service import NativeFailure
+    with pytest.raises(NativeFailure):service.run(cfg)
     finish=json.loads(next((root/'scheduled-reference-attempts').glob('*/*/finish/record.json')).read_bytes())
-    assert finish['completed_native_accounts']==3 and finish['refund'] is False and 'scientific_status' not in finish
+    assert finish['completed_native_accounts']==4 and finish['refund'] is False and 'scientific_status' not in finish
+    assert finish['actual_erc_native_invocations']=={'attempted':2,'completed':1}
+    assert finish['native_account_count_scope'].endswith('UNOBSERVED_WORK_NOT_INFERRED')
     assert finish['actual_erc_counts']['completed_prototypes']==len(c['phases']['FINAL']['decisions'])
     with pytest.raises(ValueError,match='SCHEDULED_ORIGINAL_ALREADY_RECORDED'):service.run(cfg)
 
@@ -260,3 +266,22 @@ def test_failed_screen_precedes_undefined_metrics(tmp_path,monkeypatch):
     assert any(c['status']=='UNAVAILABLE' for c in evaluation['criteria'])
     assert any(c['status']=='NOT_MET' for c in evaluation['criteria'])
     assert evaluation['point_interpretation']=='NOT_SUPPORTIVE_ON_THIS_LIMITED_SCREEN'
+
+
+def test_prior_completed_formations_and_failed_solver_work_are_both_retained(tmp_path,monkeypatch):
+    _,cfg,p,c=fixture(tmp_path,monkeypatch);market=load_reference(cfg['input_ref'])
+    original=author.equal_risk_targets;calls=[]
+    from unittest.mock import patch
+    def observed(matrix):
+        if calls:
+            with patch.object(author,'contribution_certificate',side_effect=author.RiskBudgetError('INVENTED_SECOND_FORMATION_FAILURE')):
+                return original(matrix)
+        result=original(matrix);calls.append(result['actual_counts']);return result
+    monkeypatch.setattr(author,'equal_risk_targets',observed)
+    with pytest.raises(AllocationError) as error:plan_phase(market,p,c['phases']['FINAL'],ZoneInfo('America/New_York'))
+    events=error.value.events;counts=events['actual_counts']
+    assert len(events['completed_signals'])==1 and counts['estimator_calls']==counts['completed_estimates']==counts['prototype_calls']==2
+    assert counts['completed_prototypes']==1
+    assert counts['coordinate_update_attempts']==calls[0]['coordinate_update_attempts']+4
+    assert counts['coordinate_updates']==calls[0]['coordinate_updates']+4
+    assert counts['exact_budget_checks']==calls[0]['exact_budget_checks']

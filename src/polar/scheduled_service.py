@@ -301,6 +301,7 @@ def run(service, config):
     feature_counts={}
     priced_counts={}
     erc_counts={}
+    erc_native_attempts=erc_native_completions=0
     try:
         market = load_market(config,profile)
         phases = {}; diagnostics = {}; plans = {}
@@ -326,7 +327,9 @@ def run(service, config):
             plan = plans[reference_phase]
             if scenario is not None:
                 plan = {**plan, 'cost_profile': scenario['cost_profile']}
+            if profile['schema'].endswith('/16'):erc_native_attempts+=1
             simulation = bounded_native(plan); completed += len(simulation['legs'])
+            if profile['schema'].endswith('/16'):erc_native_completions+=1
             initial_state = None
             if profile['schema'].endswith('/9'):
                 from .scheduled_passive import matched_initial_state
@@ -438,6 +441,7 @@ def run(service, config):
             finish['actual_estimator_counts']=estimator_counts
         if profile['schema'].endswith('/16'):
             finish['actual_erc_counts']=erc_counts
+            finish['actual_erc_native_invocations']={'attempted':erc_native_attempts,'completed':erc_native_completions}
         if profile['schema'].endswith('/15'):
             finish['actual_priced_reserve_counts']=priced_counts
         if profile['schema'].endswith('/4'):
@@ -449,7 +453,12 @@ def run(service, config):
                   'fit_calls': 0, 'predict_calls': 0, 'model_calls': 0, 'completed_native_accounts': completed,
                   'refund': False, 'automatic_retry': False, 'finished_ns': time.time_ns()}
         if profile['schema'].endswith('/16'):
-            finish['actual_erc_counts']=getattr(exc,'events',{}).get('actual_counts',erc_counts)
+            events=getattr(exc,'events',{})
+            finish['actual_erc_counts']=events.get('actual_counts',erc_counts) if isinstance(events,dict) else erc_counts
+            finish['actual_erc_native_invocations']={'attempted':erc_native_attempts,'completed':erc_native_completions}
+            if isinstance(events,list):
+                finish['completed_native_accounts']+=sum(e.get('phase')=='ACCOUNT_COMPLETED' for e in events if isinstance(e,dict))
+                finish['native_account_count_scope']='SUCCESSFUL_PHASES_PLUS_OBSERVED_FAILED_PHASE_COMPLETIONS_UNOBSERVED_WORK_NOT_INFERRED'
             from .scheduled_signals import AllocationError
             if isinstance(exc,AllocationError):finish['scientific_status']='INVALID'
         if profile['schema'].endswith('/15'):
