@@ -93,6 +93,8 @@ def load_reference(manifest_pin):
     prepared_authorization(manifest)
     from .fomc_source import prepared_authorization as fomc_authorization
     fomc_authorization(manifest)
+    from .band_source import prepared_authorization as band_authorization
+    band_authorization(manifest)
     version2 = manifest['schema'].endswith('/2')
     expected_basis = 'VENDOR_ALL_ADJUSTED_REFERENCE_CLOSE' if version2 else BASIS
     require(manifest.get('quote_basis') == expected_basis and manifest.get('unit_type') == UNIT and
