@@ -16,13 +16,17 @@ def same(a,b):
 
 def verify(plan,simulation,profile,calendar=None):
     band=profile['schema']=='polar.scheduled-reference-profile/17'
-    erc=profile['schema']=='polar.scheduled-reference-profile/16'
+    dsv=profile['schema']=='polar.scheduled-reference-profile/18'
+    erc=profile['schema'] in ('polar.scheduled-reference-profile/16','polar.scheduled-reference-profile/18')
     parking=profile['schema'] in ('polar.scheduled-reference-profile/12','polar.scheduled-reference-profile/13')
     if band:
         from .scheduled_band import verify_plan,verify_observations
         verify_plan(plan,profile,calendar);verify_observations(plan,simulation)
     elif erc:
-        from .scheduled_erc import verify_plan
+        if dsv:
+            from .scheduled_dsv import verify_plan
+        else:
+            from .scheduled_erc import verify_plan
         verify_plan(plan,profile,calendar)
     elif parking:
         from .scheduled_parking import verify_plan
@@ -142,7 +146,7 @@ def verify(plan,simulation,profile,calendar=None):
                 flat=len(observed)*cost['flat_cents'];bps=sum(f['fee_cents']-cost['flat_cents'] for f in observed)
                 require(same(n['position_cents'],amounts) and same(n['exposure_cents'],sum(amounts.values())) and
                         same(n['flat_cents'],flat) and same(n['bps_cents'],bps),'PARKING_CONSUMED_METRIC_BINDING')
-    return {'status':'VERIFIED_BAND_CONSUMED_OPERANDS' if band else 'VERIFIED_ERC_CONSUMED_OPERANDS' if erc else 'VERIFIED_NEW_FIXED_CONSUMED_OPERANDS' if parking or erc or band else 'VERIFIED_NEW_MODEL_CONSUMED_OPERANDS','source_reads':0,'policy_calls':0,'native_calls':0,'store_writes':0,
+    return {'status':'VERIFIED_DSV_CONSUMED_OPERANDS' if dsv else 'VERIFIED_BAND_CONSUMED_OPERANDS' if band else 'VERIFIED_ERC_CONSUMED_OPERANDS' if erc else 'VERIFIED_NEW_FIXED_CONSUMED_OPERANDS' if parking or erc or band else 'VERIFIED_NEW_MODEL_CONSUMED_OPERANDS','source_reads':0,'policy_calls':0,'native_calls':0,'store_writes':0,
             'old_missing_witnesses':'UNAVAILABLE_NOT_BACKFILLED'}
 
 

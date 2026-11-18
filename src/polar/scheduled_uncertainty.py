@@ -226,7 +226,7 @@ def _interval(values, invalid_reasons, samples):
             'lower_order_index': lower, 'upper_order_index': upper}
 
 
-def bootstrap(simulation, primary_id, benchmark_ids, *, seed=SEED, recipe="LEGACY"):
+def bootstrap(simulation, primary_id, benchmark_ids, *, seed=SEED, recipe="LEGACY", work=None):
     """Fixed1000 paired circular63 draws from the closed saved BASE leg set.
 
     Legs may have native positive integer-cent ``nav`` rows, or ``returns`` with
@@ -234,7 +234,17 @@ def bootstrap(simulation, primary_id, benchmark_ids, *, seed=SEED, recipe="LEGAC
     invented pure callers). Floats and mismatched/missing observations are never
     substituted or silently dropped. This function does not decide robustness.
     """
-    if type(seed) is not int or seed not in {'LEGACY':(37001,37002),'TEMPORAL_DESCRIPTIVE':(37003,), 'RELATIVE_DESCRIPTIVE':(37004,), 'PRICED_RESERVE_DESCRIPTIVE':(37004,), 'ERC_DESCRIPTIVE':(37005,)}.get(recipe,()):
+    dsv=recipe=='DSV_DESCRIPTIVE'
+    if dsv:
+        if work is None:work={'invocations':0,'replicates_started':0,'indices_produced':0,'replicates_completed':0}
+        if set(work)!={'invocations','replicates_started','indices_produced','replicates_completed'}:
+            raise ValueError('BOOTSTRAP_DSV_WORK_FIELDS')
+        work['invocations']+=1
+        if primary_id!='DSV' or benchmark_ids!=['EW','INV']:
+            raise ValueError('BOOTSTRAP_DSV_IDENTITIES')
+    elif work is not None:
+        raise ValueError('BOOTSTRAP_WORK_SCOPE')
+    if type(seed) is not int or seed not in {'LEGACY':(37001,37002),'TEMPORAL_DESCRIPTIVE':(37003,), 'RELATIVE_DESCRIPTIVE':(37004,), 'PRICED_RESERVE_DESCRIPTIVE':(37004,), 'ERC_DESCRIPTIVE':(37005,),'DSV_DESCRIPTIVE':(37006,)}.get(recipe,()):
         raise ValueError('BOOTSTRAP_SEED')
     if recipe=='ERC_DESCRIPTIVE' and (primary_id!='ERC' or benchmark_ids!=['EW','INV']):
         raise ValueError('BOOTSTRAP_ERC_IDENTITIES')
@@ -267,7 +277,9 @@ def bootstrap(simulation, primary_id, benchmark_ids, *, seed=SEED, recipe="LEGAC
     replicates = []
     keys = {'sr_delta': 'sr', 'growth_delta': 'growth', 'drawdown_delta': 'drawdown'}
     for draw in range(SAMPLES):
+        if dsv:work['replicates_started']+=1
         indices = _indices(n, rng)
+        if dsv:work['indices_produced']+=1
         index_bytes = _canonical_indices(indices)
         sequence_hash.update(index_bytes)
         counts = Counter(indices)
@@ -284,11 +296,13 @@ def bootstrap(simulation, primary_id, benchmark_ids, *, seed=SEED, recipe="LEGAC
                 else:
                     reasons[benchmark][name][record['reason']] += 1
             comparisons.append(compared)
-        replicates.append({'draw': draw, 'indices_sha256': sha256(index_bytes).hexdigest(), 'comparisons': comparisons})
-    comparisons = [{'benchmark_id': b, **{s: (_temporal_interval if recipe in ('TEMPORAL_DESCRIPTIVE','RELATIVE_DESCRIPTIVE','ERC_DESCRIPTIVE') else _interval)(valid[b][s], reasons[b][s], SAMPLES) for s in STATISTICS}}
+        replicates.append({'draw': draw, 'indices_sha256': sha256(index_bytes).hexdigest(), 'comparisons': comparisons,
+                           **({'saved_indices':indices} if dsv else {})})
+        if dsv:work['replicates_completed']+=1
+    comparisons = [{'benchmark_id': b, **{s: (_temporal_interval if recipe in ('TEMPORAL_DESCRIPTIVE','RELATIVE_DESCRIPTIVE','ERC_DESCRIPTIVE','DSV_DESCRIPTIVE') else _interval)(valid[b][s], reasons[b][s], SAMPLES) for s in STATISTICS}}
                    for b in benchmark_ids]
     all_valid = all(c[s]['valid_count'] == SAMPLES for c in comparisons for s in STATISTICS)
-    return {'schema': 'polar.scheduled-paired-bootstrap/1', 'status': 'COMPLETE' if all_valid else 'INSUFFICIENT',
+    result={'schema': 'polar.scheduled-paired-bootstrap/1', 'status': 'COMPLETE' if all_valid else 'INSUFFICIENT',
             'reason': None if all_valid else 'REQUIRED_COMPONENT_REPLICATES_INVALID',
             'primary_id': primary_id, 'benchmark_ids': list(benchmark_ids), 'n': n,
             'samples': SAMPLES, 'block_length': BLOCK_LENGTH, 'seed': seed,
@@ -298,6 +312,11 @@ def bootstrap(simulation, primary_id, benchmark_ids, *, seed=SEED, recipe="LEGAC
             'growth_unit': 'CUMULATIVE_NET_WEALTH_RATIO_DIFFERENCE_FROM_W0_EXACT1_NOT_USD_OR_MEAN_RETURN',
             'drawdown_sign': 'STRATEGY_NONNEGATIVE_MAXDD_MINUS_BENCHMARK_NEGATIVE_IS_BETTER',
             'scope': 'DESCRIPTIVE_PAIRED_SAVED_NET_RETURNS_EXPOSED_ERA_NOT_INDEPENDENT_MARKET_ERAS_OR_FINANCIAL_ACCEPTANCE'}
+    if dsv:
+        from .scheduled_dsv_uncertainty import return_binding
+        result.update(saved_draw_schema='polar.dsv-saved-bootstrap-operands/1',
+                      base_return_binding=return_binding(simulation),actual_work=dict(work))
+    return result
 
 
 def _temporal_interval(values, invalid_reasons, samples):
