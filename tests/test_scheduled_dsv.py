@@ -172,3 +172,35 @@ def test_actual_native_both_costs_duplicate_and_saved_only_no_estimator_policy_s
     assert saved['status']=='REPRODUCED' and saved['estimator_calls']==saved['prototype_calls']==saved['bootstrap_samples']==0
     assert saved['newly_sampled_replicates']==0 and saved['verified_saved_replicates']==1000
     assert before=={str(f):sha256(f.read_bytes()).hexdigest() for f in root.rglob('*') if f.is_file()}
+
+
+def test_retained_namespace_automatic_preflight_and_intent_are_source_free_not_legacy_quotas(tmp_path,monkeypatch):
+    """Control-flow test on invented metadata, never retained qualification."""
+    from zoneinfo import ZoneInfo
+    import polar.scheduled_service as module
+    root,cfg,p,calendar=fixture(tmp_path,monkeypatch)
+    cfg['namespace']='RETAINED'
+    monkeypatch.setenv('POLAR_RUNTIME_IMAGE_ID',cfg['runtime_image_id'])
+    calls=[]
+    def prepared(service,config,*,load_prices=True):
+        assert load_prices is False and config is cfg
+        calls.append('SOURCE_FREE_PREPARE_STUB')
+        return p,calendar,[],calendar['phases'],ZoneInfo('America/New_York'),None
+    def forbidden(*a,**k):raise AssertionError('SOURCE_FINANCE_OR_LEGACY_PERMISSION_READ')
+    monkeypatch.setattr(module,'prepare',prepared)
+    for name in ('load_reference','load_market','read_ref','bounded_native'):
+        monkeypatch.setattr(module,name,forbidden)
+    monkeypatch.setattr(author,'downside_targets',forbidden)
+    service=ReferenceResearchService(root,128*1024**2)
+    # Actual automatic intent helper, not a mock returning a legacy grant.
+    ready=module.preflight(service,cfg)
+    assert ready['execution_binding_status']=='AUTOMATIC_OFFLINE_BINDING_READY_NOT_REVIEWED'
+    assert ready['expected_native_accounts']==6 and len(calls)==1
+    intent=module.authority_for(service,cfg,p,calendar['phases'])
+    assert intent['schema']=='polar.offline-author-binding/1'
+    assert intent['scientific_acceptance']=='NOT_REVIEWED' and intent['expected_native_accounts']==6
+    assert not any(k.startswith('allowed_') for k in intent)
+    assert not list(root.glob('scheduled-reference-attempts/*/*/start.json'))
+    legacy={**cfg,'execution_authority_ref':{'path':'/never/open/legacy.json','sha256':'0'*64}}
+    with pytest.raises(ValueError,match='DSV_AUTOMATIC_OFFLINE_BINDING'):
+        module.authority_for(service,legacy,p,calendar['phases'])

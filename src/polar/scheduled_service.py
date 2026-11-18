@@ -254,7 +254,7 @@ def authority_for(service, config, profile, grids):
         require(all(authority.get(key)==0 for key in ('allowed_score_calls','allowed_rank_calls',
                 'allowed_estimator_calls','allowed_optimizer_calls','allowed_bootstrap_samples')),
                 'SCHEDULED_FIXED_COST_OPERATION_BOUND')
-    if profile['schema'].endswith(('/15','/16','/18')):
+    if profile['schema'].endswith(('/15','/16')):
         n=sum(len(g['decisions']) for g in grids.values())
         require(authority.get('allowed_estimator_calls')==n and authority.get('allowed_optimizer_calls')==n and
                 authority.get('allowed_bootstrap_samples')==1000,'PRICED_RESERVE_LEGACY_OPERATION_BOUND')
