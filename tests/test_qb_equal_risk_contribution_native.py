@@ -60,5 +60,6 @@ def test_author_profile_native_costs_publishing_and_saved_only(tmp_path, monkeyp
     reproduced = service.recompute(result['semantic_id'])
     assert reproduced['status'] == 'REPRODUCED'
     assert all(reproduced[k] == 0 for k in
-               ('estimator_calls', 'rule_calls', 'risk_search_calls', 'native_calls', 'store_writes'))
+               ('estimator_calls', 'prototype_calls', 'coordinate_solver_calls',
+                'risk_search_calls', 'native_calls', 'store_writes'))
     assert snapshot(root) == before
