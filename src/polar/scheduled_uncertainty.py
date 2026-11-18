@@ -234,8 +234,10 @@ def bootstrap(simulation, primary_id, benchmark_ids, *, seed=SEED, recipe="LEGAC
     invented pure callers). Floats and mismatched/missing observations are never
     substituted or silently dropped. This function does not decide robustness.
     """
-    if type(seed) is not int or seed not in {'LEGACY':(37001,37002),'TEMPORAL_DESCRIPTIVE':(37003,), 'RELATIVE_DESCRIPTIVE':(37004,), 'PRICED_RESERVE_DESCRIPTIVE':(37004,)}.get(recipe,()):
+    if type(seed) is not int or seed not in {'LEGACY':(37001,37002),'TEMPORAL_DESCRIPTIVE':(37003,), 'RELATIVE_DESCRIPTIVE':(37004,), 'PRICED_RESERVE_DESCRIPTIVE':(37004,), 'ERC_DESCRIPTIVE':(37005,)}.get(recipe,()):
         raise ValueError('BOOTSTRAP_SEED')
+    if recipe=='ERC_DESCRIPTIVE' and (primary_id!='ERC' or benchmark_ids!=['EW','INV']):
+        raise ValueError('BOOTSTRAP_ERC_IDENTITIES')
     priced = recipe=='PRICED_RESERVE_DESCRIPTIVE'
     size = 2 if priced else 3
     legs = simulation.get('legs') if isinstance(simulation, dict) else None
@@ -283,7 +285,7 @@ def bootstrap(simulation, primary_id, benchmark_ids, *, seed=SEED, recipe="LEGAC
                     reasons[benchmark][name][record['reason']] += 1
             comparisons.append(compared)
         replicates.append({'draw': draw, 'indices_sha256': sha256(index_bytes).hexdigest(), 'comparisons': comparisons})
-    comparisons = [{'benchmark_id': b, **{s: (_temporal_interval if recipe in ('TEMPORAL_DESCRIPTIVE','RELATIVE_DESCRIPTIVE') else _interval)(valid[b][s], reasons[b][s], SAMPLES) for s in STATISTICS}}
+    comparisons = [{'benchmark_id': b, **{s: (_temporal_interval if recipe in ('TEMPORAL_DESCRIPTIVE','RELATIVE_DESCRIPTIVE','ERC_DESCRIPTIVE') else _interval)(valid[b][s], reasons[b][s], SAMPLES) for s in STATISTICS}}
                    for b in benchmark_ids]
     all_valid = all(c[s]['valid_count'] == SAMPLES for c in comparisons for s in STATISTICS)
     return {'schema': 'polar.scheduled-paired-bootstrap/1', 'status': 'COMPLETE' if all_valid else 'INSUFFICIENT',

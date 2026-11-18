@@ -149,7 +149,7 @@ def operation_phases(profile, grids):
             for scenario in profile['cost_scenarios']:
                 yield (phase if scenario['id'] == 'BASE' else phase+'_COST_STRESS'), phase, scenario
         return
-    if profile['schema'].endswith(('/2','/4','/6','/7','/8','/9','/11','/12','/13','/14','/15')):
+    if profile['schema'].endswith(('/2','/4','/6','/7','/8','/9','/11','/12','/13','/14','/15','/16')):
         require(set(grids) == {'FINAL'}, 'SCHEDULED_UNCERTAINTY_FINAL_ONLY')
         for scenario in profile['cost_scenarios']:
             yield ('FINAL' if scenario['id'] == 'BASE' else 'FINAL_COST_STRESS'), 'FINAL', scenario
@@ -211,7 +211,7 @@ def authority_for(service, config, profile, grids):
         require(all(authority.get(key)==0 for key in ('allowed_score_calls','allowed_rank_calls',
                 'allowed_estimator_calls','allowed_optimizer_calls','allowed_bootstrap_samples')),
                 'SCHEDULED_FIXED_COST_OPERATION_BOUND')
-    if profile['schema'].endswith('/15'):
+    if profile['schema'].endswith(('/15','/16')):
         n=sum(len(g['decisions']) for g in grids.values())
         require(authority.get('allowed_estimator_calls')==n and authority.get('allowed_optimizer_calls')==n and
                 authority.get('allowed_bootstrap_samples')==1000,'PRICED_RESERVE_LEGACY_OPERATION_BOUND')
@@ -300,12 +300,17 @@ def run(service, config):
     signal_counts={}
     feature_counts={}
     priced_counts={}
+    erc_counts={}
+    erc_native_attempts=erc_native_completions=0
     try:
         market = load_market(config,profile)
         phases = {}; diagnostics = {}; plans = {}
         for phase, reference_phase, scenario in operation_phases(profile, grids):
             if reference_phase not in plans:
                 plans[reference_phase] = plan_phase(market, profile, grids[reference_phase], tz)
+                if profile['schema'].endswith('/16'):
+                    from .scheduled_erc import counts
+                    erc_counts=counts([s for p in plans.values() for s in p['signals']])
                 if profile['schema'].endswith('/15'):
                     from .scheduled_priced_reserve import counts
                     priced_counts=counts([s for p in plans.values() for s in p['signals']])
@@ -322,14 +327,18 @@ def run(service, config):
             plan = plans[reference_phase]
             if scenario is not None:
                 plan = {**plan, 'cost_profile': scenario['cost_profile']}
+            if profile['schema'].endswith('/16'):erc_native_attempts+=1
             simulation = bounded_native(plan); completed += len(simulation['legs'])
+            if profile['schema'].endswith('/16'):erc_native_completions+=1
             initial_state = None
             if profile['schema'].endswith('/9'):
                 from .scheduled_passive import matched_initial_state
                 initial_state = matched_initial_state(simulation,profile,plan)
-            if profile['schema'].endswith(('/10','/12','/13')):
+            if profile['schema'].endswith(('/10','/12','/13','/16')):
                 from .model_price_consumed import verify
-                verify(plan,simulation,profile,{**calendar,'source_schedule_rows':schedule})
+                context={**calendar,'source_schedule_rows':schedule}
+                if profile['schema'].endswith('/16'):context['timezone_tzif_hex']=read_ref(config['timezone_ref']).hex()
+                verify(plan,simulation,profile,context)
             evaluation = evaluate_policy(simulation, profile, reference_phase)
             diagnostics[phase] = phase_diagnostics(simulation, schedule, profile, plan,
                 cost_id=scenario['id'] if scenario else 'BASE',
@@ -343,19 +352,19 @@ def run(service, config):
                 service.store._publish(parent+'/'+aid+'/phases', phase,
                     {'phase.json': canonical(phases[phase]), 'diagnostics.json': canonical(diagnostics[phase])}, file_limit=32*1024**2)
         saved_calendar = {**calendar, 'source_schedule_rows': schedule}
-        if profile['schema'].endswith('/15'):
+        if profile['schema'].endswith(('/15','/16')):
             saved_calendar['timezone_tzif_hex']=read_ref(config['timezone_ref']).hex()
         files = {'profile.json': canonical(profile), 'calendar.json': canonical(saved_calendar), 'phases.json': canonical(phases),
                  'diagnostics.json': canonical(diagnostics), 'bindings.json': canonical(binding(config))}
         manifest = {'schema': 'polar.scheduled-reference-semantic-manifest/1',
                     'files': {n: {'sha256': sha(b), 'bytes': len(b)} for n, b in files.items()}}
         uncertainty = None
-        if profile['schema'].endswith(('/2','/4','/6','/7','/15')):
+        if profile['schema'].endswith(('/2','/4','/6','/7','/15','/16')):
             base = phases['FINAL']['simulation']
             uncertainty = uncertainty_for(base,profile)
             screens_met = all(c['status'] == 'MET' for phase in phases.values() for c in phase['evaluation']['criteria'])
             uncertainty['point_screens_all_met'] = screens_met
-            uncertainty['robustness'] = 'INSUFFICIENT_EVIDENCE' if profile['schema'].endswith(('/6','/7','/15')) else robustness(uncertainty, screens_met)
+            uncertainty['robustness'] = 'INSUFFICIENT_EVIDENCE' if profile['schema'].endswith(('/6','/7','/15','/16')) else robustness(uncertainty, screens_met)
             files['uncertainty.json'] = canonical(uncertainty)
             manifest['files']['uncertainty.json'] = {'sha256':sha(files['uncertainty.json']), 'bytes':len(files['uncertainty.json'])}
         raw = canonical(manifest); sid = SEMANTIC+sha(raw)
@@ -395,6 +404,9 @@ def run(service, config):
                     'text':'Fixed annual BASE and actual doubled-cost accounts are descriptive point screens. BASE carried eras only; stress era diagnostics NOT_REQUESTED. No bootstrap, confidence interval or calibrated post-selection inference; robustness and adoption remain INSUFFICIENT_EVIDENCE regardless of point outcomes.'})
             if profile['schema'] == 'polar.scheduled-reference-profile/3':
                 project_gate_accounting(record, data['plan'], data['simulation'])
+            if profile['schema'].endswith('/16'):
+                record['limitations'].append({'code':'ERC_EXACT_BUDGET_CERTIFICATE','scope':'Entire modeled comparison',
+                    'text':'Deterministic Decimal80 cyclic coordinates are accepted only under the exact rational relative contribution error tolerance1e-8 on fixed half-diagonal-shrunk covariance. This is approximate equal contribution, not exact optimizer equality. All portfolios use the same causal covariance and no-higher-risk maximum exposure grid. Own-account whole units, fees, cash clipping and drift can change filled and realized risk. Original coordinate/estimation/search work and exact certificates remain private in immutable phase/finish evidence; saved verification performs no solver or native execution. Conditional saved-return uncertainty is not population, causal or selection-adjusted inference.'})
             if profile['schema'].endswith('/15'):
                 record['limitations'].append({'code':'PRICED_RESERVE_FORECAST_CERTIFICATE','scope':'Entire modeled comparison',
                     'text':'Maximum fixed grid equity subject to no higher causal forecast variance than VTI plus unremunerated cash. Exact target, selected variance and gap certificates remain private in the immutable plan. Filled and realized risk can differ through whole units, costs, clipping and drift. BIL is a synthetic vendor reference asset, not funding or cash interest; BIL-only is a terminal opportunity hurdle. Saved conditional bootstrap compares SWEPT with CASH_TARGET only, not population or selection-corrected inference.'})
@@ -427,6 +439,9 @@ def run(service, config):
             n=sum(len(g['decisions']) for g in grids.values())
             require(estimator_counts=={'estimator_calls':n+1,'calibration_estimates':1,'rolling_estimates':n,'completed_estimates':n+1},'SCHEDULED_TEMPORAL_COMPLETION_COUNTS')
             finish['actual_estimator_counts']=estimator_counts
+        if profile['schema'].endswith('/16'):
+            finish['actual_erc_counts']=erc_counts
+            finish['actual_erc_native_invocations']={'attempted':erc_native_attempts,'completed':erc_native_completions}
         if profile['schema'].endswith('/15'):
             finish['actual_priced_reserve_counts']=priced_counts
         if profile['schema'].endswith('/4'):
@@ -437,6 +452,15 @@ def run(service, config):
         finish = {'status': 'FAILED_UNFINALIZED', 'attempt_id': aid, 'error': str(exc)[:240],
                   'fit_calls': 0, 'predict_calls': 0, 'model_calls': 0, 'completed_native_accounts': completed,
                   'refund': False, 'automatic_retry': False, 'finished_ns': time.time_ns()}
+        if profile['schema'].endswith('/16'):
+            events=getattr(exc,'events',{})
+            finish['actual_erc_counts']=events.get('actual_counts',erc_counts) if isinstance(events,dict) else erc_counts
+            finish['actual_erc_native_invocations']={'attempted':erc_native_attempts,'completed':erc_native_completions}
+            if isinstance(events,list):
+                finish['completed_native_accounts']+=sum(e.get('phase')=='ACCOUNT_COMPLETED' for e in events if isinstance(e,dict))
+                finish['native_account_count_scope']='SUCCESSFUL_PHASES_PLUS_OBSERVED_FAILED_PHASE_COMPLETIONS_UNOBSERVED_WORK_NOT_INFERRED'
+            from .scheduled_signals import AllocationError
+            if isinstance(exc,AllocationError):finish['scientific_status']='INVALID'
         if profile['schema'].endswith('/15'):
             finish['actual_priced_reserve_counts']=getattr(exc,'events',{}).get('actual_counts',priced_counts)
             from .scheduled_signals import AllocationError
@@ -479,7 +503,7 @@ def run(service, config):
     else:account_finish(finish,lineage,started_ns)
     with service.store.locked():
         service.store._publish(parent+'/'+aid, 'finish', {'record.json': canonical(finish)})
-    if profile['schema'].endswith('/15'):
+    if profile['schema'].endswith(('/15','/16')):
         return {k:finish[k] for k in ('status','attempt_id','semantic_id','results','financial_acceptance')}
     return finish
 
@@ -497,10 +521,10 @@ def recompute(service, semantic_id):
         require(len(body) == pin['bytes'] and sha(body) == pin['sha256'], 'SCHEDULED_MEMBER_HASH')
         files[name] = decode(body)
     profile = profile_value(files['profile.json'])
-    expected_members = MEMBERS | ({'uncertainty.json'} if profile['schema'].endswith(('/2','/4','/6','/7','/15')) else set())
+    expected_members = MEMBERS | ({'uncertainty.json'} if profile['schema'].endswith(('/2','/4','/6','/7','/15','/16')) else set())
     require(set(files) == expected_members, 'SCHEDULED_PROFILE_MEMBER_SET')
     require(files['bindings.json']['code'] == code_binding(), 'SCHEDULED_REPRODUCTION_CODE_BINDING')
-    if profile['schema'].endswith(('/8','/9','/11','/12','/13','/14','/15')):
+    if profile['schema'].endswith(('/8','/9','/11','/12','/13','/14','/15','/16')):
         expected = ({name: scenario for name, _, scenario in operation_phases(profile, files['calendar.json']['phases'])}
                     if profile['schema'].endswith('/14') else
                     {'FINAL':profile['cost_scenarios'][0], 'FINAL_COST_STRESS':profile['cost_scenarios'][1]})
@@ -516,20 +540,23 @@ def recompute(service, semantic_id):
             stress = files['phases.json'][phase+'_COST_STRESS']['plan']
             require({k:v for k,v in base.items() if k!='cost_profile'} ==
                     {k:v for k,v in stress.items() if k!='cost_profile'}, 'DRAWDOWN_STRESS_SHARED_PLAN')
-    if profile['schema'].endswith(('/4','/6','/7','/8','/9','/11','/12','/13','/15')):
+    if profile['schema'].endswith(('/4','/6','/7','/8','/9','/11','/12','/13','/15','/16')):
         base=files['phases.json']['FINAL']['plan'];stress=files['phases.json']['FINAL_COST_STRESS']['plan']
         require({k:v for k,v in base.items() if k!='cost_profile'}=={k:v for k,v in stress.items() if k!='cost_profile'},'SCHEDULED_GMV_STRESS_SHARED_PLAN')
     expected_diagnostics = {}
     # Only saved output arrays are used; no source, policy feature, model or native call.
     calendar = files['calendar.json']
     for phase, data in files['phases.json'].items():
-        if profile['schema'].endswith('/15'):
-            from .scheduled_priced_reserve import verify_plan
+        if profile['schema'].endswith(('/15','/16')):
+            if profile['schema'].endswith('/16'):
+                from .scheduled_erc import verify_plan
+            else:
+                from .scheduled_priced_reserve import verify_plan
             from .scheduled_parking import structural
             tzraw=bytes.fromhex(calendar['timezone_tzif_hex'])
             require(sha(tzraw)==profile['timezone_sha256'],'PRICED_RESERVE_SAVED_TIMEZONE')
             verify_plan(data['plan'],profile,calendar,ZoneInfo.from_file(io.BytesIO(tzraw),key='America/New_York'))
-            structural(data['simulation'],expected_ids=['SWEPT','CASH_TARGET','BIL_ONLY'])
+            structural(data['simulation'],expected_ids=[leg['id'] for leg in profile['legs']])
         if profile['schema'].endswith('/11'):
             from .scheduled_curve import verify_plan,verify_consumed_operands
             verify_plan(data['plan'],profile,calendar['source_schedule_rows'],calendar['phases']['FINAL'])
@@ -540,7 +567,7 @@ def recompute(service, semantic_id):
             if data['plan'].get('consumed_witness_schema')=='polar.model-price-consumed-operands/1':
                 from .model_price_consumed import verify
                 verify(data['plan'],data['simulation'],profile,files['calendar.json'])
-        if profile['schema'].endswith(('/12','/13')):
+        if profile['schema'].endswith(('/12','/13','/16')):
             from .model_price_consumed import verify
             verify(data['plan'],data['simulation'],profile,calendar)
         if profile['schema'].endswith('/7'):
@@ -567,7 +594,7 @@ def recompute(service, semantic_id):
     if 'uncertainty.json' in files:
         actual = uncertainty_for(files['phases.json']['FINAL']['simulation'],profile)
         met = all(c['status'] == 'MET' for phase in files['phases.json'].values() for c in phase['evaluation']['criteria'])
-        actual['point_screens_all_met'] = met; actual['robustness'] = 'INSUFFICIENT_EVIDENCE' if profile['schema'].endswith(('/6','/7','/15')) else robustness(actual, met)
+        actual['point_screens_all_met'] = met; actual['robustness'] = 'INSUFFICIENT_EVIDENCE' if profile['schema'].endswith(('/6','/7','/15','/16')) else robustness(actual, met)
         require(canonical(actual) == canonical(files['uncertainty.json']), 'SCHEDULED_UNCERTAINTY_RECOMPUTE')
     result={'status': 'REPRODUCED', 'semantic_id': semantic_id, 'fit_calls': 0, 'model_calls': 0,
             'predict_calls': 0, 'native_calls': 0, 'store_writes': 0}
@@ -586,6 +613,10 @@ def recompute(service, semantic_id):
         result['actual_estimator_counts']={'estimator_calls':0,'calibration_estimates':0,'rolling_estimates':0,'completed_estimates':0}
     if profile['schema'].endswith('/4'):
         result['actual_optimizer_counts']=optimization_counts([])
+    if profile['schema'].endswith('/16'):
+        from .scheduled_erc import counts
+        result['actual_erc_counts']=counts([])
+        result.update(estimator_calls=0,prototype_calls=0,coordinate_solver_calls=0,risk_search_calls=0)
     if profile['schema'].endswith('/15'):
         result.update(estimator_calls=0,rule_calls=0,risk_search_calls=0)
     return result
@@ -751,7 +782,7 @@ def uncertainty_for(simulation,profile):
     base={'legs':[l for l in simulation['legs'] if l['id'] in wanted]}
     return bootstrap(base,profile['primary_strategy'],[x['id'] for x in profile['legs']
         if x['id'] in wanted and x['id']!=profile['primary_strategy']],seed=profile['uncertainty']['seed'],
-        recipe='PRICED_RESERVE_DESCRIPTIVE' if profile['schema'].endswith('/15') else 'RELATIVE_DESCRIPTIVE' if profile['schema'].endswith('/7') else 'TEMPORAL_DESCRIPTIVE' if temporal else 'LEGACY')
+        recipe='ERC_DESCRIPTIVE' if profile['schema'].endswith('/16') else 'PRICED_RESERVE_DESCRIPTIVE' if profile['schema'].endswith('/15') else 'RELATIVE_DESCRIPTIVE' if profile['schema'].endswith('/7') else 'TEMPORAL_DESCRIPTIVE' if temporal else 'LEGACY')
 
 
 def phase_diagnostics(simulation, schedule, profile, plan, *, cost_id='BASE', subperiods=()):

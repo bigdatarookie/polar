@@ -151,7 +151,7 @@ def verify_signal(signal):
     return weights
 
 
-def verify_plan(plan, profile, calendar, tz):
+def verify_plan(plan, profile, calendar, tz, *, signal_verifier=verify_signal, ids=IDS, kind=KIND):
     from .scheduled_policy import calendar_value
     from .reference_ridge_plan import nanoseconds
     require(set(plan)=={'profile','symbols','prices','grid','decisions','signals','quote_basis','clock_policy'} |
@@ -175,15 +175,15 @@ def verify_plan(plan, profile, calendar, tz):
         instant=known+timedelta(seconds=1)
         require(nanoseconds(known)<nanoseconds(instant)<close(execution), 'PRICED_RESERVE_SAVED_CLOCK')
         if index==len(events)-1:
-            instructions={leg:dict(kind='EXIT') for leg in IDS}
+            instructions={leg:dict(kind='EXIT') for leg in ids}
         else:
-            signal=plan['signals'][index]; weights=verify_signal(signal)
+            signal=plan['signals'][index]; weights=signal_verifier(signal)
             require(signal['formation']==formation and signal['execution']==execution, 'PRICED_RESERVE_SAVED_JOIN')
             instructions={leg:dict(kind='TARGET',weights={s:[w.numerator,w.denominator] for s,w in row.items()},
-                signal={'kind':KIND,'certificate_signal_index':index}) for leg,row in weights.items()}
+                signal={'kind':kind,'certificate_signal_index':index}) for leg,row in weights.items()}
         require(decision==dict(day=execution,formation=formation,known_ns=nanoseconds(known),
                 decision_ns=nanoseconds(instant),open_ns=close(execution),kind='REFERENCE',instructions=instructions),
                 'PRICED_RESERVE_SAVED_INSTRUCTION')
-    require(plan['profile']==dict(kind='REFERENCE_TARGETS',legs=list(IDS),end=grid['terminal']) and
+    require(plan['profile']==dict(kind='REFERENCE_TARGETS',legs=list(ids),end=grid['terminal']) and
             plan['quote_basis']=='SYNTHETIC_VENDOR_ADJUSTED_REFERENCE_UNIT' and
             plan['clock_policy']=='PINNED_REFERENCE_EARLY_CLOSE','PRICED_RESERVE_SAVED_PROFILE')
