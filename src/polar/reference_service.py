@@ -86,7 +86,7 @@ class ReferenceResearchService:
         if config.get('schema') == 'polar.raw-action-config/1':
             from .raw_action_service import prepare
             return prepare(self, config)
-        if config.get('schema') == 'polar.scheduled-reference-config/1':
+        if config.get('schema') in ('polar.scheduled-reference-config/1','polar.band-reference-config/1'):
             from .scheduled_service import prepare
             return prepare(self, config)
         fields={'schema','namespace','profile_id','protocol_ref','input_ref','calendar_ref','timezone_ref','code',
@@ -161,7 +161,7 @@ class ReferenceResearchService:
         if config.get('schema') == 'polar.raw-action-config/1':
             from .raw_action_service import preflight
             return preflight(self, config)
-        if config.get('schema') == 'polar.scheduled-reference-config/1':
+        if config.get('schema') in ('polar.scheduled-reference-config/1','polar.band-reference-config/1'):
             from .scheduled_service import preflight
             return preflight(self, config)
         market,calendar,_,_=self.prepare(config)
@@ -203,7 +203,7 @@ class ReferenceResearchService:
         if config.get('schema') == 'polar.raw-action-config/1':
             from .raw_action_service import run
             return run(self, config)
-        if config.get('schema') == 'polar.scheduled-reference-config/1':
+        if config.get('schema') in ('polar.scheduled-reference-config/1','polar.band-reference-config/1'):
             from .scheduled_service import run
             return run(self, config)
         market,calendar,tz,fit_event=self.prepare(config);authority=self._authority(config)

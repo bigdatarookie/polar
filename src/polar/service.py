@@ -36,7 +36,7 @@ class Service:
         if (isinstance(config,dict) and config.get('schema')=='polar.private-pair-operation-config/1') or (semantic_id or '').startswith('pair-stream-operation-'):
             from .signed_pair_operation import PairOperationService
             return PairOperationService(self.artifacts.root,self.artifacts.limit)
-        if (isinstance(config,dict) and config.get('schema') in ('polar.reference-research-config/1', 'polar.scheduled-reference-config/1','polar.calendar-study-config/1','polar.fomc-calendar-config/1')) or (semantic_id or '').startswith(('reference-experiment-', 'scheduled-reference-experiment-','calendar-study-experiment-','fomc-calendar-experiment-')):
+        if (isinstance(config,dict) and config.get('schema') in ('polar.reference-research-config/1', 'polar.scheduled-reference-config/1','polar.band-reference-config/1','polar.calendar-study-config/1','polar.fomc-calendar-config/1')) or (semantic_id or '').startswith(('reference-experiment-', 'scheduled-reference-experiment-','calendar-study-experiment-','fomc-calendar-experiment-')):
             from .reference_service import ReferenceResearchService
             return ReferenceResearchService(self.artifacts.root,self.artifacts.limit)
         from .ci_research_service import ResearchService
@@ -46,7 +46,7 @@ class Service:
         from .candidate_binding import verify_candidate
         verify_candidate(config)
         if config.get('schema')=='polar.private-pair-operation-config/1':return self._research_engine(config).preflight(config)
-        if config.get('schema') in ('polar.reference-research-config/1', 'polar.scheduled-reference-config/1','polar.calendar-study-config/1','polar.fomc-calendar-config/1'):
+        if config.get('schema') in ('polar.reference-research-config/1', 'polar.scheduled-reference-config/1','polar.band-reference-config/1','polar.calendar-study-config/1','polar.fomc-calendar-config/1'):
             return self._research_engine(config).preflight(config)
         from .ci_research_service import operation_binding
         from .gym_contract import canonical, sha
@@ -69,7 +69,7 @@ class Service:
         if seed.get('schema')=='polar.calendar-study-seed/1':
             from .calendar_study_service import config_from_seed
             return config_from_seed(seed)
-        if seed.get('schema') == 'polar.scheduled-reference-seed/1':
+        if seed.get('schema') in ('polar.scheduled-reference-seed/1','polar.band-reference-seed/1'):
             from .scheduled_service import config_from_seed
             return config_from_seed(seed)
         from .reference_service import PROFILES,config_from_seed as reference_config

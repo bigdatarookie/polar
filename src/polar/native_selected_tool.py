@@ -26,18 +26,26 @@ def selected_config(operation, value):
         if not isinstance(value, dict) or set(value) != {'consumer_task'} or not isinstance(value['consumer_task'], str) or not re.fullmatch(r'qitem-[A-Za-z0-9_.:-]+', value['consumer_task']):
             raise ResearchError('NATIVE_SELECTED_CURRENT_TASK', 409)
         return value
+    if operation in ('research-preflight', 'research-run') and value.get('schema') == 'polar.band-reference-config/1':
+        from .band_contract import QUESTION
+        profile = decode(pinned_bytes(value['profile_ref']))
+        if profile.get('schema') != 'polar.scheduled-reference-profile/17' or profile.get('protocol_id') != QUESTION:
+            raise ResearchError('BAND_FINANCIAL_SCOPE', 409)
+        return value
     if operation in ('research-preflight', 'research-run') and value.get('schema') == 'polar.fomc-calendar-config/1':
         from .fomc_calendar import QUESTION
         if value.get('question_id') != QUESTION:
             raise ResearchError('FOMC_NATIVE_SOURCE_SCOPE', 409)
         return value
-    if operation == 'research-input-prepare' and value.get('schema') == 'polar.reference-input-conversion-config/10':
+    if operation == 'research-input-prepare' and value.get('schema') in (
+            'polar.reference-input-conversion-config/10', 'polar.reference-input-conversion-config/11'):
         return value
     if operation == 'research-input-preflight':
         manifest = decode(pinned_bytes(value))
         meta = manifest.get('conversion_metadata', manifest.get('provenance', {}))
         source = meta.get('source_native_binding', {}).get('config', {})
-        if meta.get('converter') == 'polar.selected-component-materializer/1' and source.get('schema') == 'polar.reference-input-conversion-config/10':
+        if meta.get('converter') == 'polar.selected-component-materializer/1' and source.get('schema') in (
+                'polar.reference-input-conversion-config/10', 'polar.reference-input-conversion-config/11'):
             return source
     if operation == 'research-input-prepare':
         config = value
@@ -65,6 +73,23 @@ def selected_config(operation, value):
 
 
 def permitted(args, config):
+    if config.get('schema') in ('polar.reference-input-conversion-config/11', 'polar.band-reference-config/1'):
+        from .band_source import ACTORS, generation_read
+        tasks = [config['consumer_task']]
+        if config['schema'] == 'polar.band-reference-config/1':
+            from .research_reference import decode, pinned_bytes
+            manifest = decode(pinned_bytes(config['input_ref']))
+            source = manifest.get('provenance', {}).get('source_native_binding', {}).get('config', {})
+            if source.get('schema') != 'polar.reference-input-conversion-config/11':
+                return False
+            tasks.append(source['consumer_task'])
+        allowed = [['whoami'], ['queue', 'show', config['consumer_task'], '--full'],
+                   ['queue', 'transitions', config['consumer_task'], '--full']]
+        for task in tasks:
+            allowed += [['queue', 'show', task, '--full'], ['queue', 'transitions', task, '--full']]
+        for actor in ACTORS:
+            allowed += [['seat', 'status', actor], list(generation_read(actor))]
+        return args in allowed
     from .native_selected_input import generation_read
     allowed = [['whoami'], ['seat', 'status', 'quant-a@polar-rig'],
         list(generation_read('quant-a@polar-rig')),
@@ -88,7 +113,8 @@ def consume(operation, value, expected_source):
         from .native_selected_input import context_probe
         return context_probe(config['consumer_task'], queue=queue)
     settings = Settings.load_artifacts()
-    if config.get('schema') not in ('polar.fomc-calendar-config/1', 'polar.reference-input-conversion-config/10'):
+    if config.get('schema') not in ('polar.fomc-calendar-config/1', 'polar.reference-input-conversion-config/10',
+                                  'polar.reference-input-conversion-config/11', 'polar.band-reference-config/1'):
         authorize(config, settings.artifacts, queue=queue)
     # All nested reads, including ordinary load_reference and custody rereads,
     # use this same live host adapter. No caller field can supply this context.
@@ -104,7 +130,8 @@ def bridge(container, operation, value, *, queue=None):
                '--stdio-consumer', '--operation', operation, '--source-sha256', source_identity()]
     return pipe_bridge(command, lambda args: permitted(args, config), queue or NativeQueue(),
                        initial={'value': value}, timeout=600, max_reads=128 if config.get('schema') in
-                       ('polar.fomc-calendar-config/1', 'polar.reference-input-conversion-config/10') else 32)
+                       ('polar.fomc-calendar-config/1', 'polar.reference-input-conversion-config/10',
+                        'polar.reference-input-conversion-config/11', 'polar.band-reference-config/1') else 32)
 
 
 def main():

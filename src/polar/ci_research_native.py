@@ -29,6 +29,11 @@ def simulate(plan, diagnostics=None):
     if plan.get('profile', {}).get('kind') == 'RAW_ACTION_REINVEST':
         from .raw_action_native import simulate as raw_simulate
         return raw_simulate(plan, diagnostics)
+    band = 'native_policy' in plan
+    if band:require(type(plan['native_policy']) is dict and plan['native_policy'].get('kind')=='QUANT_A_VTI_BIL_NATIVE_BAND','BAND_NATIVE_POLICY_BINDING')
+    if band:
+        from .scheduled_band import qualify_native_plan
+        qualify_native_plan(plan)
     cost_profile = plan.get('cost_profile')
     require('cost_profile' not in plan or cost_profile is not None, 'COST_PROFILE')
     fee_cents(0, 1, cost_profile=cost_profile)  # Closed profile admission before native setup.
@@ -83,6 +88,7 @@ def simulate(plan, diagnostics=None):
                 self.intents = []; self.orders = []; self.fills = []; self.nav = []
                 self.flat = 0; self.bps = 0; self.initiated = False
                 self.first_market_event = False
+                self.band_distress = None
 
             def cash(self):
                 n = Fraction(engine.portfolio.account(venue).balances_total()[USD].as_decimal())*100
@@ -127,6 +133,14 @@ def simulate(plan, diagnostics=None):
                 targets = dict(self.held); budgets = {}; signal = None; sizing = None
                 if profile["kind"] == "REFERENCE_TARGETS":
                     instruction = d["instructions"][leg]
+                    band_observation = None
+                    if band:
+                        from .scheduled_band import observation,native_instruction
+                        saved=next((row for row in self.nav if row['date']==d['formation']),None)
+                        require(saved is not None and saved['positions']==self.held and saved['cash_cents']==self.cash(),
+                                'BAND_ACTUAL_FORMATION_STATE')
+                        band_observation=observation(plan,leg,venue.value,saved)
+                        instruction=native_instruction(plan,leg,d,band_observation)
                     require(set(instruction) <= {"kind", "weights", "signal"} and
                             instruction["kind"] in ("TARGET", "HOLD", "EXIT"), "REFERENCE_INSTRUCTION")
                     if instruction["kind"] == "EXIT":
@@ -173,6 +187,8 @@ def simulate(plan, diagnostics=None):
                                      "spending_budgets_cents": budgets,
                                      "sizing_kind": "FEE_AWARE_SPENDING_BUDGET" if budgets else "WHOLE_REFERENCE_UNIT_TARGETS" if profile["kind"] == "REFERENCE_TARGETS" else "WHOLE_SHARE_TARGETS",
                                      "signal": signal})
+                if band:
+                    self.intents[-1].update(native_formation_observation=band_observation,native_policy_instruction=instruction)
                 if plan.get('capture_consumed_sizing') is True:
                     self.intents[-1].update(decision_id=f"{leg}/{d['day']}",instruction_kind=instruction['kind'],
                         sizing_witness=sizing,sizing_status='CONSUMED_TARGET_OPERANDS' if sizing is not None else 'NOT_APPLICABLE_'+instruction['kind'])
@@ -211,6 +227,13 @@ def simulate(plan, diagnostics=None):
                 if not q:
                     return
                 fee, settled = fee_cents(q, p, cost_profile=cost_profile), cent_round_micro(q*p)
+                if band and side=="SELL" and self.expected_cash+settled-fee<0:
+                    self.band_distress=dict(schema='polar.native-band-economic-distress/1',kind='MANDATORY_SALE_FEE_SHORTFALL',
+                        account_id=venue.value,leg=leg,day=d['day'],at_ns=event.ts_event,cash_cents=self.cash(),
+                        quantities=dict(self.held),symbol=symbol,quantity=q,price_micro=p,fee_cents=fee,settled_cents=settled,
+                        cost_profile=cost_profile,source_input_sha256=plan['native_policy']['input_sha256'])
+                    if diagnostics:diagnostics({'phase':'ECONOMIC_DISTRESS','witness':self.band_distress})
+                    require(False,'BAND_ECONOMIC_DISTRESS')
                 require(self.expected_cash + (settled-fee if side == "SELL" else -settled-fee) >= 0,
                         "SELL_FEE_SHORTFALL")
                 order = self.order_factory.market(instrument_id=ids[symbol], order_side=OrderSide.SELL if side == "SELL" else OrderSide.BUY,
@@ -242,6 +265,13 @@ def simulate(plan, diagnostics=None):
                 else:
                     amounts = {s: cent_round_micro(self.held[s]*prices[grid["date"]][s]["close_micro"]) for s in symbols}
                 exposure = sum(amounts.values()); nav = self.expected_cash+exposure
+                if band and nav<=0:
+                    self.band_distress=dict(schema='polar.native-band-economic-distress/1',kind='NONPOSITIVE_NATIVE_NAV',
+                        account_id=venue.value,leg=leg,day=grid['date'],at_ns=event.ts_event,cash_cents=self.cash(),
+                        quantities=dict(self.held),marked_values_cents=amounts,nav_cents=nav,
+                        cost_profile=cost_profile,source_input_sha256=plan['native_policy']['input_sha256'])
+                    if diagnostics:diagnostics({'phase':'ECONOMIC_DISTRESS','witness':self.band_distress})
+                    require(False,'BAND_ECONOMIC_DISTRESS')
                 require(nav > 0, "NONPOSITIVE_NAV")
                 self.nav.append({"date": grid["date"], "nominal_ns": grid["nominal_ns"],
                     "sample_ns": event.ts_event, "cash_cents": self.expected_cash, "exposure_cents": exposure,
@@ -285,14 +315,15 @@ def simulate(plan, diagnostics=None):
             require(len(adapter.nav) == len(plan["grid"]) and not adapter.outstanding and
                     not any(adapter.held.values()), "NATIVE_INCOMPLETE")
             results.append({"id": leg, "nav": adapter.nav, "intents": adapter.intents,
-                            "orders": adapter.orders, "fills": adapter.fills})
+                            "orders": adapter.orders, "fills": adapter.fills,
+                            **({"native_account_id":venue.value} if band else {})})
             if diagnostics:
                 diagnostics({"phase": "ACCOUNT_COMPLETED", "id": leg, "nav_points": len(adapter.nav), "fills": len(adapter.fills)})
         except BaseException:
             if diagnostics:
                 diagnostics({"phase": "ACCOUNT_PARTIAL", "id": leg, "completed_accounts": results,
                     "partial": {"nav": adapter.nav, "intents": adapter.intents, "orders": adapter.orders,
-                                "fills": adapter.fills} if adapter is not None else None})
+                                "fills": adapter.fills, **({"native_account_id":venue.value,"economic_distress":adapter.band_distress} if band else {})} if adapter is not None else None})
             raise
         finally:
             engine.dispose()
