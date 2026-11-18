@@ -152,7 +152,15 @@ def test_ordinary_zero_buy_is_actual_funded_path_not_distress(tmp_path,monkeypat
             assert leg['fills']==[]
             assert all(r['flat_cents']==r['bps_cents']==0 for r in leg['nav'])
             assert leg['intents'][0]['native_policy_instruction']['kind']=='TARGET'
-            assert any(o['reason']=='FEE_AWARE_BUDGET_CAP' and o['routed_quantity']==0 for o in leg['orders'])
+            startup=leg['intents'][0]
+            assert not any(startup['native_formation_observation']['quantities'].values())
+            if leg['id'] in ('FULL_VTI','FULL_BIL'):
+                assert sum(startup['targets'].values())==1
+                assert any(o['reason']=='FEE_AWARE_BUDGET_CAP' and o['intended_quantity']==1
+                           and o['routed_quantity']==0 for o in leg['orders'])
+            else:
+                assert startup['targets']=={'BIL':0,'VTI':0}
+                assert all(o['reason']=='ZERO_DELTA_NO_ORDER' and o['routed_quantity']==0 for o in leg['orders'])
 
 
 def test_missing_actual_formation_snapshot_is_invalid_integration_not_distress(tmp_path,monkeypatch):

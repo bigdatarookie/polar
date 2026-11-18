@@ -170,7 +170,10 @@ def account_count(profile, grids):
 def operation_phases(profile, grids):
     if profile['schema'].endswith(('/14','/17')):
         require(set(grids) <= {'VALIDATION', 'FINAL'} and 'FINAL' in grids, 'DRAWDOWN_PHASES')
-        for phase in grids:
+        # Serialized calendar objects sort keys, so Band's declared phase
+        # order must not depend on mapping insertion order.
+        ordered = ('VALIDATION','FINAL') if profile['schema'].endswith('/17') else grids
+        for phase in ordered:
             for scenario in profile['cost_scenarios']:
                 yield (phase if scenario['id'] == 'BASE' else phase+'_COST_STRESS'), phase, scenario
         return
