@@ -41,6 +41,8 @@ def test_author_profile_native_costs_publishing_and_saved_only(tmp_path, monkeyp
         assert record['assessment']['financial'] == 'NOT_REVIEWED'
         assert record['record']['primary_benchmark_id'] == 'CASH_TARGET'
         assert len(record['record']['criteria']) == 6
+    with pytest.raises(ValueError, match='SCHEDULED_ORIGINAL_ALREADY_RECORDED'):
+        service.run(cfg)
     before = snapshot(root)
     import polar.scheduled_service as module
     import polar.scheduled_priced_reserve as adapter
@@ -59,5 +61,3 @@ def test_author_profile_native_costs_publishing_and_saved_only(tmp_path, monkeyp
     assert all(reproduced[k] == 0 for k in
                ('estimator_calls', 'rule_calls', 'risk_search_calls', 'native_calls', 'store_writes'))
     assert snapshot(root) == before
-    with pytest.raises(ValueError, match='SCHEDULED_ORIGINAL_ALREADY_RECORDED'):
-        service.run(cfg)
