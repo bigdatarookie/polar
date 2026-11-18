@@ -20,7 +20,7 @@ from polar.research_reference import load_reference
 from reference_fixture import fixture as reference_fixture,write
 
 
-def fixture(tmp_path,monkeypatch,*,distress=False,zero_buy=False):
+def fixture(tmp_path,monkeypatch,*,distress=False,zero_buy=False,late_distress=False):
     root,cfg=reference_fixture(tmp_path,monkeypatch)
     manifest=json.loads(Path(cfg['input_ref']['path']).read_bytes())
     schedule=json.loads(Path(manifest['schedule']['path']).read_bytes())['rows']
@@ -30,7 +30,8 @@ def fixture(tmp_path,monkeypatch,*,distress=False,zero_buy=False):
         if row['symbol'] not in ('AAA','BBB'):continue
         symbol={'AAA':'BIL','BBB':'VTI'}[row['symbol']];day=row['date']
         token='1.000000' if distress else '100000.000000' if zero_buy else '100.000000'
-        if not distress and not zero_buy and symbol=='VTI' and day.endswith('-31'):token='67.100000'
+        if not distress and not zero_buy and not late_distress and symbol=='VTI' and day.endswith('-31'):token='67.100000'
+        if late_distress and symbol=='VTI':token='0.000001' if day=='2018-02-04' else '1.000000'
         if distress and day=='2018-02-04':token='0.000001'
         selected.append({**row,'symbol':symbol,'reference_quote':token,'source_adjusted_close_token':token})
     qp=Path(manifest['quotes']['path']);qp.write_bytes(b''.join(canonical(row) for row in selected))
@@ -235,3 +236,17 @@ def test_official_source_projection_then_band_config_native_and_saved(tmp_path,m
     assert service.preflight(cfg)['policy_execution']=='NOT_RUN'
     result=service.run(cfg);assert result['status']=='SUCCESS'
     assert service.recompute(result['semantic_id'])['status']=='REPRODUCED'
+
+
+def test_distress_after_completed_controls_preserves_actual_account_frontier(tmp_path,monkeypatch):
+    root,cfg,_,_=fixture(tmp_path,monkeypatch,late_distress=True)
+    from polar.ci_research_service import NativeFailure
+    with pytest.raises(NativeFailure):ReferenceResearchService(root,128*1024**2).run(cfg)
+    finish=json.loads(next(root.glob('scheduled-reference-attempts/*/*/finish/record.json')).read_bytes())
+    assert finish['status']=='ECONOMIC_DISTRESS_UNFINALIZED'
+    assert finish['completed_native_accounts']==3
+    cases=finish['account_case_statuses']['VALIDATION']
+    assert [cases[leg] for leg in IDS[:3]]==['COMPLETE']*3
+    assert cases['FULL_VTI']=='ECONOMIC_DISTRESS_UNFINALIZED' and cases['FULL_BIL']=='NOT_RUN'
+    assert all(status=='NOT_RUN' for case,legs in finish['account_case_statuses'].items()
+               if case!='VALIDATION' for status in legs.values())

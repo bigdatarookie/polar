@@ -497,6 +497,20 @@ def run(service, config):
             finish.update(status=disposition,scientific_status='NOT_EVALUABLE',financial_acceptance='NOT_REVIEWED',
                 case_statuses={name:('COMPLETE' if name in phases else disposition if name==band_current_case else 'NOT_RUN')
                     for name,_,_ in operation_phases(profile,grids)})
+            native_events=getattr(exc,'events',[])
+            if not isinstance(native_events,list):native_events=[]
+            done_ids={e.get('id') for e in native_events if isinstance(e,dict) and e.get('phase')=='ACCOUNT_COMPLETED'}
+            partial_ids={e.get('id') for e in native_events if isinstance(e,dict) and e.get('phase')=='ACCOUNT_PARTIAL'}
+            entered_ids={e.get('id') for e in native_events if isinstance(e,dict) and e.get('phase')=='NATIVE_RUN_ENTERED'}
+            finish['completed_native_accounts']+=len(done_ids)
+            finish['native_account_count_scope']='SUCCESSFUL_PHASES_PLUS_CONFIRMED_FAILED_PHASE_COMPLETIONS_NOT_UNOBSERVED_WORK'
+            finish['account_case_statuses']={name:{leg['id']:(
+                'COMPLETE' if name in phases or name==band_current_case and leg['id'] in done_ids else
+                'NOT_RUN' if name!=band_current_case else
+                disposition if leg['id'] in partial_ids else
+                'UNFINALIZED_STATUS_UNKNOWN' if leg['id'] in entered_ids else
+                'NOT_RUN' if partial_ids or band_active_plan is None else 'NOT_OBSERVED')
+                for leg in profile['legs']} for name,_,_ in operation_phases(profile,grids)}
         if profile['schema'].endswith('/16'):
             events=getattr(exc,'events',{})
             finish['actual_erc_counts']=events.get('actual_counts',erc_counts) if isinstance(events,dict) else erc_counts
