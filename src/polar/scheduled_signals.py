@@ -83,14 +83,13 @@ def _risk(weights, covariance):
     return result
 
 
-def inverse_vol_targets(prices, symbols, *, window=60, annual_cap=0.10):
-    """Three monthly allocations at a shared causal covariance forecast risk."""
+def sample_covariance(prices, symbols, *, window=60):
+    """Accepted binary64 sample-covariance recipe; zero geometry stays valid.
+
+    Estimator callers separately validate the positive-risk requirements of
+    their own rule. No fit, source IO, allocation or covariance repair occurs.
+    """
     _require(type(window) is int and window >= 2, 'SCHEDULED_COVARIANCE_WINDOW')
-    try:
-        valid_cap = type(annual_cap) in (float, int) and math.isfinite(annual_cap) and annual_cap > 0
-    except OverflowError:
-        valid_cap = False
-    _require(valid_cap, 'SCHEDULED_ANNUAL_RISK_CAP')
     rows = _history(prices, symbols, window)
     converted = [[_micro_float(row[s]) for s in symbols] for row in rows]
     n = len(symbols)
@@ -105,6 +104,23 @@ def inverse_vol_targets(prices, symbols, *, window=60, annual_cap=0.10):
                        for j in range(n)] for i in range(n)]
         _require(all(math.isfinite(x) for row in covariance for x in row),
                  'SCHEDULED_NONFINITE_COVARIANCE')
+    except (OverflowError, ZeroDivisionError):
+        raise ValueError('SCHEDULED_BINARY64_ARITHMETIC') from None
+    return converted, means, covariance
+
+
+def inverse_vol_targets(prices, symbols, *, window=60, annual_cap=0.10):
+    """Three monthly allocations at a shared causal covariance forecast risk."""
+    _require(type(window) is int and window >= 2, 'SCHEDULED_COVARIANCE_WINDOW')
+    try:
+        valid_cap = type(annual_cap) in (float, int) and math.isfinite(annual_cap) and annual_cap > 0
+    except OverflowError:
+        valid_cap = False
+    _require(valid_cap, 'SCHEDULED_ANNUAL_RISK_CAP')
+    rows = _history(prices, symbols, window)
+    n = len(symbols)
+    try:
+        converted, means, covariance = sample_covariance(prices, symbols, window=window)
         _require(all(covariance[i][i] > 0 for i in range(n)),
                  'SCHEDULED_NONPOSITIVE_VARIANCE')
         sigmas = [math.sqrt(covariance[i][i]) for i in range(n)]
