@@ -85,6 +85,10 @@ def reference_schedule(schedule):
 
 def load_reference(manifest_pin):
     """Read full declared grid without eligibility, returns, fits or source reconstruction."""
+    reconciliation = manifest_pin.get('reconciliation_ref') if isinstance(manifest_pin,dict) else None
+    if reconciliation is not None:
+        require(set(manifest_pin) <= {'path','sha256','bytes','reconciliation_ref'}, 'BAND_RECONCILIATION_INPUT_PIN')
+        manifest_pin = {k:v for k,v in manifest_pin.items() if k!='reconciliation_ref'}
     manifest = decode(pinned_bytes(manifest_pin))
     require(type(manifest) is dict and manifest.get('schema') in
             ('polar.synthetic-reference-source-input/1', 'polar.synthetic-reference-source-input/2'),
@@ -94,7 +98,12 @@ def load_reference(manifest_pin):
     from .fomc_source import prepared_authorization as fomc_authorization
     fomc_authorization(manifest)
     from .band_source import prepared_authorization as band_authorization
-    band_authorization(manifest)
+    band_authorization(manifest, reconciliation_ref=reconciliation)
+    return _load_reference_values(manifest_pin, manifest)
+
+
+def _load_reference_values(manifest_pin, manifest):
+    """Shared saved-row validator; owning entrypoints must verify custody first."""
     version2 = manifest['schema'].endswith('/2')
     expected_basis = 'VENDOR_ALL_ADJUSTED_REFERENCE_CLOSE' if version2 else BASIS
     require(manifest.get('quote_basis') == expected_basis and manifest.get('unit_type') == UNIT and
