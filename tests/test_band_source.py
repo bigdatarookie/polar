@@ -332,3 +332,25 @@ def test_financial_bridge_reads_only_exact_consumer_and_source_tasks(tmp_path,mo
     for task in (financial['consumer_task'],cfg['consumer_task']):
         assert tool.permitted(['queue','show',task,'--full'],financial)
     assert not tool.permitted(['queue','show','qitem-unrelated','--full'],financial)
+
+
+def test_actual_revised_static_assets_bind_source_only_invented_projection(tmp_path,monkeypatch):
+    """Use packaged current author blobs, not a substitute method contract."""
+    actual_method=band.method_binding
+    root,cfg,spec,_=fixture(tmp_path,monkeypatch)
+    monkeypatch.setattr(band,'method_binding',actual_method)
+    from polar.band_contract import AUTHOR_CANDIDATE,CONTRACT_SHA,PROTOCOL_SHA
+    assets=Path(__file__).resolve().parents[1]/'research_candidates/quant_a_vti_bil_band'
+    contract=put(tmp_path/'actual-author-contract.json',(assets/'author_contract.json').read_bytes())
+    protocol=put(tmp_path/'actual-author-protocol.md',(assets/'protocol.md').read_bytes())
+    assert contract['sha256']==CONTRACT_SHA and protocol['sha256']==PROTOCOL_SHA
+    cfg.update(contract_ref=contract,protocol_ref=protocol)
+    purpose=json.loads(Path(spec['purpose_ref']['path']).read_bytes())
+    purpose.update(author_contract=contract,protocol=protocol,candidate_revision=AUTHOR_CANDIDATE)
+    spec['purpose_ref']=put(tmp_path/'current-author-purpose.json',purpose)
+    cfg['spec_ref']=put(tmp_path/'current-author-spec.json',spec)
+    output=prepare_input(cfg,root,10**8)
+    market=load_reference(output['input_ref'])
+    assert market['symbols']==['BIL','VTI']
+    assert output['producer_terminal_result']['spec_sha256']==cfg['spec_ref']['sha256']
+    assert actual_method()[3]=='3b11851a5b1eaf5e7f64d8f1639aafe6fdedfea2'
