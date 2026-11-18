@@ -185,3 +185,53 @@ def test_native_plan_binding_negatives_before_account_entry(tmp_path,monkeypatch
     from polar.ci_research_native import simulate
     with pytest.raises(ValueError):simulate(plan,events.append)
     assert events==[]
+
+
+def test_official_source_projection_then_band_config_native_and_saved(tmp_path,monkeypatch):
+    """Both official stages use actual frozen assets and the same generated source."""
+    import polar.band_source as source
+    import polar.candidate_binding as candidate
+    import polar.offline_author_binding as offline
+    from test_band_source import fixture as source_fixture
+    from reference_fixture import write
+    from test_reference_input import put
+    from polar.reference_input import prepare_input
+    from polar.gym_service import code_binding
+    from polar.ci_research_service import root_identity
+    original_method=source.method_binding;original_revision=candidate.loaded_revision;original_runtime=offline.pair_runtime
+    source_dir=tmp_path/'source';source_dir.mkdir()
+    root,source_config,spec,parent=source_fixture(source_dir,monkeypatch)
+    monkeypatch.setattr(source,'method_binding',original_method)
+    monkeypatch.setattr(candidate,'loaded_revision',original_revision)
+    monkeypatch.setattr(offline,'pair_runtime',original_runtime)
+    repo=Path(__file__).resolve().parents[1]
+    contract=repo/'research_candidates/quant_a_vti_bil_band/author_contract.json'
+    protocol=repo/'research_candidates/quant_a_vti_bil_band/protocol.md'
+    source_config.update(contract_ref=put(source_dir/'actual-contract.json',contract.read_bytes()),
+        protocol_ref=put(source_dir/'actual-protocol.md',protocol.read_bytes()),
+        code_revision=loaded_revision(),runtime_image_id=os.environ['POLAR_CI_RUNTIME_IMAGE_ID'],code=code_binding())
+    domain={'start':'2024-01-31','end':'2024-02-02','count':3}
+    purpose=json.loads(Path(spec['purpose_ref']['path']).read_bytes())
+    from polar.band_contract import AUTHOR_CANDIDATE
+    purpose.update(candidate_revision=AUTHOR_CANDIDATE,author_contract=source_config['contract_ref'],
+        protocol=source_config['protocol_ref'],intended_reference_domain_private=domain)
+    spec.update(date_range=domain,purpose_ref=put(source_dir/'current-purpose.json',purpose))
+    source_config['spec_ref']=put(source_dir/'current-spec.json',spec)
+    prepared=prepare_input(source_config,root,128*1024**2)
+    account_dir=tmp_path/'account';account_dir.mkdir()
+    _,cfg,p,_=fixture(account_dir,monkeypatch)
+    manifest=json.loads(Path(prepared['input_ref']['path']).read_bytes())
+    schedule=json.loads(Path(manifest['schedule']['path']).read_bytes())['rows'];days=[r['date'] for r in schedule]
+    def grid():
+        return dict(initial=days[0],terminal=days[-1],nav_dates=days,nav_points=3,return_count=2,
+            decisions=[band.event(days[0],days[1],schedule,first=True)],decision_count=1,
+            terminal_exit=band.event(days[1],days[2],schedule,terminal=True))
+    calendar=dict(schema=band.CALENDAR,source_schedule=parent['schedule'],phases={'VALIDATION':grid(),'FINAL':grid()})
+    cfg['calendar_ref']=write(account_dir/'source-calendar.json',calendar);cfg['input_ref']=prepared['input_ref']
+    cfg['artifact_root_identity']=root_identity(root)
+    p.update(input_sha256=prepared['input_ref']['sha256'],calendar_sha256=cfg['calendar_ref']['sha256'])
+    cfg['profile_ref']=write(account_dir/'source-profile.json',p)
+    service=ReferenceResearchService(root,128*1024**2)
+    assert service.preflight(cfg)['policy_execution']=='NOT_RUN'
+    result=service.run(cfg);assert result['status']=='SUCCESS'
+    assert service.recompute(result['semantic_id'])['status']=='REPRODUCED'

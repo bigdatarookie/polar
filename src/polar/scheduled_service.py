@@ -84,10 +84,17 @@ def prepare(service, config, *, load_prices=True):
     require(manifest['schema'] in ('polar.synthetic-reference-source-input/1','polar.synthetic-reference-source-input/2') and
             schedule_binding_matches(manifest,calendar['parent_schedule' if profile['schema'].endswith(('/5','/8','/9','/10','/12','/13')) else 'source_schedule']), 'SCHEDULED_SOURCE_CALENDAR')
     if config['namespace'] == 'INVENTED':
-        require(str(manifest.get('parent_dataset_revision', '')).startswith('INVENTED-') and
-                manifest.get('rights') == 'INVENTED_PUBLIC_TEST' and manifest.get('provenance') ==
-                {'kind': 'DETERMINISTIC_INVENTED_FIXTURE', 'producer': 'polar-public-tests', 'source_payloads': 'NONE'},
-                'SCHEDULED_INVENTED_RIGHTS')
+        if band and manifest.get('provenance',{}).get('source_native_binding',{}).get('config',{}).get('schema')=='polar.reference-input-conversion-config/11':
+            from .band_source import prepared_authorization
+            source_proof=prepared_authorization(manifest)
+            source_config=manifest['provenance']['source_native_binding']['config']
+            require(source_config['namespace']=='INVENTED' and manifest.get('rights')=='INVENTED_PUBLIC_TEST' and
+                    source_proof.get('status')=='INVENTED_TEST_ONLY','BAND_INVENTED_SOURCE_SCOPE')
+        else:
+            require(str(manifest.get('parent_dataset_revision', '')).startswith('INVENTED-') and
+                    manifest.get('rights') == 'INVENTED_PUBLIC_TEST' and manifest.get('provenance') ==
+                    {'kind': 'DETERMINISTIC_INVENTED_FIXTURE', 'producer': 'polar-public-tests', 'source_payloads': 'NONE'},
+                    'SCHEDULED_INVENTED_RIGHTS')
         from .reference_service import INPUT
         require(config['input_ref']['sha256'] != INPUT, 'RETAINED_AS_INVENTED_FORBIDDEN')
     else:
