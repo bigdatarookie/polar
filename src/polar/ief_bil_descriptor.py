@@ -243,6 +243,8 @@ def run(config, root, limit, *, queue):
             checkpoint = existing_effect(directory, binding)
             state = 'RECONCILED_PRIVATE_DESCRIPTOR'
         else:
+            # The lock or metadata reads may outlast the original claim.
+            require(current_custody(config, queue) == custody, 'IEF_BIL_DESCRIPTOR_CUSTODY_CHANGED')
             closes = {}
 
             def retain_close(day, symbol, value):

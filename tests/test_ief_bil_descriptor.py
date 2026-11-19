@@ -262,3 +262,13 @@ def test_existing_effect_with_different_binding_is_preserved(tmp_path, invented_
     with pytest.raises(ValueError, match='IEF_BIL_DESCRIPTOR_EFFECT_CONFLICT'):
         descriptor.run(config, root, 10**8, queue=None)
     assert checkpoint.read_bytes() == original
+
+
+def test_custody_rechecked_at_effect_boundary_before_quote_read(tmp_path, invented_runtime, monkeypatch):
+    root, config, _ = synthetic_config(tmp_path, *invented_runtime)
+    states = iter(({'generation': 'first'}, {'generation': 'changed'}))
+    monkeypatch.setattr(descriptor, 'current_custody', lambda *_: next(states))
+    monkeypatch.setattr(descriptor, '_load_reference_values', lambda *a, **k: pytest.fail('stale custody quote read'))
+    with pytest.raises(ValueError, match='IEF_BIL_DESCRIPTOR_CUSTODY_CHANGED'):
+        descriptor.run(config, root, 10**8, queue=None)
+    assert not list((root / descriptor.PARENT).iterdir())
