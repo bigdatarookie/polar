@@ -309,3 +309,99 @@ def test_retained_metadata_read_checks_effective_mount_before_pin(tmp_path, monk
     monkeypatch.setattr(descriptor, 'pinned_bytes', lambda _: pytest.fail('writable metadata read'))
     with pytest.raises(ValueError, match='IEF_BIL_DESCRIPTOR_METADATA_WRITABLE'):
         descriptor.readonly_metadata(pin)
+
+
+def test_output_correction_binds_native_lead_resolution_to_original_quant_claim(tmp_path):
+    from copy import deepcopy
+    from test_band_source import Queue
+
+    queue = Queue()
+    queue.actor = descriptor.QUANT
+    queue.generation = descriptor.ORIGINAL_GENERATION
+    task_id = descriptor.ORIGINAL_TASK
+    config = {'namespace': 'RETAINED', 'consumer_task': task_id, 'actor_session': descriptor.QUANT,
+              'code_revision': 'a' * 40, 'runtime_image_id': 'sha256:' + 'b' * 64,
+              'artifact_root_identity': {'path': str(tmp_path), 'device': '1', 'inode': '2'},
+              'output_volume': {'name': descriptor.OUTPUT_VOLUME, 'created_at': '2026-11-20T00:00:00Z'}}
+    initial = descriptor.authority({**config, 'code_revision': descriptor.ORIGINAL_REVISION})
+    queue.task.update(qitemId=task_id, destinationSession=descriptor.QUANT, sourceSession=descriptor.LEAD,
+                      claimedByGeneration=queue.generation,
+                      handedOffFrom=descriptor.OUTCOME, tags=sorted(source.TAGS), body=canonical(initial).decode())
+    initial_id = descriptor.ORIGINAL_CLAIM
+    claim = {'state': 'in-progress', 'transitionNote': 'claimed',
+             'actorSession': descriptor.QUANT, 'identityProvenance': 'transport:v1'}
+    resumed = {'transitionId': initial_id + 3, 'state': 'pending', 'actorSession': descriptor.LEAD,
+               'transitionNote': f"auto-unparked: blocker {descriptor.OUTPUT_CORRECTION} reached terminal state 'done'"}
+    queue.events = [{**claim, 'transitionId': initial_id}, resumed, {**claim, 'transitionId': initial_id + 4}]
+    parent = {'qitemId': descriptor.OUTCOME, 'state': 'done', 'sourceSession': descriptor.QUANT,
+              'destinationSession': descriptor.LEAD, 'closureReason': 'handed_off_to',
+              'handedOffTo': descriptor.QUANT, 'tags': sorted(source.TAGS)}
+    expected = descriptor.output_correction_approval(config)
+    lead = {'qitemId': descriptor.OUTPUT_CORRECTION, 'state': 'done', 'sourceSession': descriptor.QUANT,
+            'destinationSession': descriptor.LEAD, 'closureReason': 'no-follow-on',
+            'tags': sorted(source.TAGS), 'resolution': canonical(expected).decode()}
+    closing = {'state': 'done', 'transitionId': initial_id + 2,
+               'actorSession': descriptor.LEAD, 'identityProvenance': 'transport:v1'}
+    parent_closing = {**closing, 'transitionId': initial_id - 1}
+    original = queue.read
+
+    def read(*args):
+        assert descriptor.permitted_read(list(args), config)
+        if args[:2] == ('queue', 'show'):
+            return deepcopy({task_id: queue.task, descriptor.OUTCOME: parent,
+                             descriptor.OUTPUT_CORRECTION: lead}[args[2]])
+        if args[:2] == ('queue', 'transitions'):
+            return deepcopy({task_id: queue.events, descriptor.OUTCOME: [parent_closing],
+                             descriptor.OUTPUT_CORRECTION: [closing]}[args[2]])
+        return original(*args)
+
+    queue.read = read
+    proof = descriptor.current_custody(config, queue)
+    assert proof['consumer_task'] == descriptor.ORIGINAL_TASK
+    assert proof['output_correction_transition'] == closing['transitionId']
+    assert proof['claim_transition'] == queue.events[-1]['transitionId']
+    lead['state'] = 'in-progress'
+    with pytest.raises(ValueError, match='OUTPUT_CORRECTION_AUTHORITY'):
+        descriptor.current_custody(config, queue)
+    lead['state'] = 'done'
+    for change in ({'prior_descriptor_effect': 'UNKNOWN'}, {'output_root_identity': {'path': '/alternate'}},
+                   {'output_volume': {**config['output_volume'], 'created_at': 'other'}}):
+        lead['resolution'] = canonical({**expected, **change}).decode()
+        with pytest.raises(ValueError, match='OUTPUT_CORRECTION_AUTHORITY'):
+            descriptor.current_custody(config, queue)
+    lead['resolution'] = canonical(expected).decode()
+    closing['actorSession'] = descriptor.QUANT
+    with pytest.raises(ValueError, match='OUTPUT_CORRECTION_AUTHORITY'):
+        descriptor.current_custody(config, queue)
+    closing['actorSession'] = descriptor.LEAD
+    queue.events.remove(resumed)
+    with pytest.raises(ValueError, match='OUTPUT_CORRECTION_LINEAGE'):
+        descriptor.current_custody(config, queue)
+    queue.events.insert(1, resumed)
+    queue.generation = queue.task['claimedByGeneration'] = 'other-generation'
+    with pytest.raises(ValueError, match='OUTPUT_CORRECTION_LINEAGE'):
+        descriptor.current_custody(config, queue)
+
+
+def test_output_correction_caps_the_volume_to_the_original_retained_scope(tmp_path, invented_runtime):
+    _, invented, _ = synthetic_config(tmp_path, *invented_runtime)
+    volume = {'name': descriptor.OUTPUT_VOLUME, 'created_at': '2026-11-20T00:00:00Z'}
+    with pytest.raises(ValueError, match='OUTPUT_CORRECTION_SCOPE'):
+        descriptor.check_scope({**invented, 'output_volume': volume})
+    retained = {**invented, 'namespace': 'RETAINED', 'consumer_task': descriptor.ORIGINAL_TASK,
+                'protocol_ref': {'sha256': source.PROTOCOL_SHA}, 'locator_ref': {'sha256': descriptor.LOCATOR_SHA},
+                'qualification_ref': {'sha256': descriptor.QUALIFICATION_SHA}, 'output_volume': volume}
+    descriptor.check_scope(retained)
+    with pytest.raises(ValueError, match='OUTPUT_CORRECTION_SCOPE'):
+        descriptor.check_scope({**retained, 'consumer_task': 'qitem-unrelated'})
+
+    mountpoint = '/var/lib/docker/volumes/local-private/_data'
+    mount = {'Type': 'volume', 'Name': descriptor.OUTPUT_VOLUME, 'Driver': 'local', 'Source': mountpoint}
+    inspected = {'Name': descriptor.OUTPUT_VOLUME, 'Driver': 'local', 'Scope': 'local',
+                 'Labels': descriptor.OUTPUT_LABELS, 'Options': None, 'CreatedAt': volume['created_at'],
+                 'Mountpoint': mountpoint}
+    descriptor.check_private_volume(retained, mount, inspected)
+    for change in ({'Options': {'type': 'none', 'o': 'bind', 'device': '/protected'}},
+                   {'CreatedAt': 'recreated'}, {'Labels': {}}, {'Mountpoint': '/another-path'}):
+        with pytest.raises(ValueError, match='IEF_BIL_DESCRIPTOR_PRIVATE_VOLUME'):
+            descriptor.check_private_volume(retained, mount, {**inspected, **change})
