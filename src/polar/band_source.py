@@ -34,21 +34,21 @@ def method_binding():
     return QUESTION, CONTRACT_SHA, PROTOCOL_SHA, AUTHOR_CANDIDATE
 
 
-def generation_read(actor):
-    require(actor in ACTORS, 'BAND_SOURCE_ACTOR')
-    return ('ps', '--nodes', '--rig', ACTORS[actor][0], '--session', actor, '--fields',
+def generation_read(actor, *, actors=ACTORS):
+    require(actor in actors, 'BAND_SOURCE_ACTOR')
+    return ('ps', '--nodes', '--rig', actors[actor][0], '--session', actor, '--fields',
             'rigName,logicalId,canonicalSessionName,sessionStatus,agentActivity')
 
 
-def live_generation(queue, actor):
+def live_generation(queue, actor, *, actors=ACTORS):
     if actor == 'quant-a@polar-rig':
         from .native_selected_input import live_generation as quant_generation
         return quant_generation(queue, actor)
-    snapshot = queue.read(*generation_read(actor))
+    snapshot = queue.read(*generation_read(actor, actors=actors))
     rows = snapshot.get('entries') if isinstance(snapshot, dict) else snapshot
     require(type(rows) is list and len(rows) == 1, 'BAND_SOURCE_GENERATION')
     row = rows[0]; activity = row.get('agentActivity', {})
-    require(row.get('rigName') == ACTORS[actor][0] and row.get('logicalId') == ACTORS[actor][1] and
+    require(row.get('rigName') == actors[actor][0] and row.get('logicalId') == actors[actor][1] and
             row.get('canonicalSessionName') == actor and row.get('sessionStatus') == 'running' and
             activity.get('generationProvenance') == 'resolved' and
             activity.get('evidenceSource') in ('native_owner', 'runtime_hook') and
@@ -57,30 +57,33 @@ def live_generation(queue, actor):
     return activity['generation']
 
 
-def current_actor(queue):
+def current_actor(queue, *, actors=ACTORS):
     identity = queue.read('whoami').get('identity', {})
     actor = identity.get('sessionName')
-    require(actor in ACTORS and bool(identity.get('nodeId')) and
-            (identity.get('rigName'), identity.get('logicalId')) == ACTORS[actor], 'BAND_SOURCE_ACTOR')
+    require(actor in actors and bool(identity.get('nodeId')) and
+            (identity.get('rigName'), identity.get('logicalId')) == actors[actor], 'BAND_SOURCE_ACTOR')
     seat = queue.read('seat', 'status', actor)
     require(seat.get('current_occupant') == actor and
-            (seat.get('rig_name'), seat.get('logical_id')) == ACTORS[actor], 'BAND_SOURCE_ACTOR')
-    return actor, live_generation(queue, actor)
+            (seat.get('rig_name'), seat.get('logical_id')) == actors[actor], 'BAND_SOURCE_ACTOR')
+    return actor, live_generation(queue, actor, actors=actors)
 
 
-def task_custody(config, queue, *, prior=None, terminal_result=None, require_terminal=False):
+def task_custody(config, queue, *, prior=None, terminal_result=None, require_terminal=False,
+                 actors=ACTORS, tags=TAGS, dispatcher=None, terminal_readers=('quant-a@polar-rig',),
+                 terminal_targets=('engineering-platform@engineering-rig', 'quant-a@polar-rig')):
     """A current producer claim, or its unchanged native terminal provenance.
 
     Terminal custody does not authorize finance or a new source operation. A
     later Quant consumer must pass its own service's current execution binding.
     """
-    actor, current = current_actor(queue)
+    actor, current = current_actor(queue, actors=actors)
     producer = config['actor_session']; task_id = config['consumer_task']
-    require(actor == producer if prior is None else actor in (producer, 'quant-a@polar-rig'),
+    require(actor == producer or (prior is not None and actor in terminal_readers),
             'BAND_SOURCE_ACTOR')
     row = queue.read('queue', 'show', task_id, '--full')
     require(row.get('qitemId') == task_id and row.get('destinationSession') == producer and
-            row.get('claimedByGeneration') and TAGS <= set(row.get('tags', [])), 'BAND_SOURCE_CURRENT_TASK')
+            row.get('claimedByGeneration') and tags <= set(row.get('tags', [])) and
+            (dispatcher is None or row.get('sourceSession') == dispatcher), 'BAND_SOURCE_CURRENT_TASK')
     events = queue.read('queue', 'transitions', task_id, '--full')
     claims = [e for e in events if e.get('state') == 'in-progress' and e.get('transitionNote') == 'claimed']
     require(bool(claims), 'BAND_SOURCE_CLAIM')
@@ -94,7 +97,7 @@ def task_custody(config, queue, *, prior=None, terminal_result=None, require_ter
         require(terminal_result is not None and prior is not None and row.get('state') == 'done' and
                 row.get('closureReason') in ('handed_off_to', 'no-follow-on'), 'BAND_SOURCE_TERMINAL_CUSTODY')
         if row['closureReason'] == 'handed_off_to':
-            require(row.get('handedOffTo') in ('engineering-platform@engineering-rig', 'quant-a@polar-rig'),
+            require(row.get('handedOffTo') in terminal_targets,
                     'BAND_SOURCE_TERMINAL_CUSTODY')
         terminals = [e for e in events if e.get('state') == 'done']
         require(bool(terminals), 'BAND_SOURCE_TERMINAL_CUSTODY')
@@ -113,7 +116,7 @@ def task_custody(config, queue, *, prior=None, terminal_result=None, require_ter
     require(prior is None or all(prior.get(k) == v for k, v in proof.items()), 'BAND_SOURCE_PRODUCER_BINDING')
     again = queue.read('queue', 'show', task_id, '--full')
     require(all(again.get(k) == row.get(k) for k in TASK_FIELDS) and
-            live_generation(queue, actor) == current, 'BAND_SOURCE_CUSTODY_CHANGED')
+            live_generation(queue, actor, actors=actors) == current, 'BAND_SOURCE_CUSTODY_CHANGED')
     return proof
 
 

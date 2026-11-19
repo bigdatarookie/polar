@@ -10,7 +10,7 @@ from pathlib import Path
 from .ci_research import require
 from .history_bundle import canonical, sha
 from .history_store import HistoryStore
-from .research_reference import decode, pinned_bytes, reference_schedule, microprice, MAX_BYTES
+from .research_reference import decode, pinned_bytes, reference_schedule, microprice, positive_decimal, MAX_BYTES
 from .reference_input import project_schedule, validate_source
 from .selected_reference_input import RIGHTS
 
@@ -24,7 +24,7 @@ def _merge(target, source):
         target[key] = value
 
 
-def prepare_selected_components(spec, root, limit, *, source_binding):
+def prepare_selected_components(spec, root, limit, *, source_binding, endpoints=None, source_only_schema=None):
     """Materialize only caller-authorized singleton leaves/normalized spans.
 
     source_binding is the caller's already checked new native binding, not an
@@ -44,7 +44,8 @@ def prepare_selected_components(spec, root, limit, *, source_binding):
     require(type(refs) is list and 1 <= len(refs) <= 16, 'SELECTED_COMPONENT_QUALIFICATIONS')
     for ref in refs:
         require(type(decode(pinned_bytes(ref))) is dict, 'SELECTED_COMPONENT_QUALIFICATIONS')
-    schedule = project_schedule(decode(pinned_bytes(spec['schedule'])), spec['date_range'])
+    schedule = project_schedule(decode(pinned_bytes(spec['schedule'])), spec['date_range'], endpoints=endpoints)
+    token_value = positive_decimal if source_only_schema else microprice
     days = [r['date'] for r in schedule['rows']]; day_set = set(days)
     rights = 'INVENTED_PUBLIC_TEST' if spec['namespace'] == 'INVENTED' else RIGHTS
     metadata = []; symbols = []
@@ -88,7 +89,7 @@ def prepare_selected_components(spec, root, limit, *, source_binding):
                     'count': len(original_days)} and type(manifest['rows']) is int and
                     manifest['rows'] == len(original_days) * len(manifest['symbols']),
                     'SELECTED_COMPONENT_PARENT_GRID')
-            clipped = project_schedule(original_schedule, spec['date_range'])
+            clipped = project_schedule(original_schedule, spec['date_range'], endpoints=endpoints)
             require(canonical(clipped['rows']) == canonical(schedule['rows']), 'SELECTED_COMPONENT_CALENDAR')
             relations = decode(pinned_bytes(manifest['source_relations']))
             require(relations.get('schema') == 'polar.reference-source-relations/1', 'SELECTED_COMPONENT_RELATIONS')
@@ -205,14 +206,16 @@ def prepare_selected_components(spec, root, limit, *, source_binding):
                         value['source_reference']['job_id'] == record['canonical_job_id'], 'SELECTED_COMPONENT_ROW')
                 token = value['source_fields_exact_tokens']['c']
                 require(type(token) is str and value['vendor_adjusted_close'] == token, 'SELECTED_COMPONENT_TOKEN')
-                price = microprice(token); parent_hash = sha(canonical(value['parent_relation']))
+                price = token_value(token)
+                quote = token if source_only_schema else f'{price//1000000}.{price%1000000:06d}'
+                parent_hash = sha(canonical(value['parent_relation']))
                 require(parent_hash == jobs[record['canonical_job_id']]['parent_relation_sha256'],
                         'SELECTED_COMPONENT_PARENT')
                 original = value['source_reference']
                 require(part['objects'][original['raw_file']]['sha256'] == original['source_body_sha256'],
                         'SELECTED_COMPONENT_RAW_POINTER')
                 projected = {'symbol': symbol, 'date': day,
-                    'reference_quote': f'{price//1000000}.{price%1000000:06d}', 'source_adjusted_close_token': token,
+                    'reference_quote': quote, 'source_adjusted_close_token': token,
                     'source_ref': {'normalized_member_sha256': pin['sha256'], 'line_1based': index + 1,
                         'line_sha256': sha(line), 'original_source_reference': original, 'query_symbol': symbol,
                         'source_symbol': symbol, 'parent_relation_sha256': parent_hash},
@@ -231,7 +234,7 @@ def prepare_selected_components(spec, root, limit, *, source_binding):
     for (day, symbol), line in selected.items():
         value = decode(line)
         require(set(value) == fields and value['symbol'] == symbol and value['date'] == day and
-                microprice(value['reference_quote']) == microprice(value['source_adjusted_close_token']),
+                token_value(value['reference_quote']) == token_value(value['source_adjusted_close_token']),
                 'SELECTED_COMPONENT_QUOTE')
         validate_source(value, set(members), relations)
     raw = b''.join(selected[day, symbol] for day in days for symbol in symbols)
@@ -246,7 +249,7 @@ def prepare_selected_components(spec, root, limit, *, source_binding):
     revision = 'reference-input-' + sha(canonical(semantic)); destination = Path(root)/'reference-inputs'/revision
     output = lambda name, data: {'path': str(destination/name), 'sha256': sha(data), 'bytes': len(data)}
     schedule_raw, relation_raw = canonical(schedule), canonical(relations)
-    manifest = {'schema': 'polar.synthetic-reference-source-input/2',
+    manifest = {'schema': source_only_schema or 'polar.synthetic-reference-source-input/2',
         'quote_basis': 'VENDOR_ALL_ADJUSTED_REFERENCE_CLOSE', 'unit_type': 'SYNTHETIC_REFERENCE_UNIT_NOT_RAW_SHARE',
         'double_action_policy': 'NO_ADDITIONAL_SPLIT_DIVIDEND_CREDIT_IN_REFERENCE_UNIT_MODEL',
         'symbols': symbols, 'dates': spec['date_range'], 'rows': len(selected), 'rights': rights,
