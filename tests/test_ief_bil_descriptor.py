@@ -272,3 +272,40 @@ def test_custody_rechecked_at_effect_boundary_before_quote_read(tmp_path, invent
     with pytest.raises(ValueError, match='IEF_BIL_DESCRIPTOR_CUSTODY_CHANGED'):
         descriptor.run(config, root, 10**8, queue=None)
     assert not list((root / descriptor.PARENT).iterdir())
+
+
+@pytest.mark.parametrize(('source_path', 'destination'), [
+    ('store', '/tmp/source-alias'), ('store/reference-inputs', '/tmp/member-alias'),
+    ('.', '/tmp/source-parent'), ('protocol.md', '/protocol.md'),
+    ('spec.json', '/spec.json'), ('qualification.json', '/qualification.json'),
+])
+def test_runtime_rejects_writable_source_aliases_and_metadata_mounts(tmp_path, monkeypatch, source_path, destination):
+    from subprocess import CompletedProcess
+    import subprocess
+
+    store = tmp_path / 'store'
+    root = tmp_path / descriptor.OUTPUT_NAME
+    image = 'sha256:' + 'f' * 64
+    config = {'runtime_image_id': image, 'artifact_root_identity': {'path': str(root)}}
+    mounts = [{'Type': 'bind', 'Source': str(path), 'Destination': str(path), 'RW': writable}
+              for path, writable in ((store, False), (root, True))]
+    mounts.append({'Type': 'bind', 'Source': str(tmp_path / source_path), 'Destination': destination, 'RW': False})
+    monkeypatch.setattr(subprocess, 'run', lambda command, **_: CompletedProcess(
+        command, 0, b'\n'.join(map(canonical, (image, 'none', mounts)))))
+    descriptor.check_container('a' * 12, config)
+    mounts[-1]['RW'] = True
+    with pytest.raises(ValueError, match='IEF_BIL_DESCRIPTOR_MOUNTS'):
+        descriptor.check_container('a' * 12, config)
+
+
+def test_retained_metadata_read_checks_effective_mount_before_pin(tmp_path, monkeypatch):
+    import os
+    from types import SimpleNamespace
+
+    pin = put(tmp_path / 'qualification.json', {'invented': True})
+    monkeypatch.setattr(os, 'statvfs', lambda _: SimpleNamespace(f_flag=os.ST_RDONLY))
+    assert descriptor.readonly_metadata(pin) == canonical({'invented': True})
+    monkeypatch.setattr(os, 'statvfs', lambda _: SimpleNamespace(f_flag=0))
+    monkeypatch.setattr(descriptor, 'pinned_bytes', lambda _: pytest.fail('writable metadata read'))
+    with pytest.raises(ValueError, match='IEF_BIL_DESCRIPTOR_METADATA_WRITABLE'):
+        descriptor.readonly_metadata(pin)

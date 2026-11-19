@@ -91,8 +91,11 @@ def check_container(container, config):
         mount = by_destination.get(str(path), {})
         require(mount.get('Type') == 'bind' and mount.get('Source') == str(path) and
                 mount.get('RW') is writable, 'IEF_BIL_DESCRIPTOR_MOUNTS')
-    require(all(not mount['RW'] or not Path(path).is_relative_to(source_root)
-                for path, mount in by_destination.items()), 'IEF_BIL_DESCRIPTOR_MOUNTS')
+    source_host = source_root.resolve()
+    output_host = root.resolve()
+    require(not (output_host.is_relative_to(source_host) or source_host.is_relative_to(output_host)) and
+            all(not mount['RW'] or destination == str(root)
+                for destination, mount in by_destination.items()), 'IEF_BIL_DESCRIPTOR_MOUNTS')
 
 
 def current_custody(config, queue):
@@ -163,11 +166,21 @@ def summarize(values, mean):
             'zero': sum(value == 0 for value in values), 'negative': sum(value < 0 for value in values)}
 
 
+def readonly_metadata(pin):
+    try:
+        read_only = os.statvfs(pin['path']).f_flag & os.ST_RDONLY
+    except OSError:
+        raise ValueError('IEF_BIL_DESCRIPTOR_METADATA_UNAVAILABLE') from None
+    require(read_only, 'IEF_BIL_DESCRIPTOR_METADATA_WRITABLE')
+    return pinned_bytes(pin)
+
+
 def input_binding(config, root, queue):
-    pinned_bytes(config['protocol_ref'])
-    qualification = decode(pinned_bytes(config['qualification_ref']))
-    pin = decode(pinned_bytes(config['locator_ref']))
     retained = config['namespace'] == 'RETAINED'
+    read = readonly_metadata if retained else pinned_bytes
+    read(config['protocol_ref'])
+    qualification = decode(read(config['qualification_ref']))
+    pin = decode(read(config['locator_ref']))
     if retained:
         require(pin['sha256'] == MANIFEST_SHA and
                 qualification['status'] == 'SOURCE_ONLY_SEMANTIC_PREFLIGHT_PASSED' and
@@ -178,7 +191,7 @@ def input_binding(config, root, queue):
                 'IEF_BIL_DESCRIPTOR_SOURCE_QUALIFICATION')
     else:
         require(qualification == {'status': 'INVENTED_TEST_ONLY'}, 'IEF_BIL_DESCRIPTOR_SOURCE_QUALIFICATION')
-    manifest = decode(pinned_bytes(pin))
+    manifest = decode(read(pin))
     metadata, proof, producer, receipt = source.prepared_binding(pin, manifest)
     source_root = Path(producer['artifact_root_identity']['path'])
     require(producer['namespace'] == config['namespace'] and
@@ -195,7 +208,7 @@ def input_binding(config, root, queue):
         source.producer_custody(producer, queue, prior=proof, terminal_result=receipt, require_terminal=True)
     else:
         source.authorize(producer, source_root, prior=proof, terminal_result=receipt)
-    days = source.prepared_endpoints(pin, manifest, source_root, metadata, proof, producer)
+    days = source.prepared_endpoints(pin, manifest, source_root, metadata, proof, producer, read=read)
     return pin, manifest, exact_month_pairs(days)
 
 

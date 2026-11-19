@@ -89,16 +89,17 @@ def purpose_metadata(config, spec):
             'calendar': spec['schedule'], 'endpoints': spec['date_range']}
 
 
-def checked_spec(config):
+def checked_spec(config, *, read=None):
     from .selected_component_input import SCHEMA
 
+    read = read or pinned_bytes
     retained = config['namespace'] == 'RETAINED'
     if retained:
         require(config['protocol_ref']['sha256'] == PROTOCOL_SHA and
                 config['source_fit_ref']['sha256'] == FIT_SHA, 'IEF_BIL_SOURCE_AUTHORITY_PINS')
-    pinned_bytes(config['protocol_ref'])
-    require(type(decode(pinned_bytes(config['source_fit_ref']))) is dict, 'IEF_BIL_SOURCE_FIT')
-    spec = decode(pinned_bytes(config['spec_ref']))
+    read(config['protocol_ref'])
+    require(type(decode(read(config['source_fit_ref']))) is dict, 'IEF_BIL_SOURCE_FIT')
+    spec = decode(read(config['spec_ref']))
     require(type(spec) is dict and spec.get('schema') == SCHEMA and
             spec.get('namespace') == config['namespace'] and spec.get('qualification_refs') == [config['source_fit_ref']],
             'IEF_BIL_SOURCE_SPEC')
@@ -112,8 +113,8 @@ def checked_spec(config):
                 normalized[0]['input_ref']['sha256'] == PARENT_SHA and
                 normalized[0]['binding_ref']['sha256'] == BINDING_SHA and
                 spec['schedule']['sha256'] == CALENDAR_SHA, 'IEF_BIL_SOURCE_COMPONENT_PINS')
-    require(decode(pinned_bytes(spec['purpose_ref'])) == purpose_metadata(config, spec), 'IEF_BIL_SOURCE_PURPOSE')
-    calendar = decode(pinned_bytes(spec['schedule']))
+    require(decode(read(spec['purpose_ref'])) == purpose_metadata(config, spec), 'IEF_BIL_SOURCE_PURPOSE')
+    calendar = decode(read(spec['schedule']))
     endpoints = month_ends(calendar, retained=retained)
     require(spec['date_range'] == {'start': endpoints[0], 'end': endpoints[-1], 'count': len(endpoints)},
             'IEF_BIL_SOURCE_ENDPOINT_SCOPE')
@@ -156,11 +157,11 @@ def prepared_binding(pin, manifest):
     return metadata, proof, config, receipt
 
 
-def prepared_endpoints(pin, manifest, root, metadata, proof, config):
+def prepared_endpoints(pin, manifest, root, metadata, proof, config, *, read=None):
     from .reference_input import project_schedule
     from .selected_component_input import CONVERTER
 
-    spec, calendar, endpoints = checked_spec(config)
+    spec, calendar, endpoints = checked_spec(config, read=read)
     schedule = project_schedule(calendar, spec['date_range'], endpoints=endpoints)
     revision = 'reference-input-' + sha(canonical({
         'converter': CONVERTER, 'spec': spec, 'source_native_binding': proof,
