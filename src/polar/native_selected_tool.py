@@ -12,14 +12,18 @@ import subprocess
 import sys
 
 from .research_results import ResearchError
-from . import ief_bil_source
+from . import ief_bil_descriptor, ief_bil_source
 from .research_native_review import NativeQueue, inherited_queue
 from .research_native_tool import ToolPipe, source_identity, pipe_bridge, MAX_LINE
 
-OPERATIONS = ('native-context-probe', 'research-input-prepare', 'research-input-preflight', 'research-input-reconcile', 'research-preflight', 'research-run')
+OPERATIONS = ('native-context-probe', 'research-input-prepare', 'research-input-preflight', 'research-input-reconcile', 'research-preflight', 'research-run',
+              ief_bil_descriptor.OPERATION)
 
 
 def selected_config(operation, value):
+    if operation == ief_bil_descriptor.OPERATION:
+        ief_bil_descriptor.check_scope(value)
+        return value
     from .research_reference import decode, pinned_bytes
     from .native_selected_input import SCHEMA, CONVERTER
     from .scheduled_drawdown import SCHEMA as PROFILE_SCHEMA
@@ -95,6 +99,8 @@ def selected_config(operation, value):
 
 
 def permitted(args, config):
+    if config.get('schema') == ief_bil_descriptor.SCHEMA:
+        return ief_bil_descriptor.permitted_read(args, config)
     if config.get('schema') == ief_bil_source.SOURCE_SCHEMA:
         from .band_source import generation_read
         task = config['consumer_task']
@@ -149,6 +155,8 @@ def consume(operation, value, expected_source):
         from .native_selected_input import context_probe
         return context_probe(config['consumer_task'], queue=queue)
     settings = Settings.load_artifacts()
+    if operation == ief_bil_descriptor.OPERATION:
+        return ief_bil_descriptor.run(config, settings.artifacts, settings.storage_bytes, queue=queue)
     if config.get('schema') not in ('polar.fomc-calendar-config/1', 'polar.reference-input-conversion-config/10',
                                   'polar.reference-input-conversion-config/11', 'polar.band-reference-config/1',
                                   'polar.band-existing-publication-reconciliation/1', ief_bil_source.SOURCE_SCHEMA):
@@ -163,6 +171,8 @@ def bridge(container, operation, value, *, queue=None):
     if not re.fullmatch('[a-f0-9]{12,64}', container) or operation not in OPERATIONS:
         raise ResearchError('RESEARCH_NATIVE_TOOL_OPERATION', 422)
     config = selected_config(operation, value)
+    if operation == ief_bil_descriptor.OPERATION and config['namespace'] == 'RETAINED':
+        ief_bil_descriptor.check_container(container, config)
     if config.get('schema') == ief_bil_source.SOURCE_SCHEMA and config['namespace'] == 'RETAINED':
         image = subprocess.run(['docker', 'inspect', '--type', 'container', '--format', '{{.Image}}', container],
                                capture_output=True, text=True, timeout=15, check=True).stdout.strip()
@@ -174,7 +184,8 @@ def bridge(container, operation, value, *, queue=None):
                        initial={'value': value}, timeout=600, max_reads=128 if config.get('schema') in
                        ('polar.fomc-calendar-config/1', 'polar.reference-input-conversion-config/10',
                         'polar.reference-input-conversion-config/11', 'polar.band-reference-config/1',
-                        'polar.band-existing-publication-reconciliation/1') else 32)
+                        'polar.band-existing-publication-reconciliation/1')
+                       else 64 if operation == ief_bil_descriptor.OPERATION else 32)
 
 
 def main():

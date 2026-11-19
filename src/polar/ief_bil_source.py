@@ -58,8 +58,12 @@ def authorize(config, root, *, queue=None, prior=None, terminal_result=None):
         proof = {'status': 'INVENTED_TEST_ONLY', 'scope_sha256': sha(canonical(config))}
         require(prior is None or all(prior.get(k) == v for k, v in proof.items()), 'IEF_BIL_SOURCE_BINDING')
         return proof
+    return producer_custody(config, queue, prior=prior, terminal_result=terminal_result)
+
+
+def producer_custody(config, queue, *, prior=None, terminal_result=None, require_terminal=False):
     return task_custody(config, queue or current_queue(), prior=prior, terminal_result=terminal_result,
-                        actors=READERS, tags=TAGS, dispatcher=DISPATCHER, terminal_readers=READERS,
+                        require_terminal=require_terminal, actors=READERS, tags=TAGS, dispatcher=DISPATCHER, terminal_readers=READERS,
                         terminal_targets=(DISPATCHER,))
 
 
@@ -85,16 +89,17 @@ def purpose_metadata(config, spec):
             'calendar': spec['schedule'], 'endpoints': spec['date_range']}
 
 
-def checked_spec(config):
+def checked_spec(config, *, read=None):
     from .selected_component_input import SCHEMA
 
+    read = read or pinned_bytes
     retained = config['namespace'] == 'RETAINED'
     if retained:
         require(config['protocol_ref']['sha256'] == PROTOCOL_SHA and
                 config['source_fit_ref']['sha256'] == FIT_SHA, 'IEF_BIL_SOURCE_AUTHORITY_PINS')
-    pinned_bytes(config['protocol_ref'])
-    require(type(decode(pinned_bytes(config['source_fit_ref']))) is dict, 'IEF_BIL_SOURCE_FIT')
-    spec = decode(pinned_bytes(config['spec_ref']))
+    read(config['protocol_ref'])
+    require(type(decode(read(config['source_fit_ref']))) is dict, 'IEF_BIL_SOURCE_FIT')
+    spec = decode(read(config['spec_ref']))
     require(type(spec) is dict and spec.get('schema') == SCHEMA and
             spec.get('namespace') == config['namespace'] and spec.get('qualification_refs') == [config['source_fit_ref']],
             'IEF_BIL_SOURCE_SPEC')
@@ -108,8 +113,8 @@ def checked_spec(config):
                 normalized[0]['input_ref']['sha256'] == PARENT_SHA and
                 normalized[0]['binding_ref']['sha256'] == BINDING_SHA and
                 spec['schedule']['sha256'] == CALENDAR_SHA, 'IEF_BIL_SOURCE_COMPONENT_PINS')
-    require(decode(pinned_bytes(spec['purpose_ref'])) == purpose_metadata(config, spec), 'IEF_BIL_SOURCE_PURPOSE')
-    calendar = decode(pinned_bytes(spec['schedule']))
+    require(decode(read(spec['purpose_ref'])) == purpose_metadata(config, spec), 'IEF_BIL_SOURCE_PURPOSE')
+    calendar = decode(read(spec['schedule']))
     endpoints = month_ends(calendar, retained=retained)
     require(spec['date_range'] == {'start': endpoints[0], 'end': endpoints[-1], 'count': len(endpoints)},
             'IEF_BIL_SOURCE_ENDPOINT_SCOPE')
@@ -139,11 +144,7 @@ def is_source_manifest(manifest):
                                            source_config(manifest).get('schema') == SOURCE_SCHEMA)
 
 
-def preflight_source_input(pin, manifest, root, *, queue=None):
-    from .reference_input import project_schedule
-    from .research_reference import _load_reference_values
-    from .selected_component_input import CONVERTER
-
+def prepared_binding(pin, manifest):
     metadata = manifest.get('conversion_metadata', manifest.get('provenance', {}))
     proof = metadata.get('source_native_binding', {})
     config = source_config(manifest)
@@ -153,8 +154,14 @@ def preflight_source_input(pin, manifest, root, *, queue=None):
     receipt = {'schema': 'polar.ief-bil-source-result/1', 'status': 'STRUCTURALLY_VALID_SOURCE_ONLY',
                'question_id': QUESTION, 'consumer_task': config['consumer_task'],
                'input_manifest_sha256': pin['sha256'], 'scope_sha256': sha(canonical(config))}
-    authorize(config, root, queue=queue, prior=proof, terminal_result=receipt)
-    spec, calendar, endpoints = checked_spec(config)
+    return metadata, proof, config, receipt
+
+
+def prepared_endpoints(pin, manifest, root, metadata, proof, config, *, read=None):
+    from .reference_input import project_schedule
+    from .selected_component_input import CONVERTER
+
+    spec, calendar, endpoints = checked_spec(config, read=read)
     schedule = project_schedule(calendar, spec['date_range'], endpoints=endpoints)
     revision = 'reference-input-' + sha(canonical({
         'converter': CONVERTER, 'spec': spec, 'source_native_binding': proof,
@@ -173,6 +180,15 @@ def preflight_source_input(pin, manifest, root, *, queue=None):
             all(manifest[key]['path'] == str(directory / name) for key, name in
                 (('schedule', 'schedule.json'), ('quotes', 'quotes.ndjson'), ('source_relations', 'source-relations.json'))),
             'IEF_BIL_SOURCE_PREPARED_BINDING')
+    return endpoints
+
+
+def preflight_source_input(pin, manifest, root, *, queue=None):
+    from .research_reference import _load_reference_values
+
+    metadata, proof, config, receipt = prepared_binding(pin, manifest)
+    authorize(config, root, queue=queue, prior=proof, terminal_result=receipt)
+    prepared_endpoints(pin, manifest, root, metadata, proof, config)
     result = _load_reference_values(pin, manifest, source_only=True)
     authorize(config, root, queue=queue, prior=proof, terminal_result=receipt)
     return {**result, 'producer_terminal_result': receipt}
