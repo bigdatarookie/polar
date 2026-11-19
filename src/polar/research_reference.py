@@ -118,7 +118,7 @@ def _load_checked_reference(manifest_pin, manifest, *, reconciliation=None):
     return _load_reference_values(manifest_pin, manifest)
 
 
-def _load_reference_values(manifest_pin, manifest, *, source_only=False):
+def _load_reference_values(manifest_pin, manifest, *, source_only=False, consume_exact_close=None):
     """Shared saved-row validator; owning entrypoints must verify custody first."""
     version2 = source_only or manifest['schema'].endswith('/2')
     expected_basis = 'VENDOR_ALL_ADJUSTED_REFERENCE_CLOSE' if version2 else BASIS
@@ -151,7 +151,8 @@ def _load_reference_values(manifest_pin, manifest, *, source_only=False):
                 value['date'] == day, 'REFERENCE_ROW_IDENTITY_ORDER')
         require(not source_only or line.endswith(b'\n'), 'REFERENCE_ROW_TERMINATOR')
         quote = token_value(value['reference_quote'])
-        require(quote == token_value(value['source_adjusted_close_token']), 'REFERENCE_SCALE_CHANGED')
+        exact_close = token_value(value['source_adjusted_close_token'])
+        require(quote == exact_close, 'REFERENCE_SCALE_CHANGED')
         source = value['source_ref']
         if version2:
             from .reference_input import validate_source
@@ -166,6 +167,8 @@ def _load_reference_values(manifest_pin, manifest, *, source_only=False):
                 type(source['source_row_index']) is int and source['source_row_index'] >= 0,
                 'REFERENCE_SOURCE_POINTER')
         if source_only:
+            if consume_exact_close is not None:
+                consume_exact_close(day, symbol, exact_close)
             continue
         prices.setdefault(day, {})[symbol] = quote
         # Preserve unknown clocks verbatim. Protocol eligibility is a separate layer.
