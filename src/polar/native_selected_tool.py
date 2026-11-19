@@ -12,6 +12,7 @@ import subprocess
 import sys
 
 from .research_results import ResearchError
+from . import ief_bil_source
 from .research_native_review import NativeQueue, inherited_queue
 from .research_native_tool import ToolPipe, source_identity, pipe_bridge, MAX_LINE
 
@@ -42,6 +43,9 @@ def selected_config(operation, value):
         if value.get('question_id') != QUESTION:
             raise ResearchError('FOMC_NATIVE_SOURCE_SCOPE', 409)
         return value
+    if operation == 'research-input-prepare' and value.get('schema') == ief_bil_source.SOURCE_SCHEMA:
+        ief_bil_source.check_scope(value)
+        return value
     if operation == 'research-input-prepare' and value.get('schema') in (
             'polar.reference-input-conversion-config/10', 'polar.reference-input-conversion-config/11'):
         return value
@@ -54,6 +58,12 @@ def selected_config(operation, value):
         return receipt['request']
     if operation == 'research-input-preflight':
         manifest = decode(pinned_bytes(value))
+        if ief_bil_source.is_source_manifest(manifest):
+            if manifest.get('schema') != ief_bil_source.MANIFEST_SCHEMA:
+                raise ResearchError('IEF_BIL_SOURCE_MANIFEST', 409)
+            config = ief_bil_source.source_config(manifest)
+            ief_bil_source.check_scope(config)
+            return config
         meta = manifest.get('conversion_metadata', manifest.get('provenance', {}))
         source = meta.get('source_native_binding', {}).get('config', {})
         if meta.get('converter') == 'polar.selected-component-materializer/1' and source.get('schema') in (
@@ -85,6 +95,14 @@ def selected_config(operation, value):
 
 
 def permitted(args, config):
+    if config.get('schema') == ief_bil_source.SOURCE_SCHEMA:
+        from .band_source import generation_read
+        task = config['consumer_task']
+        allowed = [['whoami'], ['queue', 'show', task, '--full'],
+                   ['queue', 'transitions', task, '--full']]
+        for actor in ief_bil_source.READERS:
+            allowed += [['seat', 'status', actor], list(generation_read(actor, actors=ief_bil_source.READERS))]
+        return args in allowed
     if config.get('schema') in ('polar.reference-input-conversion-config/11', 'polar.band-reference-config/1',
                                  'polar.band-existing-publication-reconciliation/1'):
         from .band_source import ACTORS, generation_read
@@ -133,7 +151,7 @@ def consume(operation, value, expected_source):
     settings = Settings.load_artifacts()
     if config.get('schema') not in ('polar.fomc-calendar-config/1', 'polar.reference-input-conversion-config/10',
                                   'polar.reference-input-conversion-config/11', 'polar.band-reference-config/1',
-                                  'polar.band-existing-publication-reconciliation/1'):
+                                  'polar.band-existing-publication-reconciliation/1', ief_bil_source.SOURCE_SCHEMA):
         authorize(config, settings.artifacts, queue=queue)
     # All nested reads, including ordinary load_reference and custody rereads,
     # use this same live host adapter. No caller field can supply this context.
@@ -145,6 +163,11 @@ def bridge(container, operation, value, *, queue=None):
     if not re.fullmatch('[a-f0-9]{12,64}', container) or operation not in OPERATIONS:
         raise ResearchError('RESEARCH_NATIVE_TOOL_OPERATION', 422)
     config = selected_config(operation, value)
+    if config.get('schema') == ief_bil_source.SOURCE_SCHEMA and config['namespace'] == 'RETAINED':
+        image = subprocess.run(['docker', 'inspect', '--type', 'container', '--format', '{{.Image}}', container],
+                               capture_output=True, text=True, timeout=15, check=True).stdout.strip()
+        if image != config['runtime_image_id']:
+            raise ResearchError('IEF_BIL_SOURCE_RUNTIME_IMAGE', 409)
     command = ['docker', 'exec', '-i', container, 'python', '-u', '-m', 'polar.native_selected_tool',
                '--stdio-consumer', '--operation', operation, '--source-sha256', source_identity()]
     return pipe_bridge(command, lambda args: permitted(args, config), queue or NativeQueue(),

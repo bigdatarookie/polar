@@ -70,11 +70,15 @@ def validate_source(value, members, relations):
             parent['source_record_ids'] == job['source_record_ids'], 'REFERENCE_PARENT_RELATION')
 
 
-def project_schedule(parent_schedule,date_range):
+def project_schedule(parent_schedule,date_range, *, endpoints=None):
     """Lossless calendar clipping only: preserve original metadata/session clocks."""
     schedule=deepcopy(parent_schedule)
     schedule['rows']=[r for r in schedule['rows'] if date_range['start']<=r['date']<=date_range['end']]
+    if endpoints is not None:
+        selected = set(endpoints)
+        schedule['rows'] = [row for row in schedule['rows'] if row['date'] in selected]
     days=[r['date'] for r in schedule['rows']]
+    require(endpoints is None or days == endpoints, 'REFERENCE_CONVERSION_ENDPOINTS')
     require(days==sorted(set(days)) and len(days)==date_range['count'] and days and
             days[0]==date_range['start'] and days[-1]==date_range['end'],'REFERENCE_CONVERSION_SCHEDULE')
     for i,row in enumerate(schedule['rows']):
@@ -99,6 +103,10 @@ def schedule_binding_matches(manifest,calendar_schedule):
 
 def prepare_input(config, root, limit, *, native_queue=None):
     """Called only by the owning source consumer after applicable qualification."""
+    from .ief_bil_source import SOURCE_SCHEMA
+    if type(config) is dict and config.get('schema') == SOURCE_SCHEMA:
+        from .ief_bil_source import prepare_source_input
+        return prepare_source_input(config, root, limit, queue=native_queue)
     if type(config) is dict and config.get('schema') == 'polar.reference-input-conversion-config/11':
         from .band_source import prepare_source_input
         return prepare_source_input(config, root, limit, queue=native_queue)
@@ -325,8 +333,16 @@ def prepare_input(config, root, limit, *, native_queue=None):
             'quote_bytes': len(quote_raw), 'scientific_fitness': 'NOT_ASSESSED', 'strategy_execution': 'NOT_RUN'}
 
 
-def preflight_input(pin):
-    market = load_reference(pin)
+def preflight_input(pin, *, root=None, native_queue=None):
+    from .ief_bil_source import is_source_manifest, preflight_source_input
+    from .research_reference import _load_checked_reference
+    if isinstance(pin, dict) and pin.get('reconciliation_ref') is not None:
+        market = load_reference(pin)
+    else:
+        manifest = decode(pinned_bytes(pin))
+        if is_source_manifest(manifest):
+            return preflight_source_input(pin, manifest, root, queue=native_queue)
+        market = _load_checked_reference(pin, manifest)
     return {'status': 'STRUCTURALLY_VALID_SOURCE_ONLY', 'symbols': len(market['symbols']),
             'dates': len(market['dates']), 'quote_basis': market['quote_basis'],
             'rows': len(market['dates'])*len(market['symbols']), 'strategy_execution': 'NOT_RUN'}

@@ -91,7 +91,7 @@ class Service:
     def research_input_preflight(self, manifest_pin):
         from .reference_input import preflight_input
         try:
-            return preflight_input(manifest_pin)
+            return preflight_input(manifest_pin, root=self.artifacts.root, native_queue=self.native_queue)
         except (KeyError, TypeError, IndexError, AttributeError):
             raise ValueError('REFERENCE_CONVERSION_INVALID') from None
 

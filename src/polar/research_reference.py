@@ -4,6 +4,7 @@ Consumes the existing private DE projection. Raw OHLC is never substituted for
 reference_quote. The schedule is a pinned model calendar, not observed PIT.
 """
 from datetime import date, datetime
+from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
 import hashlib
@@ -83,13 +84,28 @@ def reference_schedule(schedule):
     return rows, days
 
 
+def positive_decimal(token):
+    require(type(token) is str and len(token) <= 64 and re.fullmatch(
+        r'(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]{1,3})?', token),
+        'REFERENCE_EXACT_DECIMAL')
+    value = Decimal(token)
+    require(value > 0 and abs(value.as_tuple().exponent) <= 256 and value.adjusted() <= 256,
+            'REFERENCE_EXACT_DECIMAL_DOMAIN')
+    return value
+
+
 def load_reference(manifest_pin):
     """Read full declared grid without eligibility, returns, fits or source reconstruction."""
     reconciliation = manifest_pin.get('reconciliation_ref') if isinstance(manifest_pin,dict) else None
     if reconciliation is not None:
         require(set(manifest_pin) <= {'path','sha256','bytes','reconciliation_ref'}, 'BAND_RECONCILIATION_INPUT_PIN')
         manifest_pin = {k:v for k,v in manifest_pin.items() if k!='reconciliation_ref'}
-    manifest = decode(pinned_bytes(manifest_pin))
+    return _load_checked_reference(manifest_pin, decode(pinned_bytes(manifest_pin)), reconciliation=reconciliation)
+
+
+def _load_checked_reference(manifest_pin, manifest, *, reconciliation=None):
+    from .ief_bil_source import is_source_manifest
+    require(not is_source_manifest(manifest), 'IEF_BIL_SOURCE_ONLY')
     require(type(manifest) is dict and manifest.get('schema') in
             ('polar.synthetic-reference-source-input/1', 'polar.synthetic-reference-source-input/2'),
             'REFERENCE_MANIFEST_SCHEMA')
@@ -102,9 +118,9 @@ def load_reference(manifest_pin):
     return _load_reference_values(manifest_pin, manifest)
 
 
-def _load_reference_values(manifest_pin, manifest):
+def _load_reference_values(manifest_pin, manifest, *, source_only=False):
     """Shared saved-row validator; owning entrypoints must verify custody first."""
-    version2 = manifest['schema'].endswith('/2')
+    version2 = source_only or manifest['schema'].endswith('/2')
     expected_basis = 'VENDOR_ALL_ADJUSTED_REFERENCE_CLOSE' if version2 else BASIS
     require(manifest.get('quote_basis') == expected_basis and manifest.get('unit_type') == UNIT and
             manifest.get('double_action_policy') == 'NO_ADDITIONAL_SPLIT_DIVIDEND_CREDIT_IN_REFERENCE_UNIT_MODEL',
@@ -126,14 +142,16 @@ def _load_reference_values(manifest_pin, manifest):
     lines = raw.splitlines(keepends=True)
     require(len(lines) == manifest['rows'], 'REFERENCE_ROW_COUNT')
     prices, evidence = {}, {}
+    token_value = positive_decimal if source_only else microprice
     fields = {'symbol', 'date', 'reference_quote', 'source_adjusted_close_token', 'source_ref',
               'observed_published_at', 'observed_historical_available_at'}
     for line, (day, symbol) in zip(lines, ((d, s) for d in days for s in symbols)):
         value = decode(line)
         require(type(value) is dict and set(value) == fields and value['symbol'] == symbol and
                 value['date'] == day, 'REFERENCE_ROW_IDENTITY_ORDER')
-        quote = microprice(value['reference_quote'])
-        require(quote == microprice(value['source_adjusted_close_token']), 'REFERENCE_SCALE_CHANGED')
+        require(not source_only or line.endswith(b'\n'), 'REFERENCE_ROW_TERMINATOR')
+        quote = token_value(value['reference_quote'])
+        require(quote == token_value(value['source_adjusted_close_token']), 'REFERENCE_SCALE_CHANGED')
         source = value['source_ref']
         if version2:
             from .reference_input import validate_source
@@ -147,11 +165,17 @@ def _load_reference_values(manifest_pin, manifest):
                 type(source['line_1based']) is int and source['line_1based'] > 0 and
                 type(source['source_row_index']) is int and source['source_row_index'] >= 0,
                 'REFERENCE_SOURCE_POINTER')
+        if source_only:
+            continue
         prices.setdefault(day, {})[symbol] = quote
         # Preserve unknown clocks verbatim. Protocol eligibility is a separate layer.
         evidence.setdefault(day, {})[symbol] = {'source_ref': source,
             'observed_published_at': value['observed_published_at'],
             'observed_historical_available_at': value['observed_historical_available_at']}
+    if source_only:
+        return {'status': 'STRUCTURALLY_VALID_SOURCE_ONLY', 'symbols': len(symbols),
+                'dates': len(days), 'quote_basis': expected_basis, 'rows': len(lines),
+                'strategy_execution': 'NOT_RUN'}
     return {'manifest_ref': {k: manifest_pin[k] for k in ('sha256', 'bytes') if k in manifest_pin},
             'dataset_revision': manifest['parent_dataset_revision'], 'symbols': list(symbols), 'dates': days,
             'schedule': rows, 'prices_micro': prices, 'source_evidence': evidence,
