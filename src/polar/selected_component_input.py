@@ -47,7 +47,11 @@ def prepare_selected_components(spec, root, limit, *, source_binding):
     schedule = project_schedule(decode(pinned_bytes(spec['schedule'])), spec['date_range'])
     days = [r['date'] for r in schedule['rows']]; day_set = set(days)
     rights = 'INVENTED_PUBLIC_TEST' if spec['namespace'] == 'INVENTED' else RIGHTS
-    metadata = []; symbols = []; inputs = set()
+    metadata = []; symbols = []
+    inputs = {}
+    input_paths = {}
+    member_paths = {}
+    member_spans = {}
     # All component metadata is checked before any price-member access.
     for kind, items in (('leaf', spec['leaf_inputs']), ('normalized', spec['normalized_inputs'])):
         for item in items:
@@ -56,9 +60,16 @@ def prepare_selected_components(spec, root, limit, *, source_binding):
             symbol = item['symbol']
             import re
             require(type(symbol) is str and re.fullmatch('[A-Z][A-Z0-9.]{0,31}', symbol) and
-                    symbol not in symbols and item['input_ref']['sha256'] not in inputs,
+                    symbol not in symbols,
                     'SELECTED_COMPONENT_DUPLICATE')
-            manifest = decode(pinned_bytes(item['input_ref']))
+            input_ref = item['input_ref']
+            parent_hash = input_ref['sha256']
+            _merge(input_paths, {input_ref['path']: parent_hash})
+            if parent_hash in inputs:
+                require(kind == 'normalized' and
+                        inputs[parent_hash] == (kind, input_ref, item['binding_ref']),
+                        'SELECTED_COMPONENT_PARENT_AUTHORITY')
+            manifest = decode(pinned_bytes(input_ref))
             require(manifest.get('schema') == 'polar.synthetic-reference-source-input/2' and
                     manifest.get('quote_basis') == 'VENDOR_ALL_ADJUSTED_REFERENCE_CLOSE' and
                     manifest.get('unit_type') == 'SYNTHETIC_REFERENCE_UNIT_NOT_RAW_SHARE' and
@@ -89,8 +100,9 @@ def prepare_selected_components(spec, root, limit, *, source_binding):
                          'record': record, 'original_days': original_days}
             if kind == 'normalized':
                 binding = decode(pinned_bytes(item['binding_ref']))
+                bound_records = [r for r in binding.get('records', []) if r.get('literal_alias') == symbol]
                 require(binding.get('schema') == 'polar.selected-source-consumer-metadata-binding/1' and
-                        binding.get('rights') == rights and record in binding['records'] and
+                        binding.get('rights') == rights and bound_records == [record] and
                         record['request']['symbols'] == symbol and record['request']['adjustment'] == 'all',
                         'SELECTED_COMPONENT_BINDING')
                 collection = decode(pinned_bytes(binding['source_collection']))
@@ -112,14 +124,27 @@ def prepare_selected_components(spec, root, limit, *, source_binding):
                             part['objects']['bars.ndjson']['sha256'] == segment['normalized_member_sha256'] and
                             segment['normalized_member_sha256'] in {p['sha256'] for p in manifest['source_members']},
                             'SELECTED_COMPONENT_PARTITION')
-                    start, count = segment['member_first_line_1based'] - 1, segment['rows']
-                    require(type(start) is int and type(count) is int and start >= 0 and count > 0 and
-                            segment['first_job_row_0based'] == offset and offset + count <= len(original_days),
+                    first, count = segment['member_first_line_1based'], segment['rows']
+                    job_start = segment['first_job_row_0based']
+                    require(type(first) is int and type(count) is int and type(job_start) is int and
+                            first > 0 and count > 0 and job_start == offset and offset + count <= len(original_days),
                             'SELECTED_COMPONENT_SEGMENT')
+                    start = first - 1
+                    digest = segment['normalized_member_sha256']
+                    _merge(member_paths, {str(mp): digest})
+                    member_spans.setdefault(digest, []).append((start, start + count, str(mp)))
                     spans.append((segment, part, start, count, offset)); offset += count
                 require(offset == len(original_days), 'SELECTED_COMPONENT_SOURCE_GRID')
                 component['spans'] = spans
-            metadata.append(component); symbols.append(symbol); inputs.add(item['input_ref']['sha256'])
+            inputs[parent_hash] = (kind, input_ref, item.get('binding_ref'))
+            metadata.append(component); symbols.append(symbol)
+    for spans in member_spans.values():
+        # Line ordinals belong to the pinned member, not to a selector. A
+        # second alias may share that member only over a disjoint interval.
+        require(len({path for _, _, path in spans}) == 1, 'SELECTED_COMPONENT_MEMBER_PIN_CONFLICT')
+        ordered = sorted(spans)
+        require(all(left[1] <= right[0] for left, right in zip(ordered, ordered[1:])),
+                'SELECTED_COMPONENT_OVERLAPPING_SPANS')
     symbols.sort()
     require(len(symbols) <= 64, 'SELECTED_COMPONENT_SYMBOL_BOUND')
     jobs = {}; parents = {}; captures = {}; single_captures = {}; members = {}; selected = {}; records = []

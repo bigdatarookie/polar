@@ -11,9 +11,9 @@ from polar.research_reference import load_reference
 from polar.selected_component_input import prepare_selected_components
 
 
-def selected_fixture_graph(tmp_path):
+def selected_fixture_graph(tmp_path, targets=('AAA', 'BBB')):
     folder=tmp_path/'mixed';folder.mkdir()
-    store,selected,_,_=selected_fixture(folder,targets=['AAA','BBB'])
+    store,selected,_,_=selected_fixture(folder,targets=list(targets))
     parent=prepare_input(selected,store,10**8)['input_ref']
     manifest=json.loads(Path(parent['path']).read_bytes())
     folder=tmp_path/'leaf';folder.mkdir()
@@ -128,4 +128,108 @@ def test_all_selected_graph_metadata_rejected_before_any_value_member(tmp_path,m
     monkeypatch.setattr(module,'pinned_bytes',metadata_only)
     with pytest.raises(ValueError,match='SELECTED_COMPONENT_PARENT_BINDING'):
         prepare_selected_components(spec,root,10**8,source_binding={'scope':'INVENTED'})
+    assert not (root/'reference-inputs').exists()
+
+
+def shared_parent_fixture(tmp_path):
+    root, spec, parent, _ = selected_fixture_graph(tmp_path, ('AAA', 'BBB', 'DDD'))
+    spec['normalized_inputs'].append({**spec['normalized_inputs'][0], 'symbol': 'BBB'})
+    return root, spec, parent
+
+
+def test_distinct_shared_parent_spans_preserve_exact_rows_without_excluded_decode(tmp_path, monkeypatch):
+    root, spec, parent = shared_parent_fixture(tmp_path)
+    native = json.loads(Path(parent['path']).read_bytes())
+    expected = {
+        (row['date'], row['symbol']): row
+        for line in Path(native['quotes']['path']).read_bytes().splitlines()
+        if (row := json.loads(line))['symbol'] != 'DDD' and row['date'] != '2024-01-31'
+    }
+    import polar.selected_component_input as module
+    actual_read, actual_decode = module.pinned_bytes, module.decode
+
+    def read(pin):
+        assert pin['path'] != native['quotes']['path']
+        assert '/objects/' not in pin['path']
+        return actual_read(pin)
+
+    def decode(raw):
+        value = actual_decode(raw)
+        if isinstance(value, dict) and 'query_symbol' in value:
+            assert value['query_symbol'] in ('AAA', 'BBB')
+            assert value['reference_date'] != '2024-01-31'
+        return value
+
+    monkeypatch.setattr(module, 'pinned_bytes', read)
+    monkeypatch.setattr(module, 'decode', decode)
+    result = prepare_selected_components(spec, root, 10**8, source_binding={'scope': 'INVENTED'})
+    market = load_reference(result['input_ref'])
+    assert market['symbols'] == ['AAA', 'BBB', 'BIL']
+    assert market['dates'] == ['2024-02-01', '2024-02-02']
+    manifest = json.loads(Path(result['input_ref']['path']).read_bytes())
+    saved = [json.loads(line) for line in Path(manifest['quotes']['path']).read_bytes().splitlines()]
+    assert {(row['date'], row['symbol']): row for row in saved if row['symbol'] != 'BIL'} == expected
+
+
+@pytest.mark.parametrize(('case', 'error'), [
+    ('binding_copy', 'PARENT_AUTHORITY'),
+    ('parent_copy', 'PARENT_AUTHORITY'),
+    ('parent_digest_conflict', 'RELATION_CONFLICT'),
+    ('descriptor_mismatch', 'BINDING'),
+    ('alias_mismatch', 'BINDING'),
+    ('bad_ordinal', 'SEGMENT'),
+    ('overlap', 'OVERLAPPING_SPANS'),
+])
+def test_invalid_shared_parent_scope_fails_before_value_member_reads(tmp_path, monkeypatch, case, error):
+    root, spec, parent = shared_parent_fixture(tmp_path)
+    first, second = spec['normalized_inputs']
+    native = json.loads(Path(parent['path']).read_bytes())
+    binding = json.loads(Path(first['binding_ref']['path']).read_bytes())
+    leaf = json.loads(Path(spec['leaf_inputs'][0]['input_ref']['path']).read_bytes())
+    forbidden = {leaf['quotes']['path'], native['quotes']['path']}
+    forbidden.update(s['normalized_member'] for record in binding['records'] for s in record['segments'])
+    if case == 'binding_copy':
+        second['binding_ref'] = {
+            **first['binding_ref'],
+            'path': put(tmp_path/'copied-binding.json', Path(first['binding_ref']['path']).read_bytes())['path'],
+        }
+    elif case == 'parent_copy':
+        second['input_ref'] = {
+            **parent, 'path': put(tmp_path/'copied-parent.json', Path(parent['path']).read_bytes())['path'],
+        }
+    elif case == 'parent_digest_conflict':
+        second['input_ref'] = {**parent, 'sha256': '0'*64}
+    else:
+        relations = json.loads(Path(native['source_relations']['path']).read_bytes())
+        a = next(r for r in relations['records'] if r['literal_alias'] == 'AAA')
+        b = next(r for r in relations['records'] if r['literal_alias'] == 'BBB')
+        shared_member = a['segments'][0]['normalized_member']
+        assert b['segments'][0]['normalized_member'] == shared_member
+        if case == 'descriptor_mismatch':
+            bound = next(r for r in binding['records'] if r['literal_alias'] == 'BBB')
+            bound['segments'][0]['member_first_line_1based'] += 1
+        else:
+            if case == 'alias_mismatch':
+                b['request']['symbols'] = 'AAA'
+            elif case == 'bad_ordinal':
+                b['segments'][0]['member_first_line_1based'] = True
+            else:
+                b['segments'][0]['member_first_line_1based'] = a['segments'][0]['member_first_line_1based']
+            binding['records'] = [b if r['literal_alias'] == 'BBB' else r for r in binding['records']]
+            native['source_relations'] = put(tmp_path/'changed-relations.json', relations)
+            parent = put(tmp_path/'changed-parent.json', native)
+        common_binding = put(tmp_path/'changed-binding.json', binding)
+        for selector in (first, second):
+            selector.update(input_ref=parent, binding_ref=common_binding)
+
+    import polar.selected_component_input as module
+    original = module.pinned_bytes
+
+    def read(pin):
+        assert pin['path'] not in forbidden
+        return original(pin)
+
+    monkeypatch.setattr(module, 'pinned_bytes', read)
+    with pytest.raises(ValueError, match=error):
+        prepare_selected_components(spec, root, 10**8, source_binding={'scope': 'INVENTED'})
     assert not (root/'reference-inputs').exists()
