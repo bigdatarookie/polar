@@ -8,7 +8,7 @@ import re
 from . import ief_bil_source as source
 from .band_source import actual_runtime, task_custody
 from .ci_research import require
-from .history_bundle import canonical, read_file, sha
+from .history_bundle import canonical, read_file, safe_root, sha
 from .history_store import HistoryStore
 from .research_reference import _load_reference_values, decode, pinned_bytes
 
@@ -21,6 +21,15 @@ CHECKPOINT = 'polar.ief-bil-private-descriptor-checkpoint/1'
 QUANT = 'quant-a@polar-rig'
 LEAD = 'org-lead@engineering-rig'
 OUTCOME = 'qitem-20261119225310-1632c5a0'
+ORIGINAL_TASK = 'qitem-20261119233853-0875958c'
+ORIGINAL_REVISION = '9b6600d9f56d62fc3374827ae687fb2db8f60eb3'
+ORIGINAL_CLAIM = 105922
+ORIGINAL_GENERATION = '8db46a4f-1921-4c7e-ba07-75c3161f8ef9'
+OUTPUT_CORRECTION = 'qitem-20261119234234-0efa12efd67c1199'
+OUTPUT_APPROVAL = 'polar.ief-bil-private-output-correction/1'
+OUTPUT_VOLUME = 'polar-ief-bil-descriptor-20261120'
+OUTPUT_LABELS = {'polar.resource.project': 'polar', 'polar.resource.task': ORIGINAL_TASK,
+                 'polar.resource.owner': QUANT}
 ACTORS = {QUANT: ('polar-rig', 'quant.a')}
 LOCATOR_SHA = 'cd20a22c5812c108c3cb42ab1da6d55b9ae6094c574b176b50ee1d609890c173'
 MANIFEST_SHA = '3f6651f222728c8eb630fbb91b988af3163c4d17c04d889fe73d916f4d3e1291'
@@ -42,7 +51,7 @@ LIMITS = [
 
 
 def check_scope(config):
-    require(type(config) is dict and set(config) == FIELDS and config['schema'] == SCHEMA and
+    require(type(config) is dict and set(config) in (FIELDS, FIELDS | {'output_volume'}) and config['schema'] == SCHEMA and
             config['question_id'] == source.QUESTION and config['purpose'] == OPERATION and
             config['actor_session'] == QUANT and config['namespace'] in ('RETAINED', 'INVENTED') and
             type(config['consumer_task']) is str and
@@ -50,6 +59,13 @@ def check_scope(config):
             type(config['artifact_root_identity']) is dict and
             set(config['artifact_root_identity']) == {'path', 'device', 'inode'} and
             type(config['artifact_root_identity']['path']) is str, 'IEF_BIL_DESCRIPTOR_SCOPE')
+    if 'output_volume' in config:
+        volume = config['output_volume']
+        require(config['namespace'] == 'RETAINED' and config['consumer_task'] == ORIGINAL_TASK and
+                config['code_revision'] != ORIGINAL_REVISION and type(volume) is dict and
+                set(volume) == {'name', 'created_at'} and volume['name'] == OUTPUT_VOLUME and
+                isinstance(volume['created_at'], str) and bool(volume['created_at']),
+                'IEF_BIL_DESCRIPTOR_OUTPUT_CORRECTION_SCOPE')
     if config['namespace'] == 'INVENTED':
         require(config['consumer_task'] == 'qitem-INVENTED-IEF-BIL-DESCRIPTOR', 'IEF_BIL_DESCRIPTOR_SCOPE')
     else:
@@ -71,7 +87,10 @@ def permitted_read(args, config):
     from .native_selected_input import generation_read
 
     allowed = [['whoami'], ['seat', 'status', QUANT], list(generation_read(QUANT))]
-    for task in (config['consumer_task'], OUTCOME, source.TASK):
+    tasks = (config['consumer_task'], OUTCOME, source.TASK)
+    if 'output_volume' in config:
+        tasks += (OUTPUT_CORRECTION,)
+    for task in tasks:
         allowed += [['queue', 'show', task, '--full'], ['queue', 'transitions', task, '--full']]
     return args in allowed
 
@@ -87,15 +106,70 @@ def check_container(container, config):
     source_root = root.with_name('store')
     require(image == config['runtime_image_id'] and network == 'none', 'IEF_BIL_DESCRIPTOR_RUNTIME')
     by_destination = {mount['Destination']: mount for mount in mounts}
-    for path, writable in ((root, True), (source_root, False)):
-        mount = by_destination.get(str(path), {})
-        require(mount.get('Type') == 'bind' and mount.get('Source') == str(path) and
-                mount.get('RW') is writable, 'IEF_BIL_DESCRIPTOR_MOUNTS')
-    source_host = source_root.resolve()
-    output_host = root.resolve()
-    require(not (output_host.is_relative_to(source_host) or source_host.is_relative_to(output_host)) and
+    source_mount = by_destination.get(str(source_root), {})
+    output_mount = by_destination.get(str(root), {})
+    require(source_mount.get('Type') == 'bind' and source_mount.get('Source') == str(source_root) and
+            source_mount.get('RW') is False and output_mount.get('RW') is True and
             all(not mount['RW'] or destination == str(root)
                 for destination, mount in by_destination.items()), 'IEF_BIL_DESCRIPTOR_MOUNTS')
+    if 'output_volume' in config:
+        raw = subprocess.run(['docker', 'volume', 'inspect', '--format', '{{json .}}', OUTPUT_VOLUME],
+                             capture_output=True, timeout=15, check=True).stdout
+        check_private_volume(config, output_mount, decode(raw))
+        require(not any(safe_root(root).iterdir()), 'IEF_BIL_DESCRIPTOR_ORIGINAL_OUTPUT_EFFECT')
+    else:
+        source_host, output_host = source_root.resolve(), root.resolve()
+        require(output_mount.get('Type') == 'bind' and output_mount.get('Source') == str(root) and
+                not (output_host.is_relative_to(source_host) or source_host.is_relative_to(output_host)),
+                'IEF_BIL_DESCRIPTOR_MOUNTS')
+
+
+def check_private_volume(config, mount, volume):
+    require(mount.get('Type') == 'volume' and mount.get('Name') == OUTPUT_VOLUME and
+            mount.get('Driver') == 'local' and mount.get('Source') == volume.get('Mountpoint') and
+            bool(volume.get('Mountpoint')) and volume.get('Name') == OUTPUT_VOLUME and
+            volume.get('Driver') == 'local' and volume.get('Scope') == 'local' and
+            not volume.get('Options') and volume.get('Labels') == OUTPUT_LABELS and
+            volume.get('CreatedAt') == config['output_volume']['created_at'],
+            'IEF_BIL_DESCRIPTOR_PRIVATE_VOLUME')
+
+
+def output_correction_approval(config):
+    original = authority({**config, 'code_revision': ORIGINAL_REVISION})
+    return {'schema': OUTPUT_APPROVAL, 'status': 'APPROVE_PRIVATE_DESCRIPTOR_VOLUME',
+            'consumer_task': ORIGINAL_TASK, 'original_authority_sha256': sha(canonical(original)),
+            'original_claim': ORIGINAL_CLAIM, 'original_generation': ORIGINAL_GENERATION,
+            'replacement_authority': authority(config), 'output_volume': config['output_volume'],
+            'output_root_identity': config['artifact_root_identity'], 'prior_descriptor_effect': 'ABSENT'}
+
+
+def output_correction_custody(config, proof, queue):
+    row = queue.read('queue', 'show', OUTPUT_CORRECTION, '--full')
+    events = queue.read('queue', 'transitions', OUTPUT_CORRECTION, '--full')
+    terminal = max((event for event in events if event.get('state') == 'done'),
+                   key=lambda event: event['transitionId'], default={})
+    try:
+        resolution = decode(row.get('resolution'))
+    except (TypeError, ValueError):
+        resolution = None
+    require(row.get('qitemId') == OUTPUT_CORRECTION and row.get('sourceSession') == QUANT and
+            row.get('destinationSession') == LEAD and row.get('state') == 'done' and
+            row.get('closureReason') == 'no-follow-on' and source.TAGS <= set(row.get('tags', ())) and
+            terminal.get('actorSession') == LEAD and terminal.get('identityProvenance') == 'transport:v1' and
+            resolution == output_correction_approval(config),
+            'IEF_BIL_DESCRIPTOR_OUTPUT_CORRECTION_AUTHORITY')
+    events = queue.read('queue', 'transitions', ORIGINAL_TASK, '--full')
+    original = next((event for event in events if event['transitionId'] == ORIGINAL_CLAIM), {})
+    resumed = [event['transitionId'] for event in events if event.get('state') == 'pending' and
+               event.get('actorSession') == LEAD and event.get('transitionNote') ==
+               f"auto-unparked: blocker {OUTPUT_CORRECTION} reached terminal state 'done'" and
+               event['transitionId'] > terminal['transitionId']]
+    require(original.get('state') == 'in-progress' and original.get('transitionNote') == 'claimed' and
+            original.get('actorSession') == QUANT and original.get('identityProvenance') == 'transport:v1' and
+            proof['generation'] == ORIGINAL_GENERATION and bool(resumed) and
+            (proof['claim_transition'] == ORIGINAL_CLAIM or proof['claim_transition'] > max(resumed)),
+            'IEF_BIL_DESCRIPTOR_OUTPUT_CORRECTION_LINEAGE')
+    return {'output_correction_task': OUTPUT_CORRECTION, 'output_correction_transition': terminal['transitionId']}
 
 
 def current_custody(config, queue):
@@ -107,16 +181,20 @@ def current_custody(config, queue):
     events = queue.read('queue', 'transitions', OUTCOME, '--full')
     finishes = [event for event in events if event.get('state') == 'done']
     finish = max(finishes, key=lambda event: event['transitionId']) if finishes else {}
+    original_code = ORIGINAL_REVISION if 'output_volume' in config else config['code_revision']
     require(task.get('handedOffFrom') == OUTCOME and task.get('state') == 'in-progress' and
             task.get('claimedByGeneration') == proof['generation'] and task.get('claimedAt') == proof['claimed_at'] and
-            decode(task['body']) == authority(config) and
+            decode(task['body']) == authority({**config, 'code_revision': original_code}) and
             parent.get('qitemId') == OUTCOME and parent.get('sourceSession') == QUANT and
             parent.get('destinationSession') == LEAD and parent.get('state') == 'done' and
             parent.get('closureReason') == 'handed_off_to' and parent.get('handedOffTo') == QUANT and
             source.TAGS <= set(parent.get('tags', ())) and finish.get('actorSession') == LEAD and
             finish.get('identityProvenance') == 'transport:v1' and finish['transitionId'] < proof['claim_transition'],
             'IEF_BIL_DESCRIPTOR_NATIVE_AUTHORITY')
-    return {**proof, 'authority_task': OUTCOME, 'authority_transition': finish['transitionId']}
+    proof = {**proof, 'authority_task': OUTCOME, 'authority_transition': finish['transitionId']}
+    if 'output_volume' in config:
+        proof.update(output_correction_custody(config, proof, queue))
+    return proof
 
 
 def exact_month_pairs(days):
