@@ -24,6 +24,9 @@ OUTCOME = 'qitem-20261119225310-1632c5a0'
 ORIGINAL_TASK = 'qitem-20261119233853-0875958c'
 ORIGINAL_REVISION = '9b6600d9f56d62fc3374827ae687fb2db8f60eb3'
 ORIGINAL_CLAIM = 105922
+ORIGINAL_CLAIMED_AT = '2026-11-19T23:40:16.529Z'
+ORIGINAL_BLOCK = 105926
+DEPENDENCY_RELEASE_PREFIX = 'queue-dependency-release/1 '
 ORIGINAL_GENERATION = '8db46a4f-1921-4c7e-ba07-75c3161f8ef9'
 OUTPUT_CORRECTION = 'qitem-20261119234234-0efa12efd67c1199'
 OUTPUT_APPROVAL = 'polar.ief-bil-private-output-correction/1'
@@ -146,8 +149,8 @@ def output_correction_approval(config):
 def output_correction_custody(config, proof, queue):
     row = queue.read('queue', 'show', OUTPUT_CORRECTION, '--full')
     events = queue.read('queue', 'transitions', OUTPUT_CORRECTION, '--full')
-    terminal = max((event for event in events if event.get('state') == 'done'),
-                   key=lambda event: event['transitionId'], default={})
+    closing_id = (row.get('closingTransition') or {}).get('transitionId')
+    terminal = next((event for event in events if event['transitionId'] == closing_id), {})
     try:
         resolution = decode(row.get('resolution'))
     except (TypeError, ValueError):
@@ -155,21 +158,61 @@ def output_correction_custody(config, proof, queue):
     require(row.get('qitemId') == OUTPUT_CORRECTION and row.get('sourceSession') == QUANT and
             row.get('destinationSession') == LEAD and row.get('state') == 'done' and
             row.get('closureReason') == 'no-follow-on' and source.TAGS <= set(row.get('tags', ())) and
-            terminal.get('actorSession') == LEAD and terminal.get('identityProvenance') == 'transport:v1' and
+            terminal.get('qitemId') == OUTPUT_CORRECTION and terminal.get('state') == 'done' and
+            terminal.get('closureReason') == 'no-follow-on' and terminal.get('actorSession') == LEAD and
+            terminal.get('identityProvenance') == 'transport:v1' and
             resolution == output_correction_approval(config),
             'IEF_BIL_DESCRIPTOR_OUTPUT_CORRECTION_AUTHORITY')
     events = queue.read('queue', 'transitions', ORIGINAL_TASK, '--full')
+    return {'output_correction_task': OUTPUT_CORRECTION, 'output_correction_transition': closing_id,
+            'dependency_release_transition': verify_output_release(events, proof, closing_id)}
+
+
+def blocker_wake(event, phase):
+    wake = event.get('wake') or {}
+    return (wake.get('transitionId') == event.get('transitionId') and wake.get('qitemId') == ORIGINAL_TASK and
+            wake.get('phase') == phase and wake.get('kind') == 'blocker' and wake.get('ref') == OUTPUT_CORRECTION)
+
+
+def system_release_event(event):
+    return (event.get('qitemId') == ORIGINAL_TASK and event.get('state') == 'in-progress' and
+            event.get('actorSession') == 'queue@system' and
+            'identityProvenance' in event and event['identityProvenance'] is None)
+
+
+def verify_output_release(events, proof, closing_id):
+    error = 'IEF_BIL_DESCRIPTOR_OUTPUT_CORRECTION_LINEAGE'
     original = next((event for event in events if event['transitionId'] == ORIGINAL_CLAIM), {})
-    resumed = [event['transitionId'] for event in events if event.get('state') == 'pending' and
-               event.get('actorSession') == LEAD and event.get('transitionNote') ==
-               f"auto-unparked: blocker {OUTPUT_CORRECTION} reached terminal state 'done'" and
-               event['transitionId'] > terminal['transitionId']]
-    require(original.get('state') == 'in-progress' and original.get('transitionNote') == 'claimed' and
-            original.get('actorSession') == QUANT and original.get('identityProvenance') == 'transport:v1' and
-            proof['generation'] == ORIGINAL_GENERATION and bool(resumed) and
-            (proof['claim_transition'] == ORIGINAL_CLAIM or proof['claim_transition'] > max(resumed)),
-            'IEF_BIL_DESCRIPTOR_OUTPUT_CORRECTION_LINEAGE')
-    return {'output_correction_task': OUTPUT_CORRECTION, 'output_correction_transition': terminal['transitionId']}
+    blocked = next((event for event in events if event['transitionId'] == ORIGINAL_BLOCK), {})
+    after_block = [event for event in events if event['transitionId'] > ORIGINAL_BLOCK]
+    require(original.get('qitemId') == blocked.get('qitemId') == ORIGINAL_TASK and
+            original.get('state') == 'in-progress' and original.get('transitionNote') == 'claimed' and
+            original.get('ts') == proof['claimed_at'] == ORIGINAL_CLAIMED_AT and
+            original.get('actorSession') == blocked.get('actorSession') == proof['actor'] == QUANT and
+            original.get('identityProvenance') == blocked.get('identityProvenance') == 'transport:v1' and
+            blocked.get('state') == 'blocked' and blocker_wake(blocked, 'armed') and
+            proof['generation'] == ORIGINAL_GENERATION and proof['claim_transition'] == ORIGINAL_CLAIM and
+            bool(after_block), error)
+    release, *receipts = after_block
+    note = release.get('transitionNote')
+    require(system_release_event(release) and type(closing_id) is int and
+            ORIGINAL_CLAIM < ORIGINAL_BLOCK < closing_id < release['transitionId'] and
+            isinstance(note, str) and len(note) <= 2048 and note.startswith(DEPENDENCY_RELEASE_PREFIX), error)
+    try:
+        packet = decode(note[len(DEPENDENCY_RELEASE_PREFIX):])
+    except ValueError:
+        packet = None
+    expected = {'version': 1, 'qitemId': ORIGINAL_TASK, 'owner': QUANT, 'generation': ORIGINAL_GENERATION,
+                'claimedAt': ORIGINAL_CLAIMED_AT, 'claimTransitionId': ORIGINAL_CLAIM,
+                'blockedTransitionId': ORIGINAL_BLOCK, 'blockerId': OUTPUT_CORRECTION,
+                'blockerClosingTransitionId': closing_id}
+    require(packet == expected and all(type(packet[key]) is type(value) for key, value in expected.items()), error)
+    # The daemon can append a delivery receipt without changing the active claim.
+    ids = [event['transitionId'] for event in after_block]
+    require(ids == sorted(set(ids)) and all(system_release_event(event) and blocker_wake(event, 'fired') and
+            not str(event.get('transitionNote', '')).startswith(DEPENDENCY_RELEASE_PREFIX)
+            for event in receipts), error)
+    return release['transitionId']
 
 
 def current_custody(config, queue):
@@ -193,6 +236,7 @@ def current_custody(config, queue):
             'IEF_BIL_DESCRIPTOR_NATIVE_AUTHORITY')
     proof = {**proof, 'authority_task': OUTCOME, 'authority_transition': finish['transitionId']}
     if 'output_volume' in config:
+        require(task.get('blockedOn') is None, 'IEF_BIL_DESCRIPTOR_OUTPUT_CORRECTION_LINEAGE')
         proof.update(output_correction_custody(config, proof, queue))
     return proof
 
