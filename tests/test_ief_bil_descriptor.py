@@ -327,12 +327,29 @@ def test_output_correction_binds_native_lead_resolution_to_original_quant_claim(
     queue.task.update(qitemId=task_id, destinationSession=descriptor.QUANT, sourceSession=descriptor.LEAD,
                       claimedByGeneration=queue.generation,
                       handedOffFrom=descriptor.OUTCOME, tags=sorted(source.TAGS), body=canonical(initial).decode())
-    initial_id = descriptor.ORIGINAL_CLAIM
-    claim = {'state': 'in-progress', 'transitionNote': 'claimed',
+    initial_id, blocked_id, closing_id, release_id = 105922, 105926, 106200, 106201
+    claimed_at = '2026-11-19T23:40:16.529Z'
+    queue.task['claimedAt'] = claimed_at
+    claim = {'transitionId': initial_id, 'qitemId': task_id, 'ts': claimed_at,
+             'state': 'in-progress', 'transitionNote': 'claimed',
              'actorSession': descriptor.QUANT, 'identityProvenance': 'transport:v1'}
-    resumed = {'transitionId': initial_id + 3, 'state': 'pending', 'actorSession': descriptor.LEAD,
-               'transitionNote': f"auto-unparked: blocker {descriptor.OUTPUT_CORRECTION} reached terminal state 'done'"}
-    queue.events = [{**claim, 'transitionId': initial_id}, resumed, {**claim, 'transitionId': initial_id + 4}]
+    block = {'transitionId': blocked_id, 'qitemId': task_id, 'state': 'blocked',
+             'actorSession': descriptor.QUANT, 'identityProvenance': 'transport:v1',
+             'wake': {'transitionId': blocked_id, 'qitemId': task_id, 'phase': 'armed',
+                      'kind': 'blocker', 'ref': descriptor.OUTPUT_CORRECTION}}
+    packet = {'version': 1, 'qitemId': task_id, 'owner': descriptor.QUANT, 'generation': queue.generation,
+              'claimedAt': claimed_at, 'claimTransitionId': initial_id, 'blockedTransitionId': blocked_id,
+              'blockerId': descriptor.OUTPUT_CORRECTION, 'blockerClosingTransitionId': closing_id}
+    prefix = 'queue-dependency-release/1 '
+    resumed = {'transitionId': release_id, 'qitemId': task_id, 'state': 'in-progress',
+               'actorSession': 'queue@system', 'identityProvenance': None,
+               'transitionNote': prefix + canonical(packet).decode()}
+    delivery = {'transitionId': release_id + 1, 'qitemId': task_id, 'state': 'in-progress',
+                'actorSession': 'queue@system', 'identityProvenance': None,
+                'transitionNote': 'blocker wake attempted; delivery=ok',
+                'wake': {'transitionId': release_id + 1, 'qitemId': task_id, 'phase': 'fired',
+                         'kind': 'blocker', 'ref': descriptor.OUTPUT_CORRECTION, 'deliveryStatus': 'ok'}}
+    queue.events = [claim, block, resumed, delivery]
     parent = {'qitemId': descriptor.OUTCOME, 'state': 'done', 'sourceSession': descriptor.QUANT,
               'destinationSession': descriptor.LEAD, 'closureReason': 'handed_off_to',
               'handedOffTo': descriptor.QUANT, 'tags': sorted(source.TAGS)}
@@ -340,8 +357,9 @@ def test_output_correction_binds_native_lead_resolution_to_original_quant_claim(
     lead = {'qitemId': descriptor.OUTPUT_CORRECTION, 'state': 'done', 'sourceSession': descriptor.QUANT,
             'destinationSession': descriptor.LEAD, 'closureReason': 'no-follow-on',
             'tags': sorted(source.TAGS), 'resolution': canonical(expected).decode()}
-    closing = {'state': 'done', 'transitionId': initial_id + 2,
-               'actorSession': descriptor.LEAD, 'identityProvenance': 'transport:v1'}
+    closing = {'state': 'done', 'transitionId': closing_id, 'qitemId': descriptor.OUTPUT_CORRECTION,
+               'closureReason': 'no-follow-on', 'actorSession': descriptor.LEAD, 'identityProvenance': 'transport:v1'}
+    lead['closingTransition'] = {'transitionId': closing_id}
     parent_closing = {**closing, 'transitionId': initial_id - 1}
     original = queue.read
 
@@ -359,7 +377,8 @@ def test_output_correction_binds_native_lead_resolution_to_original_quant_claim(
     proof = descriptor.current_custody(config, queue)
     assert proof['consumer_task'] == descriptor.ORIGINAL_TASK
     assert proof['output_correction_transition'] == closing['transitionId']
-    assert proof['claim_transition'] == queue.events[-1]['transitionId']
+    assert proof['claim_transition'] == initial_id
+    assert proof['dependency_release_transition'] == release_id
     lead['state'] = 'in-progress'
     with pytest.raises(ValueError, match='OUTPUT_CORRECTION_AUTHORITY'):
         descriptor.current_custody(config, queue)
@@ -377,7 +396,35 @@ def test_output_correction_binds_native_lead_resolution_to_original_quant_claim(
     queue.events.remove(resumed)
     with pytest.raises(ValueError, match='OUTPUT_CORRECTION_LINEAGE'):
         descriptor.current_custody(config, queue)
-    queue.events.insert(1, resumed)
+    queue.events.insert(2, resumed)
+    for patch in ({'owner': descriptor.LEAD}, {'qitemId': 'qitem-foreign'},
+                  {'generation': 'superseded'}, {'claimedAt': '2026-11-19T23:40:16.530Z'},
+                  {'claimTransitionId': initial_id - 1}, {'blockedTransitionId': blocked_id - 1},
+                  {'blockerId': 'qitem-foreign'}, {'blockerClosingTransitionId': closing_id - 1},
+                  {'unexpected': True}, {'version': True}):
+        queue.events[2] = {**resumed, 'transitionNote': prefix + canonical({**packet, **patch}).decode()}
+        with pytest.raises(ValueError, match='OUTPUT_CORRECTION_LINEAGE'):
+            descriptor.current_custody(config, queue)
+    for patch in ({'actorSession': descriptor.LEAD}, {'identityProvenance': 'transport:v1'},
+                  {'state': 'pending', 'transitionNote': 'auto-unparked; claim_authority_unknown'},
+                  {'transitionId': closing_id}, {'transitionNote': prefix + '{"version":1,"version":1}'},
+                  {'transitionNote': prefix + '{"version":null}'}):
+        queue.events[2] = {**resumed, **patch}
+        with pytest.raises(ValueError, match='OUTPUT_CORRECTION_LINEAGE'):
+            descriptor.current_custody(config, queue)
+    queue.events[2] = resumed
+    for suffix in ({**resumed, 'transitionId': release_id + 2},
+                   {**block, 'transitionId': release_id + 2, 'state': 'canceled'},
+                   {**claim, 'transitionId': release_id + 2, 'transitionNote': 'manual resume'}):
+        queue.events.append(suffix)
+        with pytest.raises(ValueError, match='OUTPUT_CORRECTION_LINEAGE'):
+            descriptor.current_custody(config, queue)
+        queue.events.pop()
+    original_clock = queue.task['claimedAt']
+    queue.task['claimedAt'] = '2026-11-19T23:40:16.530Z'
+    with pytest.raises(ValueError, match='OUTPUT_CORRECTION_LINEAGE'):
+        descriptor.current_custody(config, queue)
+    queue.task['claimedAt'] = original_clock
     queue.generation = queue.task['claimedByGeneration'] = 'other-generation'
     with pytest.raises(ValueError, match='OUTPUT_CORRECTION_LINEAGE'):
         descriptor.current_custody(config, queue)
